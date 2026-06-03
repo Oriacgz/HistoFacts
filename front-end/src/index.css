@@ -1,0 +1,145 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Lora:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-histo-dark: #1c3144;
+  --color-histo-medium: #2d4b6a;
+  --color-histo-light: #3e6b8d;
+  --color-histo-gold: #d9a566;
+  --color-histo-copper: #b87333;
+  --color-histo-ink: #2c2520;
+  --color-histo-paper: #f7f3ea;
+  --color-histo-cream: #f2e8d5;
+  --color-histo-sky: #d7cbc1;
+  --color-histo-slate: #2c3e50;
+  --color-histo-navy: #1a2a40;
+  --color-histo-blue: #4e54c8;
+  --color-histo-blue-soft: #8f94fb;
+  --color-histo-muted: #f3f4f6;
+  --color-histo-card: #ffffff;
+  --color-histo-success: #10b981;
+  --color-histo-danger: #ef4444;
+
+  --font-body: "Lora", Georgia, serif;
+  --font-display: "Playfair Display", serif;
+  --font-ui: "Poppins", sans-serif;
+
+  --radius-histo: 12px;
+  --radius-login: 30px;
+
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-deep: 0 8px 24px rgba(0, 0, 0, 0.2);
+
+  --animate-fade-in: fadeIn 0.5s ease-in-out;
+  --animate-pulseRing: pulseRing 3s infinite alternate;
+  --animate-ripple: ripple 0.6s linear;
+  --animate-float: float 20s infinite alternate ease-in-out;
+  --animate-bubble: bubble 25s linear infinite;
+  --animate-move: movePanel 0.6s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseRing {
+  0% {
+    box-shadow: 0 0 0 0 rgba(217, 165, 102, 0.4);
+  }
+
+  100% {
+    box-shadow: 0 0 0 20px rgba(217, 165, 102, 0);
+  }
+}
+
+@keyframes ripple {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+@keyframes float {
+  0% {
+    transform: translate(-50%, -50%) scale(0.85) rotate(0deg);
+  }
+
+  50% {
+    transform: translate(-46%, -44%) scale(1) rotate(180deg);
+  }
+
+  100% {
+    transform: translate(-60%, -58%) scale(0.92) rotate(360deg);
+  }
+}
+
+@keyframes bubble {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+    border-radius: 0;
+  }
+
+  100% {
+    transform: translateY(-1000px) rotate(720deg);
+    opacity: 0;
+    border-radius: 9999px;
+  }
+}
+
+@keyframes movePanel {
+  0% {
+    opacity: 0;
+    z-index: 1;
+  }
+
+  50% {
+    opacity: 1;
+    z-index: 5;
+  }
+
+  100% {
+    opacity: 1;
+    z-index: 5;
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply m-0 overflow-x-hidden bg-histo-paper text-histo-ink font-body antialiased;
+  }
+
+  a {
+    @apply no-underline text-inherit;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  .histo-paper-texture {
+    background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%233e6b8d' fill-opacity='0.05' fill-rule='evenodd'/%3E%3C/svg%3E");
+  }
+}
