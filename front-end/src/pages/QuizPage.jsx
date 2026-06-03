@@ -99,7 +99,6 @@ export default function QuizPage() {
 
   useEffect(() => {
     if (screen !== 'quiz') {
-      setTimerText('00:00');
       return undefined;
     }
 

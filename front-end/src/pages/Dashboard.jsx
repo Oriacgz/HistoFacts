@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   BellIcon,
   BookOpenIcon,
@@ -9,24 +9,16 @@ import {
   CogIcon,
   CrownIcon,
   FilterIcon,
-  HeartIcon,
-  BulbIcon,
   SearchIcon,
   TimeIcon,
   UserIcon,
 } from '../components/MotionIcons';
 
-const sidebarItems = [
-  { to: '/quiz', icon: BulbIcon, label: 'Quiz' },
-  { to: '#', icon: HeartIcon, label: 'Favorites' },
-  { to: '#', icon: BookmarkIcon, label: 'Bookmarks' },
-  { to: '#', icon: CogIcon, label: 'Settings' },
-];
-
 const headerIcons = [
   { icon: FilterIcon, label: 'Filters' },
   { icon: BellIcon, label: 'Notifications' },
   { icon: CalendarIcon, label: 'Historical Calendar' },
+  { icon: CogIcon, label: 'Settings' },
 ];
 
 const newsSeed = [
@@ -44,34 +36,52 @@ const newsSeed = [
   }
 ];
 
-const pageVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.12,
-    },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      type: 'spring',
-      stiffness: 100,
-      damping: 16,
-    },
-  },
-};
-
 export default function DashboardPage() {
   const [newsItems, setNewsItems] = useState([]);
   const [scrolled, setScrolled] = useState(false);
-  const [hoveredItem, setHoveredItem] = useState(null);
   const [activeNav, setActiveNav] = useState('Home');
+
+  const shouldReduceMotion = useReducedMotion();
+
+  const customPageVariants = useMemo(() => ({
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: shouldReduceMotion ? 0 : 0.12,
+      },
+    },
+  }), [shouldReduceMotion]);
+
+  const customItemVariants = useMemo(() => ({
+    hidden: { opacity: 0, y: shouldReduceMotion ? 0 : 15 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: shouldReduceMotion ? { duration: 0.2 } : {
+        type: 'spring',
+        stiffness: 100,
+        damping: 16,
+      },
+    },
+  }), [shouldReduceMotion]);
+
+  const listContainerVariants = useMemo(() => ({
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: shouldReduceMotion ? 0 : 0.08 }
+    }
+  }), [shouldReduceMotion]);
+
+  const listItemVariants = useMemo(() => ({
+    hidden: { opacity: 0, x: shouldReduceMotion ? 0 : -10 },
+    visible: {
+      opacity: 1,
+      x: 0,
+      transition: shouldReduceMotion ? { duration: 0.2 } : { type: "spring", stiffness: 120, damping: 15 }
+    }
+  }), [shouldReduceMotion]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setNewsItems(newsSeed), 1000);
@@ -90,53 +100,20 @@ export default function DashboardPage() {
     <motion.div
       initial="hidden"
       animate="visible"
-      variants={pageVariants}
+      variants={customPageVariants}
       className="min-h-screen bg-histo-paper text-histo-ink font-body histo-paper-texture"
     >
-      {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-50 flex w-20 flex-col items-center bg-[#1c3144] py-6 text-white border-r border-white/5 shadow-[4px_0_10px_rgba(0,0,0,0.05)]">
-        <Link 
-          to="/loginpg" 
-          className="group relative mb-6 flex h-12 w-12 items-center justify-center rounded-full bg-histo-medium border border-white/10 text-white transition duration-300 hover:bg-histo-gold hover:text-histo-dark hover:border-histo-gold shadow-soft"
-        >
-          <UserIcon className="h-6 w-6" />
-          <span className="pointer-events-none absolute left-[66px] z-10 whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-x-0 group-hover:opacity-100">Profile</span>
-        </Link>
-        <div className="mb-6 h-[1px] w-10 bg-white/10" />
-        <div className="flex flex-col items-center gap-6">
-          {sidebarItems.map(({ to, icon: Icon, label }) => (
-            <Link 
-              key={label} 
-              to={to} 
-              onMouseEnter={() => setHoveredItem(label)}
-              onMouseLeave={() => setHoveredItem(null)}
-              className="group relative flex h-12 w-12 items-center justify-center rounded-[4px] text-white/80 hover:text-histo-dark transition-colors duration-200"
-            >
-              {hoveredItem === label && (
-                <motion.div
-                  layoutId="sidebar-hover-bg"
-                  className="absolute inset-0 bg-histo-gold rounded-[4px] -z-10"
-                  transition={{ type: 'spring', stiffness: 380, damping: 25 }}
-                />
-              )}
-              <Icon className="h-6 w-6 transition-transform duration-300 group-hover:scale-105" />
-              <span className="pointer-events-none absolute left-[66px] z-10 whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-x-0 group-hover:opacity-100">{label}</span>
-            </Link>
-          ))}
-        </div>
-      </aside>
-
       {/* Main Panel Wrapper */}
-      <div className="ml-20 flex min-h-screen flex-col">
+      <div className="flex min-h-screen flex-col">
         {/* Header */}
         <header className={`sticky top-0 z-40 flex flex-wrap items-center justify-between gap-4 px-8 py-4 text-white border-b transition-all duration-300 ${scrolled ? 'bg-histo-dark/95 border-white/10 backdrop-blur-md shadow-soft' : 'bg-histo-dark border-transparent'}`}>
           <h1 className="font-display text-2xl font-bold tracking-[4px] text-histo-paper uppercase">HISTOFACTS</h1>
 
-          <nav className="flex gap-6">
-            {['Home', 'About', 'Help'].map((item) => (
+          <nav className="flex gap-4 md:gap-6">
+            {['Home', 'Quiz', 'Favorites', 'Bookmarks', 'About', 'Help'].map((item) => (
               <Link
                 key={item}
-                to={item === 'Home' ? '/home' : '#'}
+                to={item === 'Home' ? '/home' : item === 'Quiz' ? '/quiz' : '#'}
                 className="relative px-3 py-1.5 text-xs font-ui tracking-wider uppercase text-histo-paper/85 hover:text-histo-gold transition-colors duration-200"
                 onClick={() => setActiveNav(item)}
               >
@@ -152,35 +129,50 @@ export default function DashboardPage() {
             ))}
           </nav>
 
-          <div className="flex w-full max-w-[240px] focus-within:max-w-[320px] items-center border border-white/20 bg-white/5 px-4 py-2 transition-all duration-300 md:w-auto rounded-[2px]">
-            <input type="text" placeholder="Search historical facts..." className="w-full bg-transparent text-sm text-histo-paper outline-none placeholder:text-white/40 font-ui" />
-            <SearchIcon className="ml-2 h-4 w-4 text-histo-paper/60" />
-          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex w-full max-w-[200px] focus-within:max-w-[280px] items-center border border-white/20 bg-white/5 px-4 py-2 transition-all duration-300 md:w-auto rounded-[2px]">
+              <input type="text" placeholder="Search facts..." className="w-full bg-transparent text-sm text-histo-paper outline-none placeholder:text-white/40 font-ui" />
+              <SearchIcon className="ml-2 h-4 w-4 text-histo-paper/60" />
+            </div>
 
-          <div className="flex gap-4">
-            {headerIcons.map(({ icon: Icon, label }) => (
-              <div 
-                key={label} 
-                className="group relative flex h-10 w-10 cursor-pointer items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300"
+            <div className="flex gap-3">
+              {headerIcons.map(({ icon: Icon, label }) => (
+                <div 
+                  key={label} 
+                  className="group relative flex h-9 w-9 cursor-pointer items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300"
+                >
+                  <Icon className="h-4 w-4 text-histo-paper/85 transition-colors duration-300 group-hover:text-histo-gold" />
+                  <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-y-0 group-hover:opacity-100">{label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Profile Logo and Username far right */}
+            <Link to="/loginpg" className="flex items-center gap-3 border-l border-white/10 pl-4 group cursor-pointer">
+              <motion.div 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="h-9 w-9 rounded-full bg-histo-medium border border-white/20 group-hover:border-histo-gold flex items-center justify-center text-white transition-colors duration-300"
               >
-                <Icon className="h-5 w-5 text-histo-paper/85 transition-colors duration-300 group-hover:text-histo-gold" />
-                <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-y-0 group-hover:opacity-100">{label}</span>
-              </div>
-            ))}
+                <UserIcon className="h-4 w-4 text-histo-paper group-hover:text-histo-gold transition-colors duration-300" />
+              </motion.div>
+              <span className="hidden sm:inline text-sm font-ui font-medium tracking-wide text-white/95 group-hover:text-histo-gold transition-colors duration-300">Marcus Aurelius</span>
+            </Link>
           </div>
         </header>
 
         {/* Content Layout */}
-        <main className="flex-1 p-6 md:p-8 max-w-[1400px] mx-auto w-full grid grid-cols-1 lg:grid-cols-10 gap-8">
+        <main className="flex-1 p-6 md:p-8 lg:p-12 max-w-[1720px] mx-auto w-full grid grid-cols-1 lg:grid-cols-10 gap-8">
           
           {/* Left Column: Feature Banner & Events Feed (7 cols) */}
           <div className="lg:col-span-7 flex flex-col gap-8">
             
             {/* Feature Banner (Hero) */}
             <motion.section 
-              variants={itemVariants}
-              whileHover="hover"
-              whileTap="tap"
+              variants={customItemVariants}
+              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.008, boxShadow: 'var(--shadow-deep)' }}
+              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
               className="relative overflow-hidden border border-histo-dark/10 bg-histo-dark text-histo-paper shadow-medium p-1 rounded-[4px] cursor-pointer"
             >
               <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.05\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
@@ -211,7 +203,10 @@ export default function DashboardPage() {
 
             {/* Historical Events Feed */}
             <motion.section 
-              variants={itemVariants}
+              variants={customItemVariants}
+              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.01, boxShadow: 'var(--shadow-medium)' }}
+              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
               className="border border-histo-dark/10 bg-histo-cream p-6 shadow-soft rounded-[4px]"
             >
               <div className="mb-6 flex items-center justify-between border-b border-histo-dark/10 pb-4">
@@ -231,19 +226,14 @@ export default function DashboardPage() {
                   <motion.div 
                     initial="hidden"
                     animate="visible"
-                    variants={{
-                      visible: { transition: { staggerChildren: 0.1 } }
-                    }}
+                    variants={listContainerVariants}
                     className="flex flex-col gap-4"
                   >
                     {newsItems.map((item, idx) => (
                       <motion.article 
                         key={item.title + idx}
-                        variants={{
-                          hidden: { opacity: 0, x: -10 },
-                          visible: { opacity: 1, x: 0, transition: { type: "spring", stiffness: 120 } }
-                        }}
-                        whileHover={{ x: 6, transition: { type: "spring", stiffness: 300, damping: 15 } }}
+                        variants={listItemVariants}
+                        whileHover={shouldReduceMotion ? {} : { x: 6, transition: { type: "spring", stiffness: 300, damping: 15 } }}
                         className="border-l border-histo-gold/50 bg-white/40 hover:bg-white/70 p-5 shadow-soft transition-colors duration-200 rounded-[2px] cursor-pointer"
                       >
                         <h4 className="mb-2 font-display text-lg font-bold text-histo-dark tracking-wide">{item.title}</h4>
@@ -262,7 +252,10 @@ export default function DashboardPage() {
             
             {/* Featured Era */}
             <motion.section 
-              variants={itemVariants}
+              variants={customItemVariants}
+              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.01, boxShadow: 'var(--shadow-medium)' }}
+              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
               className="border border-histo-dark/10 bg-histo-cream p-6 shadow-soft rounded-[4px] flex flex-col"
             >
               <div className="mb-6 flex items-center gap-4 border-b border-histo-dark/10 pb-4">
@@ -295,7 +288,10 @@ export default function DashboardPage() {
 
             {/* Manuscript Snippet (Quote) */}
             <motion.section 
-              variants={itemVariants}
+              variants={customItemVariants}
+              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.01, boxShadow: 'var(--shadow-medium)' }}
+              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
               className="border border-histo-dark/10 bg-white p-6 shadow-soft rounded-[4px] flex flex-col relative overflow-hidden"
             >
               {/* Corner Accents */}

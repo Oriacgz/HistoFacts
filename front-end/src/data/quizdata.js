@@ -1,6 +1,6 @@
 export function generateQuizData(topic) {
   const normalizedTopic = topic.toLowerCase();
-  let questions = [];
+  let questions;
 
   if (normalizedTopic.includes('mughal')) {
     questions = [
