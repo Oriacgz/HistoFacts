@@ -1,0 +1,1 @@
+# AI Notes module package

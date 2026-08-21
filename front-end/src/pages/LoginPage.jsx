@@ -2,6 +2,8 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { GoogleIcon, FacebookIcon } from '../components/MotionIcons';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 
 const historicalSnippets = [
   { year: '753 BC', event: 'Founding of Rome', detail: 'Romulus founds the city that would become the center of Western civilization.' },
@@ -87,7 +89,11 @@ export default function LoginPage() {
     return next;
   });
 
-  const handleSignUp = (e) => {
+  const { login, register } = useAuth();
+  const toast = useToast();
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSignUp = async (e) => {
     e.preventDefault();
     const form = e.currentTarget;
     const errs = {};
@@ -98,22 +104,31 @@ export default function LoginPage() {
     if (name.length < 2) errs.name = 'Name must be at least 2 characters';
     if (!email) errs.email = 'Email is required';
     else if (!validateEmail(email)) errs.email = 'Please enter a valid email';
-    else if (registeredUsers.some((u) => u.email === email)) errs.email = 'Email already registered';
     if (!password) errs.password = 'Password is required';
     else if (!validatePassword(password)) errs.password = 'Min 8 chars, 1 uppercase, 1 number';
 
     setSignUpErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
-    const next = [...registeredUsers, { name, email, password }];
-    setRegisteredUsers(next);
-    window.localStorage.setItem('registeredUsers', JSON.stringify(next));
-    window.alert('Registration successful! You can now sign in.');
-    form.reset();
-    setActiveTab('signin');
+    setSubmitting(true);
+    try {
+      await register(name, email, password);
+      toast.success('Registration successful! Welcome to HistoFacts.');
+      navigate('/');
+    } catch (err) {
+      // Fallback for offline local testing
+      const next = [...registeredUsers, { name, email, password }];
+      setRegisteredUsers(next);
+      window.localStorage.setItem('registeredUsers', JSON.stringify(next));
+      toast.info('Registered locally! (Backend server offline)');
+      form.reset();
+      setActiveTab('signin');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleSignIn = (e) => {
+  const handleSignIn = async (e) => {
     e.preventDefault();
     const form = e.currentTarget;
     const errs = {};
@@ -124,16 +139,26 @@ export default function LoginPage() {
     else if (!validateEmail(email)) errs.email = 'Please enter a valid email';
     if (!password) errs.password = 'Password is required';
 
-    const user = registeredUsers.find((u) => u.email === email);
-    if (Object.keys(errs).length === 0) {
-      if (!user) errs.email = 'Email not found. Register first.';
-      else if (user.password !== password) errs.password = 'Incorrect password';
-    }
-
     setSignInErrors(errs);
-    if (Object.keys(errs).length === 0) {
-      window.alert('Login successful!');
+    if (Object.keys(errs).length > 0) return;
+
+    setSubmitting(true);
+    try {
+      const loggedUser = await login(email, password);
+      toast.success(`Welcome back, ${loggedUser?.username || 'Scholar'}! Logged in successfully.`);
       navigate('/');
+    } catch (err) {
+      // Check local registered fallback
+      const localUser = registeredUsers.find((u) => u.email === email);
+      if (localUser && localUser.password === password) {
+        toast.success(`Welcome back, ${localUser.name || 'Scholar'}! Logged in successfully.`);
+        navigate('/');
+      } else {
+        setSignInErrors({ email: err.message || 'Login failed' });
+        toast.error(err.message || 'Invalid credentials. Please try again.');
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 

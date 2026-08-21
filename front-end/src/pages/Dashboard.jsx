@@ -1,45 +1,63 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   BellIcon,
   BookOpenIcon,
   BookmarkIcon,
   CalendarIcon,
+  ChatIcon,
   CogIcon,
   CrownIcon,
   FilterIcon,
+  LogoutIcon,
   SearchIcon,
   TimeIcon,
   UserIcon,
+  UsersIcon,
 } from '../components/MotionIcons';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { getTodayEventsApi, searchEventsApi, addBookmarkApi, removeBookmarkApi } from '../api/history';
 
 const headerIcons = [
   { icon: FilterIcon, label: 'Filters' },
   { icon: BellIcon, label: 'Notifications' },
   { icon: CalendarIcon, label: 'Historical Calendar' },
-  { icon: CogIcon, label: 'Settings' },
 ];
 
 const newsSeed = [
   { 
+    id: 'seed-1',
     title: 'On This Day: March 17', 
-    content: 'Historical events that happened on this day will appear here. In 461 AD, Saint Patrick, the patron saint of Ireland, died in Saul.' 
+    content: 'Historical events that happened on this day will appear here. In 461 AD, Saint Patrick, the patron saint of Ireland, died in Saul.',
+    category: 'World History'
   },
   { 
+    id: 'seed-2',
     title: 'March 17, 1801', 
-    content: 'The Union Parliament meets for the first time, following the Act of Union between Great Britain and Ireland.' 
+    content: 'The Union Parliament meets for the first time, following the Act of Union between Great Britain and Ireland.',
+    category: 'Politics'
   },
   { 
+    id: 'seed-3',
     title: 'March 17, 1959', 
-    content: 'Tenzin Gyatso, the 14th Dalai Lama, flees Tibet for India during the Tibetan uprising.' 
+    content: 'Tenzin Gyatso, the 14th Dalai Lama, flees Tibet for India during the Tibetan uprising.',
+    category: 'Independence & Freedom'
   }
 ];
 
 export default function DashboardPage() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
   const [newsItems, setNewsItems] = useState([]);
   const [scrolled, setScrolled] = useState(false);
   const [activeNav, setActiveNav] = useState('Home');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [bookmarkedIds, setBookmarkedIds] = useState(new Set());
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   const shouldReduceMotion = useReducedMotion();
 
@@ -84,17 +102,69 @@ export default function DashboardPage() {
   }), [shouldReduceMotion]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setNewsItems(newsSeed), 1000);
-    const handleScroll = () => setScrolled(window.scrollY > 10);
+    async function loadEvents() {
+      setLoadingEvents(true);
+      try {
+        const events = await getTodayEventsApi();
+        if (events && events.length > 0) {
+          setNewsItems(events.map(ev => ({
+            id: ev.id,
+            title: ev.year ? `${ev.title} (${ev.year})` : ev.title,
+            content: ev.description,
+            category: ev.category || 'General',
+          })));
+        } else {
+          setNewsItems(newsSeed);
+        }
+      } catch {
+        setNewsItems(newsSeed);
+      } finally {
+        setLoadingEvents(false);
+      }
+    }
 
+    loadEvents();
+
+    const handleScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener('scroll', handleScroll);
     handleScroll();
 
     return () => {
-      window.clearTimeout(timer);
       window.removeEventListener('scroll', handleScroll);
     };
   }, []);
+
+  const handleSearchSubmit = async (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setLoadingEvents(true);
+    try {
+      const results = await searchEventsApi(searchQuery.trim());
+      setNewsItems(results.map(ev => ({
+        id: ev.id,
+        title: ev.year ? `${ev.title} (${ev.year})` : ev.title,
+        content: ev.description,
+        category: ev.category || 'General',
+      })));
+    } catch {
+      // Keep existing
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  const toggleBookmark = async (eventId) => {
+    const next = new Set(bookmarkedIds);
+    if (next.has(eventId)) {
+      next.delete(eventId);
+      setBookmarkedIds(next);
+      try { await removeBookmarkApi(eventId); } catch { /* ignore */ }
+    } else {
+      next.add(eventId);
+      setBookmarkedIds(next);
+      try { await addBookmarkApi(eventId); } catch { /* ignore */ }
+    }
+  };
 
   return (
     <motion.div
@@ -130,10 +200,18 @@ export default function DashboardPage() {
           </nav>
 
           <div className="flex items-center gap-4">
-            <div className="flex w-full max-w-[200px] focus-within:max-w-[280px] items-center border border-white/20 bg-white/5 px-4 py-2 transition-all duration-300 md:w-auto rounded-[2px]">
-              <input type="text" placeholder="Search facts..." className="w-full bg-transparent text-sm text-histo-paper outline-none placeholder:text-white/40 font-ui" />
-              <SearchIcon className="ml-2 h-4 w-4 text-histo-paper/60" />
-            </div>
+            <form onSubmit={handleSearchSubmit} className="flex w-full max-w-[200px] focus-within:max-w-[280px] items-center border border-white/20 bg-white/5 px-4 py-2 transition-all duration-300 md:w-auto rounded-[2px]">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search facts..."
+                className="w-full bg-transparent text-sm text-histo-paper outline-none placeholder:text-white/40 font-ui"
+              />
+              <button type="submit" className="ml-2 cursor-pointer border-none bg-transparent p-0">
+                <SearchIcon className="h-4 w-4 text-histo-paper/60 hover:text-histo-gold transition-colors" />
+              </button>
+            </form>
 
             <div className="flex gap-3">
               {headerIcons.map(({ icon: Icon, label }) => (
@@ -147,17 +225,109 @@ export default function DashboardPage() {
               ))}
             </div>
 
-            {/* Profile Logo and Username far right */}
-            <Link to="/loginpg" className="flex items-center gap-3 border-l border-white/10 pl-4 group cursor-pointer">
-              <motion.div 
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="h-9 w-9 rounded-full bg-histo-medium border border-white/20 group-hover:border-histo-gold flex items-center justify-center text-white transition-colors duration-300"
-              >
-                <UserIcon className="h-4 w-4 text-histo-paper group-hover:text-histo-gold transition-colors duration-300" />
-              </motion.div>
-              <span className="hidden sm:inline text-sm font-ui font-medium tracking-wide text-white/95 group-hover:text-histo-gold transition-colors duration-300">Marcus Aurelius</span>
-            </Link>
+            {/* Profile area & Dropdown menu */}
+            <div className="relative border-l border-white/10 pl-4">
+              {user ? (
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+                  className="flex items-center gap-3 group cursor-pointer bg-transparent border-none outline-none text-left"
+                >
+                  <motion.div 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="h-9 w-9 rounded-full bg-histo-gold/20 border border-histo-gold/50 group-hover:border-histo-gold flex items-center justify-center text-histo-gold font-display font-bold text-sm transition-colors duration-300 shadow-soft"
+                  >
+                    {user.username ? user.username[0].toUpperCase() : 'U'}
+                  </motion.div>
+                  <div className="hidden sm:flex flex-col">
+                    <span className="text-sm font-ui font-semibold tracking-wide text-white group-hover:text-histo-gold transition-colors duration-200">
+                      {user.tag ? `${user.username}#${user.tag}` : user.username}
+                    </span>
+                    <span className="text-[10px] font-ui text-histo-gold/80 tracking-wider">Scholar Account</span>
+                  </div>
+                </button>
+              ) : (
+                <Link to="/loginpg" className="flex items-center gap-3 group cursor-pointer">
+                  <motion.div 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="h-9 w-9 rounded-full bg-histo-medium border border-white/20 group-hover:border-histo-gold flex items-center justify-center text-white transition-colors duration-300"
+                  >
+                    <UserIcon className="h-4 w-4 text-histo-paper group-hover:text-histo-gold transition-colors duration-300" />
+                  </motion.div>
+                  <span className="hidden sm:inline text-sm font-ui font-medium tracking-wide text-white/95 group-hover:text-histo-gold transition-colors duration-200">
+                    Sign In
+                  </span>
+                </Link>
+              )}
+
+              {/* Dropdown Menu */}
+              {user && profileMenuOpen && (
+                <div className="absolute right-0 top-full mt-3 w-56 bg-histo-dark border border-histo-gold/30 rounded-[4px] shadow-deep p-2 z-50 animate-fade-in">
+                  {/* User info banner */}
+                  <div className="px-3 py-2 border-b border-white/10 mb-1">
+                    <p className="font-display text-sm font-bold text-histo-paper">{user.username}</p>
+                    <p className="font-ui text-xs text-histo-gold/80 font-mono">#{user.tag}</p>
+                    <p className="font-ui text-[10px] text-white/50 truncate mt-0.5">{user.email}</p>
+                  </div>
+
+                  {/* Options */}
+                  <button
+                    type="button"
+                    onClick={() => { setProfileMenuOpen(false); toast.info('Settings panel opening...'); }}
+                    className="w-full text-left px-3 py-2 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <CogIcon className="h-4 w-4 text-histo-gold/80" />
+                    <span>Settings</span>
+                  </button>
+
+                  <Link
+                    to="/friends"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="w-full text-left px-3 py-2 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 block"
+                  >
+                    <UsersIcon className="h-4 w-4 text-histo-gold/80" />
+                    <span>Friends & Scholars</span>
+                  </Link>
+
+                  <Link
+                    to="/feed"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="w-full text-left px-3 py-2 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 block"
+                  >
+                    <ChatIcon className="h-4 w-4 text-histo-gold/80" />
+                    <span>Community Feed</span>
+                  </Link>
+
+                  <Link
+                    to="/notes"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="w-full text-left px-3 py-2 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 block"
+                  >
+                    <BookOpenIcon className="h-4 w-4 text-histo-gold/80" />
+                    <span>AI Notes</span>
+                  </Link>
+
+                  <div className="h-[1px] bg-white/10 my-1" />
+
+                  {/* Logout */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      logout();
+                      setProfileMenuOpen(false);
+                      toast.info('Logged out successfully!');
+                      navigate('/loginpg');
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs font-ui font-semibold text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-[2px] transition-colors flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <LogoutIcon className="h-4 w-4 text-red-400" />
+                    <span>Log Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -231,11 +401,24 @@ export default function DashboardPage() {
                   >
                     {newsItems.map((item, idx) => (
                       <motion.article 
-                        key={item.title + idx}
+                        key={(item.id || item.title) + idx}
                         variants={listItemVariants}
                         whileHover={shouldReduceMotion ? {} : { x: 6, transition: { type: "spring", stiffness: 300, damping: 15 } }}
-                        className="border-l border-histo-gold/50 bg-white/40 hover:bg-white/70 p-5 shadow-soft transition-colors duration-200 rounded-[2px] cursor-pointer"
+                        className="border-l-4 border-histo-gold bg-white/60 hover:bg-white/90 p-5 shadow-soft transition-colors duration-200 rounded-[2px] cursor-pointer relative group"
                       >
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-[10px] font-ui tracking-widest uppercase text-histo-copper font-semibold bg-histo-copper/10 px-2 py-0.5 rounded-[2px]">
+                            {item.category || 'History'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleBookmark(item.id); }}
+                            className="p-1 rounded-full text-histo-ink/40 hover:text-histo-gold transition-colors"
+                            title={bookmarkedIds.has(item.id) ? 'Remove Bookmark' : 'Bookmark Event'}
+                          >
+                            <BookmarkIcon className={`h-4 w-4 ${bookmarkedIds.has(item.id) ? 'text-histo-gold fill-histo-gold' : ''}`} />
+                          </button>
+                        </div>
                         <h4 className="mb-2 font-display text-lg font-bold text-histo-dark tracking-wide">{item.title}</h4>
                         <p className="font-body text-sm text-histo-ink leading-relaxed">{item.content}</p>
                       </motion.article>

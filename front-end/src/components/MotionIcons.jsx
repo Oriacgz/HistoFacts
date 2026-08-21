@@ -35,6 +35,17 @@ export function UserIcon(props) {
   );
 }
 
+export function UsersIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </BaseIcon>
+  );
+}
+
 export function BulbIcon(props) {
   return (
     <BaseIcon {...props}>
@@ -172,6 +183,24 @@ export function FacebookIcon(props) {
   return (
     <BaseIcon {...props} viewBox="0 0 24 24">
       <path d="M14 8.3h2V5.5h-2.3c-2.4 0-4 1.6-4 4V12H8v3h1.7v5h3v-5h2.4l.4-3h-2.8v-1.9c0-.6.5-1 1.3-1Z" />
+    </BaseIcon>
+  );
+}
+
+export function LogoutIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
+    </BaseIcon>
+  );
+}
+
+export function ChatIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </BaseIcon>
   );
 }
