@@ -1,26 +1,24 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState, useMemo } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   BellIcon,
   BookOpenIcon,
   BookmarkIcon,
   CalendarIcon,
+  ChatIcon,
   CogIcon,
   CrownIcon,
   FilterIcon,
-  HeartIcon,
-  BulbIcon,
+  LogoutIcon,
   SearchIcon,
   TimeIcon,
   UserIcon,
+  UsersIcon,
 } from '../components/MotionIcons';
-
-const sidebarItems = [
-  { to: '/quiz', icon: BulbIcon, label: 'Quiz' },
-  { to: '#', icon: HeartIcon, label: 'Favorites' },
-  { to: '#', icon: BookmarkIcon, label: 'Bookmarks' },
-  { to: '#', icon: CogIcon, label: 'Settings' },
-];
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { getTodayEventsApi, searchEventsApi, addBookmarkApi, removeBookmarkApi } from '../api/history';
 
 const headerIcons = [
   { icon: FilterIcon, label: 'Filters' },
@@ -28,120 +26,478 @@ const headerIcons = [
   { icon: CalendarIcon, label: 'Historical Calendar' },
 ];
 
-const newsSeed = [{ title: 'On This Day', content: 'Historical events that happened on this day will appear here.' }];
+const newsSeed = [
+  { 
+    id: 'seed-1',
+    title: 'On This Day: March 17', 
+    content: 'Historical events that happened on this day will appear here. In 461 AD, Saint Patrick, the patron saint of Ireland, died in Saul.',
+    category: 'World History'
+  },
+  { 
+    id: 'seed-2',
+    title: 'March 17, 1801', 
+    content: 'The Union Parliament meets for the first time, following the Act of Union between Great Britain and Ireland.',
+    category: 'Politics'
+  },
+  { 
+    id: 'seed-3',
+    title: 'March 17, 1959', 
+    content: 'Tenzin Gyatso, the 14th Dalai Lama, flees Tibet for India during the Tibetan uprising.',
+    category: 'Independence & Freedom'
+  }
+];
 
 export default function DashboardPage() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
   const [newsItems, setNewsItems] = useState([]);
   const [scrolled, setScrolled] = useState(false);
+  const [activeNav, setActiveNav] = useState('Home');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [bookmarkedIds, setBookmarkedIds] = useState(new Set());
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  const shouldReduceMotion = useReducedMotion();
+
+  const customPageVariants = useMemo(() => ({
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: shouldReduceMotion ? 0 : 0.12,
+      },
+    },
+  }), [shouldReduceMotion]);
+
+  const customItemVariants = useMemo(() => ({
+    hidden: { opacity: 0, y: shouldReduceMotion ? 0 : 15 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: shouldReduceMotion ? { duration: 0.2 } : {
+        type: 'spring',
+        stiffness: 100,
+        damping: 16,
+      },
+    },
+  }), [shouldReduceMotion]);
+
+  const listContainerVariants = useMemo(() => ({
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: shouldReduceMotion ? 0 : 0.08 }
+    }
+  }), [shouldReduceMotion]);
+
+  const listItemVariants = useMemo(() => ({
+    hidden: { opacity: 0, x: shouldReduceMotion ? 0 : -10 },
+    visible: {
+      opacity: 1,
+      x: 0,
+      transition: shouldReduceMotion ? { duration: 0.2 } : { type: "spring", stiffness: 120, damping: 15 }
+    }
+  }), [shouldReduceMotion]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setNewsItems(newsSeed), 1500);
-    const handleScroll = () => setScrolled(window.scrollY > 10);
+    async function loadEvents() {
+      setLoadingEvents(true);
+      try {
+        const events = await getTodayEventsApi();
+        if (events && events.length > 0) {
+          setNewsItems(events.map(ev => ({
+            id: ev.id,
+            title: ev.year ? `${ev.title} (${ev.year})` : ev.title,
+            content: ev.description,
+            category: ev.category || 'General',
+          })));
+        } else {
+          setNewsItems(newsSeed);
+        }
+      } catch {
+        setNewsItems(newsSeed);
+      } finally {
+        setLoadingEvents(false);
+      }
+    }
 
+    loadEvents();
+
+    const handleScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener('scroll', handleScroll);
     handleScroll();
 
     return () => {
-      window.clearTimeout(timer);
       window.removeEventListener('scroll', handleScroll);
     };
   }, []);
 
+  const handleSearchSubmit = async (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setLoadingEvents(true);
+    try {
+      const results = await searchEventsApi(searchQuery.trim());
+      setNewsItems(results.map(ev => ({
+        id: ev.id,
+        title: ev.year ? `${ev.title} (${ev.year})` : ev.title,
+        content: ev.description,
+        category: ev.category || 'General',
+      })));
+    } catch {
+      // Keep existing
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  const toggleBookmark = async (eventId) => {
+    const next = new Set(bookmarkedIds);
+    if (next.has(eventId)) {
+      next.delete(eventId);
+      setBookmarkedIds(next);
+      try { await removeBookmarkApi(eventId); } catch { /* ignore */ }
+    } else {
+      next.add(eventId);
+      setBookmarkedIds(next);
+      try { await addBookmarkApi(eventId); } catch { /* ignore */ }
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-histo-paper text-histo-ink font-body histo-paper-texture">
-      <aside className="fixed inset-y-0 left-0 z-50 flex w-20 flex-col items-center bg-gradient-to-b from-histo-dark to-[#142231] py-6 text-white shadow-[4px_0_10px_rgba(0,0,0,0.1)]">
-        <Link to="/loginpg" className="mb-6 rounded-full bg-histo-light p-4 shadow-[0_4px_8px_rgba(0,0,0,0.2)] transition duration-300 hover:-translate-y-1 hover:bg-histo-gold hover:text-histo-dark">
-          <UserIcon className="h-8 w-8" />
-        </Link>
-        <div className="mb-6 h-0.5 w-10 bg-white/20" />
-        <div className="flex flex-col items-center gap-6">
-          {sidebarItems.map(({ to, icon: Icon, label }) => (
-            <Link key={label} to={to} className="group relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 transition duration-300 hover:-translate-y-1 hover:rounded-2xl hover:bg-histo-gold hover:text-histo-dark">
-              <Icon className="h-6 w-6 transition duration-300 group-hover:scale-110" />
-              <span className="pointer-events-none absolute left-[66px] z-10 whitespace-nowrap rounded-md bg-histo-dark px-3 py-2 text-sm font-medium text-white opacity-0 shadow-[0_4px_8px_rgba(0,0,0,0.2)] transition duration-300 group-hover:translate-x-0 group-hover:opacity-100">{label}</span>
-            </Link>
-          ))}
-        </div>
-      </aside>
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={customPageVariants}
+      className="min-h-screen bg-histo-paper text-histo-ink font-body histo-paper-texture"
+    >
+      {/* Main Panel Wrapper */}
+      <div className="flex min-h-screen flex-col">
+        {/* Header */}
+        <header className={`sticky top-0 z-40 flex flex-wrap items-center justify-between gap-4 px-8 py-4 text-white border-b transition-all duration-300 ${scrolled ? 'bg-histo-dark/95 border-white/10 backdrop-blur-md shadow-soft' : 'bg-histo-dark border-transparent'}`}>
+          <h1 className="font-display text-2xl font-bold tracking-[4px] text-histo-paper uppercase">HISTOFACTS</h1>
 
-      <div className="ml-20 flex min-h-screen flex-col">
-        <header className={`sticky top-0 z-40 flex flex-wrap items-center justify-between gap-4 px-7 py-4 text-white shadow-[0_4px_10px_rgba(0,0,0,0.15)] transition-colors duration-300 ${scrolled ? 'bg-histo-dark/95' : 'bg-gradient-to-r from-histo-dark to-histo-medium'}`}>
-          <h1 className="font-display text-[36px] font-bold tracking-[1px] text-histo-paper drop-shadow-[2px_2px_4px_rgba(0,0,0,0.2)]">HISTOFACTS</h1>
-
-          <nav className="flex gap-6">
-            <Link to="/home" className="relative px-3 py-1.5 text-[18px] font-medium text-histo-paper transition duration-300 after:absolute after:left-0 after:-bottom-1 after:h-0.5 after:w-0 after:bg-histo-gold after:transition-all after:duration-300 hover:text-histo-gold hover:after:w-full">Home</Link>
-            <a href="#about" className="relative px-3 py-1.5 text-[18px] font-medium text-histo-paper transition duration-300 after:absolute after:left-0 after:-bottom-1 after:h-0.5 after:w-0 after:bg-histo-gold after:transition-all after:duration-300 hover:text-histo-gold hover:after:w-full">About</a>
-            <a href="#help" className="relative px-3 py-1.5 text-[18px] font-medium text-histo-paper transition duration-300 after:absolute after:left-0 after:-bottom-1 after:h-0.5 after:w-0 after:bg-histo-gold after:transition-all after:duration-300 hover:text-histo-gold hover:after:w-full">Help</a>
+          <nav className="flex gap-4 md:gap-6">
+            {['Home', 'Quiz', 'Favorites', 'Bookmarks', 'About', 'Help'].map((item) => (
+              <Link
+                key={item}
+                to={item === 'Home' ? '/home' : item === 'Quiz' ? '/quiz' : '#'}
+                className="relative px-3 py-1.5 text-xs font-ui tracking-wider uppercase text-histo-paper/85 hover:text-histo-gold transition-colors duration-200"
+                onClick={() => setActiveNav(item)}
+              >
+                {activeNav === item && (
+                  <motion.span
+                    layoutId="nav-underline"
+                    className="absolute left-0 right-0 -bottom-1 h-0.5 bg-histo-gold"
+                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                  />
+                )}
+                {item}
+              </Link>
+            ))}
           </nav>
 
-          <div className="flex w-full max-w-[280px] items-center rounded-[24px] border border-white/10 bg-white/15 px-[18px] py-[10px] shadow-[0_2px_6px_rgba(0,0,0,0.1)] transition duration-300 focus-within:-translate-y-0.5 focus-within:bg-white/25 focus-within:shadow-[0_4px_12px_rgba(0,0,0,0.15)] md:w-auto">
-            <input type="text" placeholder="Search historical facts..." className="w-full bg-transparent text-[16px] text-histo-paper outline-none placeholder:text-white/70" />
-            <SearchIcon className="ml-2 h-5 w-5 text-histo-paper" />
-          </div>
+          <div className="flex items-center gap-4">
+            <form onSubmit={handleSearchSubmit} className="flex w-full max-w-[200px] focus-within:max-w-[280px] items-center border border-white/20 bg-white/5 px-4 py-2 transition-all duration-300 md:w-auto rounded-[2px]">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search facts..."
+                className="w-full bg-transparent text-sm text-histo-paper outline-none placeholder:text-white/40 font-ui"
+              />
+              <button type="submit" className="ml-2 cursor-pointer border-none bg-transparent p-0">
+                <SearchIcon className="h-4 w-4 text-histo-paper/60 hover:text-histo-gold transition-colors" />
+              </button>
+            </form>
 
-          <div className="flex gap-[18px]">
-            {headerIcons.map(({ icon: Icon, label }) => (
-              <div key={label} className="group relative flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 transition duration-300 hover:-translate-y-1 hover:bg-histo-gold">
-                <Icon className="h-6 w-6 text-histo-paper transition duration-300 group-hover:text-histo-dark" />
-                <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-md bg-histo-dark px-3 py-2 text-sm font-medium text-white opacity-0 shadow-[0_4px_8px_rgba(0,0,0,0.2)] transition duration-300 group-hover:translate-y-0 group-hover:opacity-100">{label}</span>
-              </div>
-            ))}
+            <div className="flex gap-3">
+              {headerIcons.map(({ icon: Icon, label }) => (
+                <div 
+                  key={label} 
+                  className="group relative flex h-9 w-9 cursor-pointer items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300"
+                >
+                  <Icon className="h-4 w-4 text-histo-paper/85 transition-colors duration-300 group-hover:text-histo-gold" />
+                  <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-y-0 group-hover:opacity-100">{label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Profile area & Dropdown menu */}
+            <div className="relative border-l border-white/10 pl-4">
+              {user ? (
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+                  className="flex items-center gap-3 group cursor-pointer bg-transparent border-none outline-none text-left"
+                >
+                  <motion.div 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="h-9 w-9 rounded-full bg-histo-gold/20 border border-histo-gold/50 group-hover:border-histo-gold flex items-center justify-center text-histo-gold font-display font-bold text-sm transition-colors duration-300 shadow-soft"
+                  >
+                    {user.username ? user.username[0].toUpperCase() : 'U'}
+                  </motion.div>
+                  <div className="hidden sm:flex flex-col">
+                    <span className="text-sm font-ui font-semibold tracking-wide text-white group-hover:text-histo-gold transition-colors duration-200">
+                      {user.tag ? `${user.username}#${user.tag}` : user.username}
+                    </span>
+                    <span className="text-[10px] font-ui text-histo-gold/80 tracking-wider">Scholar Account</span>
+                  </div>
+                </button>
+              ) : (
+                <Link to="/loginpg" className="flex items-center gap-3 group cursor-pointer">
+                  <motion.div 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="h-9 w-9 rounded-full bg-histo-medium border border-white/20 group-hover:border-histo-gold flex items-center justify-center text-white transition-colors duration-300"
+                  >
+                    <UserIcon className="h-4 w-4 text-histo-paper group-hover:text-histo-gold transition-colors duration-300" />
+                  </motion.div>
+                  <span className="hidden sm:inline text-sm font-ui font-medium tracking-wide text-white/95 group-hover:text-histo-gold transition-colors duration-200">
+                    Sign In
+                  </span>
+                </Link>
+              )}
+
+              {/* Dropdown Menu */}
+              {user && profileMenuOpen && (
+                <div className="absolute right-0 top-full mt-3 w-56 bg-histo-dark border border-histo-gold/30 rounded-[4px] shadow-deep p-2 z-50 animate-fade-in">
+                  {/* User info banner */}
+                  <div className="px-3 py-2 border-b border-white/10 mb-1">
+                    <p className="font-display text-sm font-bold text-histo-paper">{user.username}</p>
+                    <p className="font-ui text-xs text-histo-gold/80 font-mono">#{user.tag}</p>
+                    <p className="font-ui text-[10px] text-white/50 truncate mt-0.5">{user.email}</p>
+                  </div>
+
+                  {/* Options */}
+                  <button
+                    type="button"
+                    onClick={() => { setProfileMenuOpen(false); toast.info('Settings panel opening...'); }}
+                    className="w-full text-left px-3 py-2 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <CogIcon className="h-4 w-4 text-histo-gold/80" />
+                    <span>Settings</span>
+                  </button>
+
+                  <Link
+                    to="/friends"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="w-full text-left px-3 py-2 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 block"
+                  >
+                    <UsersIcon className="h-4 w-4 text-histo-gold/80" />
+                    <span>Friends & Scholars</span>
+                  </Link>
+
+                  <Link
+                    to="/feed"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="w-full text-left px-3 py-2 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 block"
+                  >
+                    <ChatIcon className="h-4 w-4 text-histo-gold/80" />
+                    <span>Community Feed</span>
+                  </Link>
+
+                  <Link
+                    to="/notes"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="w-full text-left px-3 py-2 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 block"
+                  >
+                    <BookOpenIcon className="h-4 w-4 text-histo-gold/80" />
+                    <span>AI Notes</span>
+                  </Link>
+
+                  <div className="h-[1px] bg-white/10 my-1" />
+
+                  {/* Logout */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      logout();
+                      setProfileMenuOpen(false);
+                      toast.info('Logged out successfully!');
+                      navigate('/loginpg');
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs font-ui font-semibold text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-[2px] transition-colors flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <LogoutIcon className="h-4 w-4 text-red-400" />
+                    <span>Log Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
-        <main className="flex flex-1 flex-col gap-7 overflow-y-auto p-7">
-          <section className="relative overflow-hidden rounded-histo bg-gradient-to-br from-histo-medium to-histo-dark p-9 text-histo-paper shadow-medium transition duration-300 hover:-translate-y-1 hover:shadow-deep">
-            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.05\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
-            <div className="relative z-10 text-center">
-              <h2 className="mb-7 font-display text-5xl font-bold tracking-[1px] text-histo-paper drop-shadow-[2px_2px_4px_rgba(0,0,0,0.2)]">HISTOFACTS</h2>
-              <div className="mb-7 rounded-histo border border-white/10 bg-black/20 p-7 animate-pulseRing">
-                <p className="text-[28px] font-bold leading-[1.4] tracking-[1px]">Today in History: March 17, 461 AD - Death of Saint Patrick</p>
-              </div>
-              <a href="#" className="inline-block rounded-[30px] bg-histo-gold px-[30px] py-3 text-[16px] font-semibold tracking-[0.5px] text-histo-dark shadow-[0_4px_8px_rgba(0,0,0,0.2)] transition duration-300 hover:-translate-y-1 hover:bg-histo-paper hover:shadow-[0_8px_16px_rgba(0,0,0,0.3)]">Explore Historical Significance</a>
-            </div>
-          </section>
-
-          <section className="rounded-histo border-l-[6px] border-histo-medium bg-histo-cream p-7 shadow-medium transition duration-300 hover:-translate-y-1 hover:shadow-deep">
-            <div className="mb-5 flex items-center gap-[18px]">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/50 text-histo-dark shadow-soft">
-                <TimeIcon className="h-8 w-8" />
-              </div>
-              <h3 className="font-display text-[28px] font-semibold text-histo-dark">Historical Events</h3>
-            </div>
-            <div className="min-h-[120px]">
-              {newsItems.length === 0 ? (
-                <div className="rounded-[8px] bg-histo-paper px-4 py-4 shadow-soft">Loading today&apos;s historical news...</div>
-              ) : (
-                newsItems.map((item) => (
-                  <article key={item.title} className="mb-4 rounded-[8px] bg-histo-paper p-4 shadow-soft transition duration-300 hover:-translate-y-1 hover:shadow-medium">
-                    <h4 className="mb-2 font-display text-xl text-histo-dark">{item.title}</h4>
-                    <p className="leading-6">{item.content}</p>
-                  </article>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-histo bg-histo-cream p-7 shadow-medium transition duration-300 hover:-translate-y-1 hover:shadow-deep">
-            <div className="mb-5 flex items-center gap-[18px]">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/50 text-histo-dark shadow-soft">
-                  <BookOpenIcon className="h-8 w-8" />
-              </div>
-              <h3 className="font-display text-[28px] font-semibold text-histo-dark">Featured Historical Period</h3>
-            </div>
-            <div className="rounded-histo bg-gradient-to-br from-[#f8f3ea] to-histo-cream p-6 shadow-medium">
-              <div className="flex flex-col items-center gap-4 text-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-histo-copper text-white shadow-soft">
-                  <CrownIcon className="h-10 w-10" />
+        {/* Content Layout */}
+        <main className="flex-1 p-6 md:p-8 lg:p-12 max-w-[1720px] mx-auto w-full grid grid-cols-1 lg:grid-cols-10 gap-8">
+          
+          {/* Left Column: Feature Banner & Events Feed (7 cols) */}
+          <div className="lg:col-span-7 flex flex-col gap-8">
+            
+            {/* Feature Banner (Hero) */}
+            <motion.section 
+              variants={customItemVariants}
+              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.008, boxShadow: 'var(--shadow-deep)' }}
+              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+              className="relative overflow-hidden border border-histo-dark/10 bg-histo-dark text-histo-paper shadow-medium p-1 rounded-[4px] cursor-pointer"
+            >
+              <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.05\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
+              <div className="border-2 border-double border-histo-gold/30 p-8 md:p-12 relative z-10 flex flex-col items-center text-center">
+                <span className="text-xs uppercase tracking-[4px] text-histo-gold font-ui font-semibold mb-3">Chronicle Feature</span>
+                <h2 className="mb-6 font-display text-xl font-bold tracking-[2px] text-histo-paper uppercase opacity-80">HISTOFACTS</h2>
+                
+                <div className="max-w-2xl my-4">
+                  <span className="text-sm font-ui text-histo-gold tracking-widest uppercase font-semibold block mb-2">Today in History</span>
+                  <p className="font-display text-3xl md:text-4xl font-bold leading-tight text-white mb-6">
+                    March 17, 461 AD — Death of Saint Patrick
+                  </p>
+                  <p className="font-body text-histo-paper/70 text-base leading-relaxed mb-8 italic">
+                    Saint Patrick, the patron saint of Ireland, dies in Saul. His life, mission, and legend would shape the spiritual and cultural landscape of Ireland and the Western world for centuries to come.
+                  </p>
                 </div>
-                <h4 className="font-display text-2xl text-histo-dark">Renaissance Era</h4>
-                <p className="max-w-xl">Explore the cultural bridge between the Middle Ages and modern history</p>
-                <a href="#" className="font-semibold text-histo-dark underline-offset-4 transition hover:text-histo-copper hover:underline">Discover More</a>
+
+                <motion.a 
+                  href="#" 
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="inline-block border border-histo-gold bg-histo-gold text-histo-dark hover:bg-transparent hover:text-histo-gold font-ui text-xs font-bold tracking-widest uppercase py-3.5 px-8 rounded-[2px] shadow-soft transition-colors duration-300"
+                >
+                  Explore Significance
+                </motion.a>
               </div>
-            </div>
-          </section>
+            </motion.section>
+
+            {/* Historical Events Feed */}
+            <motion.section 
+              variants={customItemVariants}
+              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.01, boxShadow: 'var(--shadow-medium)' }}
+              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+              className="border border-histo-dark/10 bg-histo-cream p-6 shadow-soft rounded-[4px]"
+            >
+              <div className="mb-6 flex items-center justify-between border-b border-histo-dark/10 pb-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-10 w-10 items-center justify-center border border-histo-dark/20 text-histo-dark bg-white/40 rounded-full shadow-soft">
+                    <TimeIcon className="h-5 w-5" />
+                  </div>
+                  <h3 className="font-display text-2xl font-bold tracking-wide text-histo-dark">Historical Events</h3>
+                </div>
+                <span className="text-xs font-ui tracking-wider text-histo-ink/60 uppercase">Chronology</span>
+              </div>
+
+              <div className="min-h-[120px] flex flex-col gap-4">
+                {newsItems.length === 0 ? (
+                  <div className="py-8 text-center text-sm font-body italic text-histo-ink/60">Loading today&apos;s chronicle events...</div>
+                ) : (
+                  <motion.div 
+                    initial="hidden"
+                    animate="visible"
+                    variants={listContainerVariants}
+                    className="flex flex-col gap-4"
+                  >
+                    {newsItems.map((item, idx) => (
+                      <motion.article 
+                        key={(item.id || item.title) + idx}
+                        variants={listItemVariants}
+                        whileHover={shouldReduceMotion ? {} : { x: 6, transition: { type: "spring", stiffness: 300, damping: 15 } }}
+                        className="border-l-4 border-histo-gold bg-white/60 hover:bg-white/90 p-5 shadow-soft transition-colors duration-200 rounded-[2px] cursor-pointer relative group"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-[10px] font-ui tracking-widest uppercase text-histo-copper font-semibold bg-histo-copper/10 px-2 py-0.5 rounded-[2px]">
+                            {item.category || 'History'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleBookmark(item.id); }}
+                            className="p-1 rounded-full text-histo-ink/40 hover:text-histo-gold transition-colors"
+                            title={bookmarkedIds.has(item.id) ? 'Remove Bookmark' : 'Bookmark Event'}
+                          >
+                            <BookmarkIcon className={`h-4 w-4 ${bookmarkedIds.has(item.id) ? 'text-histo-gold fill-histo-gold' : ''}`} />
+                          </button>
+                        </div>
+                        <h4 className="mb-2 font-display text-lg font-bold text-histo-dark tracking-wide">{item.title}</h4>
+                        <p className="font-body text-sm text-histo-ink leading-relaxed">{item.content}</p>
+                      </motion.article>
+                    ))}
+                  </motion.div>
+                )}
+              </div>
+            </motion.section>
+            
+          </div>
+
+          {/* Right Column: Featured Period & Quote (3 cols) */}
+          <div className="lg:col-span-3 flex flex-col gap-8">
+            
+            {/* Featured Era */}
+            <motion.section 
+              variants={customItemVariants}
+              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.01, boxShadow: 'var(--shadow-medium)' }}
+              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+              className="border border-histo-dark/10 bg-histo-cream p-6 shadow-soft rounded-[4px] flex flex-col"
+            >
+              <div className="mb-6 flex items-center gap-4 border-b border-histo-dark/10 pb-4">
+                <div className="flex h-10 w-10 items-center justify-center border border-histo-dark/20 text-histo-dark bg-white/40 rounded-full shadow-soft">
+                  <BookOpenIcon className="h-5 w-5" />
+                </div>
+                <h3 className="font-display text-xl font-bold tracking-wide text-histo-dark">Featured Era</h3>
+              </div>
+
+              <div className="border border-histo-dark/10 bg-white/50 p-6 rounded-[2px] flex flex-col items-center text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-histo-copper/30 bg-white text-histo-copper shadow-soft">
+                  <CrownIcon className="h-6 w-6" />
+                </div>
+                
+                <h4 className="font-display text-2xl font-bold text-histo-dark mb-2">Renaissance Era</h4>
+                <p className="font-body text-sm text-histo-ink/80 leading-relaxed mb-6">
+                  Explore the cultural and artistic bridge between the Middle Ages and modern history, marked by a revival of classical learning.
+                </p>
+                
+                <motion.a 
+                  href="#" 
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="font-ui text-xs font-bold tracking-widest uppercase border-b-2 border-histo-copper text-histo-copper pb-1 hover:text-histo-dark hover:border-histo-dark transition-colors duration-200"
+                >
+                  Discover More
+                </motion.a>
+              </div>
+            </motion.section>
+
+            {/* Manuscript Snippet (Quote) */}
+            <motion.section 
+              variants={customItemVariants}
+              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.01, boxShadow: 'var(--shadow-medium)' }}
+              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+              className="border border-histo-dark/10 bg-white p-6 shadow-soft rounded-[4px] flex flex-col relative overflow-hidden"
+            >
+              {/* Corner Accents */}
+              <div className="absolute top-0 right-0 w-8 h-8 border-t border-r border-histo-gold/30" />
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b border-l border-histo-gold/30" />
+              
+              <div className="mb-4 flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-[3px] text-histo-copper font-ui font-semibold">Manuscript Snippet</span>
+                <BookmarkIcon className="h-4 w-4 text-histo-copper/50" />
+              </div>
+
+              <blockquote className="font-display text-lg italic text-histo-dark leading-relaxed text-center my-4 relative">
+                &ldquo;History is a gallery of pictures in which there are few originals and many copies.&rdquo;
+              </blockquote>
+              <cite className="font-ui text-xs font-semibold text-center text-histo-ink/60 not-italic block uppercase tracking-widest mt-2">
+                — Alexis de Tocqueville
+              </cite>
+            </motion.section>
+
+          </div>
+          
         </main>
       </div>
-    </div>
+    </motion.div>
   );
 }

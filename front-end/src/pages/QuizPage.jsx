@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Chart } from 'chart.js/auto';
 import { generateQuizData } from '../data/quizData';
+import { getQuizQuestionsApi, submitQuizAttemptApi } from '../api/quiz';
 import {
   CheckCircleIcon,
   ChevronLeftIcon,
@@ -46,11 +47,28 @@ export default function QuizPage() {
     window.setTimeout(() => setErrorMessage(''), 3000);
   };
 
-  const generateQuiz = (value) => {
-    const nextQuiz = generateQuizData(value);
-    setQuizData(nextQuiz);
+  const generateQuiz = async (value) => {
+    try {
+      const apiQuestions = await getQuizQuestionsApi(value);
+      if (apiQuestions && apiQuestions.length > 0) {
+        setQuizData({
+          id: `session-${Date.now()}`,
+          topic: value || 'General History',
+          questions: apiQuestions.map(q => ({
+            id: q.id,
+            question: q.question,
+            options: q.options,
+            correct_answer: q.correct_answer,
+          })),
+        });
+      } else {
+        setQuizData(generateQuizData(value));
+      }
+    } catch {
+      setQuizData(generateQuizData(value));
+    }
     setCurrentQuestion(0);
-    setUserAnswers(Array(nextQuiz.questions.length).fill(null));
+    setUserAnswers(Array(10).fill(null));
     setQuizStartTime(Date.now());
     setQuizEndTime(0);
     setScreen('quiz');
@@ -99,7 +117,6 @@ export default function QuizPage() {
 
   useEffect(() => {
     if (screen !== 'quiz') {
-      setTimerText('00:00');
       return undefined;
     }
 
