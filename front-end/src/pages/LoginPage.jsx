@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { GoogleIcon, FacebookIcon } from '../components/MotionIcons';
+import { GoogleIcon, FacebookIcon, EyeIcon, EyeOffIcon } from '../components/MotionIcons';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 
@@ -100,12 +100,15 @@ export default function LoginPage() {
     const name = form.name.value.trim();
     const email = form.email.value.trim();
     const password = form.password.value;
+    const confirmPassword = form.confirmPassword.value;
 
     if (name.length < 2) errs.name = 'Name must be at least 2 characters';
     if (!email) errs.email = 'Email is required';
     else if (!validateEmail(email)) errs.email = 'Please enter a valid email';
     if (!password) errs.password = 'Password is required';
     else if (!validatePassword(password)) errs.password = 'Min 8 chars, 1 uppercase, 1 number';
+    if (!confirmPassword) errs.confirmPassword = 'Please confirm your password';
+    else if (confirmPassword !== password) errs.confirmPassword = 'Passwords do not match';
 
     setSignUpErrors(errs);
     if (Object.keys(errs).length > 0) return;
@@ -255,6 +258,9 @@ export default function LoginPage() {
           </motion.div>
           <motion.div variants={formItemVariants}>
             <LedgerField name="password" type="password" placeholder="Password" error={signUpErrors.password} onChange={() => clearError(setSignUpErrors, 'password')} />
+          </motion.div>
+          <motion.div variants={formItemVariants}>
+            <LedgerField name="confirmPassword" type="password" placeholder="Confirm password" error={signUpErrors.confirmPassword} onChange={() => clearError(setSignUpErrors, 'confirmPassword')} />
           </motion.div>
 
           <motion.button
@@ -422,15 +428,52 @@ export default function LoginPage() {
 
 function LedgerField({ error, onChange, ...props }) {
   const [isFocused, setIsFocused] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const isPasswordField = props.type === 'password';
+  const inputType = isPasswordField ? (showPassword ? 'text' : 'password') : props.type;
+
   return (
     <div className="w-full relative py-2">
       <input
         {...props}
+        type={inputType}
         onChange={onChange}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        className={`w-full border-b-2 bg-transparent px-1 py-3 text-sm outline-none transition-all duration-200 text-histo-dark placeholder:text-histo-dark/35 font-ui ${error ? 'border-histo-danger' : 'border-histo-dark/15'}`}
+        className={`w-full border-b-2 bg-transparent px-1 py-3 text-sm outline-none transition-all duration-200 text-histo-dark placeholder:text-histo-dark/35 font-ui ${isPasswordField ? 'pr-10' : ''} ${error ? 'border-histo-danger' : 'border-histo-dark/15'}`}
       />
+      {isPasswordField && (
+        <button
+          type="button"
+          onClick={() => setShowPassword((prev) => !prev)}
+          aria-label={showPassword ? 'Hide password' : 'Show password'}
+          className="absolute right-2 top-4 p-1.5 text-histo-dark/50 hover:text-histo-copper focus:outline-none transition-colors duration-200 cursor-pointer flex items-center justify-center"
+        >
+          <AnimatePresence mode="wait" initial={false}>
+            {showPassword ? (
+              <motion.div
+                key="eye-off"
+                initial={{ opacity: 0, scale: 0.7, rotate: -30 }}
+                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                exit={{ opacity: 0, scale: 0.7, rotate: 30 }}
+                transition={{ duration: 0.15 }}
+              >
+                <EyeOffIcon className="h-5 w-5" />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="eye"
+                initial={{ opacity: 0, scale: 0.7, rotate: 30 }}
+                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                exit={{ opacity: 0, scale: 0.7, rotate: -30 }}
+                transition={{ duration: 0.15 }}
+              >
+                <EyeIcon className="h-5 w-5" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </button>
+      )}
       {/* Animated focus underline */}
       {!error && (
         <motion.div
