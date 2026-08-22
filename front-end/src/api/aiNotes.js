@@ -23,3 +23,9 @@ export async function shareNoteToGroupApi(noteId, groupId) {
     method: 'POST',
   });
 }
+
+export async function deleteNoteApi(noteId) {
+  return apiFetch(`/api/notes/${noteId}`, {
+    method: 'DELETE',
+  });
+}

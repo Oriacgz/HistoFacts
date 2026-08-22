@@ -2,39 +2,41 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
-  BookOpenIcon,
-  SparklesIcon,
-  UsersIcon,
-  TrophyIcon,
-  ArrowRightIcon,
-  ClockIcon,
-  SearchIcon,
-  ShieldIcon,
-  GlobeIcon,
-} from '../components/MotionIcons';
+  BookOpen,
+  Sparkles,
+  Users,
+  Trophy,
+  ArrowRight,
+  Clock,
+  Search,
+  Shield,
+  Globe,
+  Menu,
+  X,
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const featureData = [
   {
-    icon: BookOpenIcon,
+    icon: BookOpen,
     title: 'Daily Historical Events',
     description: 'Curated "On This Day" facts from Wikipedia & Wikimedia. Browse by date, search any topic, and bookmark your favorites.',
     highlight: '10,000+ events synced',
   },
   {
-    icon: SparklesIcon,
+    icon: Sparkles,
     title: 'AI-Powered Study Notes',
     description: 'Generate exam-ready notes for any history topic tailored to your curriculum — NCERT, UPSC, AP World, and more.',
     highlight: 'Curriculum-specific output',
   },
   {
-    icon: TrophyIcon,
+    icon: Trophy,
     title: 'Interactive Quizzes',
     description: 'Test your knowledge with topic-based quizzes. Track performance with detailed charts and time analytics.',
     highlight: 'Charts & progress tracking',
   },
   {
-    icon: UsersIcon,
+    icon: Users,
     title: 'Study Groups & Social Feed',
     description: 'Join or create study groups, share notes, discuss history on the community feed, and connect with fellow scholars.',
     highlight: 'Discord-style threads',
@@ -71,6 +73,7 @@ export default function LandingPage() {
   const { user, loading } = useAuth();
   const shouldReduceMotion = useReducedMotion();
   const [scrolled, setScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     if (user && !loading) {
@@ -145,10 +148,45 @@ export default function LandingPage() {
               className="px-5 py-2.5 rounded-[2px] border border-histo-copper bg-histo-copper text-white text-xs font-ui font-bold uppercase tracking-wider hover:bg-histo-dark hover:border-histo-dark transition-all duration-300 shadow-soft"
             >
               Get Started Free
-              <ArrowRightIcon className="inline-block ml-1.5 h-3.5 w-3.5" />
+              <ArrowRight className="inline-block ml-1.5 h-3.5 w-3.5" />
             </Link>
+
+            {/* Mobile Menu Button */}
+            <button
+              className="md:hidden p-2 rounded-lg text-histo-ink/70 hover:text-histo-copper hover:bg-histo-dark/10 transition-colors"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </button>
           </div>
         </nav>
+
+        {/* Mobile Menu Panel */}
+        {mobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="md:hidden overflow-hidden bg-histo-paper/95 backdrop-blur-md border-b border-histo-dark/10 py-4 px-6"
+          >
+            <div className="flex flex-col gap-4">
+              <a href="#features" className="text-sm font-ui tracking-wider uppercase text-histo-ink/70 hover:text-histo-copper transition-colors py-2" onClick={() => setMobileMenuOpen(false)}>Features</a>
+              <a href="#how-it-works" className="text-sm font-ui tracking-wider uppercase text-histo-ink/70 hover:text-histo-copper transition-colors py-2" onClick={() => setMobileMenuOpen(false)}>How It Works</a>
+              <a href="#testimonials" className="text-sm font-ui tracking-wider uppercase text-histo-ink/70 hover:text-histo-copper transition-colors py-2" onClick={() => setMobileMenuOpen(false)}>Scholars</a>
+              <Link to="/loginpg" className="text-sm font-ui font-semibold tracking-wider uppercase text-histo-ink/70 hover:text-histo-copper transition-colors py-2" onClick={() => setMobileMenuOpen(false)}>Sign In</Link>
+              <Link
+                to="/loginpg"
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-[2px] border border-histo-copper bg-histo-copper text-white text-xs font-ui font-bold uppercase tracking-wider hover:bg-histo-dark hover:border-histo-dark transition-all duration-300 shadow-soft"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Get Started Free
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          </motion.div>
+        )}
       </header>
 
       {/* Hero Section */}
@@ -240,15 +278,15 @@ export default function LandingPage() {
               No Ads
             </span>
             <span className="flex items-center gap-2">
-              <GlobeIcon className="h-4 w-4 text-histo-copper/60" />
+              <Globe className="h-4 w-4 text-histo-copper/60" />
               Open Data
             </span>
             <span className="flex items-center gap-2">
-              <ClockIcon className="h-4 w-4 text-histo-copper/60" />
+              <Clock className="h-4 w-4 text-histo-copper/60" />
               Daily Updates
             </span>
             <span className="flex items-center gap-2">
-              <SearchIcon className="h-4 w-4 text-histo-copper/60" />
+              <Search className="h-4 w-4 text-histo-copper/60" />
               Full Search
             </span>
           </motion.div>
@@ -372,9 +410,9 @@ export default function LandingPage() {
             <div className="hidden md:block absolute top-[60px] left-[16.66%] right-[16.66%] h-[2px] bg-gradient-to-r from-histo-copper/30 via-histo-gold/50 to-histo-copper/30 -z-10" />
 
             {[
-              { step: '01', title: 'Discover', description: 'Start with today\'s historical events or search any topic. Bookmark what resonates.', icon: SearchIcon },
-              { step: '02', title: 'Learn Deeply', description: 'Generate AI notes tailored to your curriculum. Take quizzes to test retention.', icon: BookOpenIcon },
-              { step: '03', title: 'Connect & Grow', description: 'Join study groups, share insights on the feed, track progress over time.', icon: UsersIcon },
+              { step: '01', title: 'Discover', description: 'Start with today\'s historical events or search any topic. Bookmark what resonates.', icon: Search },
+              { step: '02', title: 'Learn Deeply', description: 'Generate AI notes tailored to your curriculum. Take quizzes to test retention.', icon: BookOpen },
+              { step: '03', title: 'Connect & Grow', description: 'Join study groups, share insights on the feed, track progress over time.', icon: Users },
             ].map((item, i) => (
               <motion.div
                 key={item.step}
@@ -407,7 +445,7 @@ export default function LandingPage() {
             className="text-center mb-16"
           >
             <motion.span variants={itemVariants} className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-histo-gold/10 border border-histo-gold/20 text-xs font-ui uppercase tracking-[2px] text-histo-copper mb-4">
-              <UsersIcon className="h-3.5 w-3.5" />
+              <Users className="h-3.5 w-3.5" />
               Trusted by Scholars
             </motion.span>
             <motion.h2 variants={itemVariants} className="font-display text-4xl md:text-5xl font-bold text-histo-dark tracking-wide mb-4">What Our Community Says</motion.h2>
@@ -464,7 +502,7 @@ export default function LandingPage() {
               variants={itemVariants}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-histo-gold/10 border border-histo-gold/20 text-xs font-ui uppercase tracking-[2px] text-histo-gold mb-6"
             >
-              <SparklesIcon className="h-3.5 w-3.5" />
+              <Sparkles className="h-3.5 w-3.5" />
               Ready to Begin?
             </motion.div>
 

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { searchUsersByTagApi } from '../api/friends';
-import { UsersIcon, SearchIcon, UserIcon } from '../components/MotionIcons';
+import { Users, Search, User } from 'lucide-react';
 
 const INITIAL_FRIENDS = [
   { id: 'f-1', username: 'Ryan', tag: '3081', status: 'Online', bio: 'Specializes in Ancient Civilizations & Roman Republic' },
@@ -109,7 +109,7 @@ export default function FriendsPage() {
           <div className="flex flex-col gap-4">
             {friendsList.length === 0 ? (
               <div className="bg-white border border-histo-dark/10 p-12 text-center rounded-[4px]">
-                <UsersIcon className="h-10 w-10 text-histo-copper mx-auto mb-3 opacity-60" />
+                <Users className="h-10 w-10 text-histo-copper mx-auto mb-3 opacity-60" />
                 <p className="font-display text-lg font-bold text-histo-dark mb-1">No friends added yet</p>
                 <p className="font-body text-xs text-histo-ink/60 mb-4">Search by tag to add your fellow scholars.</p>
                 <button
@@ -187,7 +187,7 @@ export default function FriendsPage() {
                 type="submit"
                 className="bg-histo-copper text-white px-6 py-3 rounded-[2px] text-xs font-ui font-bold uppercase tracking-wider hover:bg-histo-dark transition-colors cursor-pointer shadow-soft flex items-center gap-2"
               >
-                <SearchIcon className="h-4 w-4" />
+                <Search className="h-4 w-4" />
                 <span>Search</span>
               </button>
             </form>
@@ -222,7 +222,7 @@ export default function FriendsPage() {
               </div>
             ) : (
               <div className="bg-white border border-histo-dark/10 p-8 text-center rounded-[4px]">
-                <UserIcon className="h-8 w-8 text-histo-ink/30 mx-auto mb-2" />
+                <User className="h-8 w-8 text-histo-ink/30 mx-auto mb-2" />
                 <p className="font-body text-xs text-histo-ink/60">Enter a scholar's username or tag above (e.g. <code className="bg-histo-cream px-1 py-0.5 rounded font-mono text-xs">Ryan#3081</code>) to send a friend request.</p>
               </div>
             )}

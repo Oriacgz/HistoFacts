@@ -4,13 +4,13 @@ import { Chart } from 'chart.js/auto';
 import { generateQuizData } from '../data/quizData';
 import { getQuizQuestionsApi, submitQuizAttemptApi } from '../api/quiz';
 import {
-  CheckCircleIcon,
-  ChevronLeftIcon,
-  RightArrowIcon,
-  SearchIcon,
-  TimeIcon,
-  XCircleIcon,
-} from '../components/MotionIcons';
+  CheckCircle,
+  ChevronLeft,
+  ArrowRight,
+  Search,
+  Clock,
+  XCircle,
+} from 'lucide-react';
 
 const CIRCLE_STYLES = [
   { left: '25%', size: 80, delay: '0s', duration: '25s' },
@@ -256,7 +256,7 @@ export default function QuizPage() {
                     className="w-full rounded-histo border border-[#e5e7eb] p-3 text-base outline-none transition focus:border-[#003d80] focus:ring-2 focus:ring-[#003d80]/10"
                   />
                   <button type="submit" className="inline-flex items-center justify-center rounded-histo bg-[#003d80] px-6 py-3 font-medium text-white transition hover:bg-[#151b54]">
-                    <SearchIcon className="mr-2 h-4 w-4" /> Start Quiz
+                    <Search className="mr-2 h-4 w-4" /> Start Quiz
                   </button>
                 </form>
               </div>
@@ -271,7 +271,7 @@ export default function QuizPage() {
                   <div className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[#003d80]">Question {currentQuestion + 1} of {quizData.questions.length}</div>
                 </div>
                 <div className="mt-4 flex items-center font-medium text-white">
-                  <TimeIcon className="mr-2 h-4 w-4" /> {timerText}
+                  <Clock className="mr-2 h-4 w-4" /> {timerText}
                 </div>
               </div>
 
@@ -306,10 +306,10 @@ export default function QuizPage() {
 
                 <div className="flex justify-between gap-4">
                   <button type="button" onClick={handlePrev} disabled={currentQuestion === 0} className="inline-flex items-center justify-center rounded-histo border border-[#e5e7eb] px-6 py-3 font-medium text-[#1f2937] transition hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-50">
-                    <ChevronLeftIcon className="mr-2 h-4 w-4" /> Previous
+                    <ChevronLeft className="mr-2 h-4 w-4" /> Previous
                   </button>
                   <button type="button" onClick={handleNext} className="inline-flex items-center justify-center rounded-histo bg-[#003d80] px-6 py-3 font-medium text-white transition hover:bg-[#151b54]">
-                    {currentQuestion === quizData.questions.length - 1 ? 'Finish Quiz' : 'Next'} <RightArrowIcon className="ml-2 h-4 w-4" />
+                    {currentQuestion === quizData.questions.length - 1 ? 'Finish Quiz' : 'Next'} <ArrowRight className="ml-2 h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -331,7 +331,7 @@ export default function QuizPage() {
                     </div>
                   </div>
                   <div className="flex items-center text-xl">
-                    <TimeIcon className="mr-2 h-5 w-5 text-[#003d80]" /> Time: {formatTime(totalTime)}
+                    <Clock className="mr-2 h-5 w-5 text-[#003d80]" /> Time: {formatTime(totalTime)}
                   </div>
                 </div>
 
@@ -357,7 +357,7 @@ export default function QuizPage() {
                       <div key={item.question} className={`rounded-histo border p-4 ${isCorrect ? 'border-[rgba(16,185,129,0.3)] bg-[rgba(16,185,129,0.1)]' : 'border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.1)]'}`}>
                         <div className="flex items-start gap-2">
                           <div className={`mt-1 ${isCorrect ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
-                            {isCorrect ? <CheckCircleIcon className="h-5 w-5" /> : <XCircleIcon className="h-5 w-5" />}
+                            {isCorrect ? <CheckCircle className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
                           </div>
                           <div>
                             <p className="font-semibold"><strong>Q{index + 1}:</strong> {item.question}</p>
