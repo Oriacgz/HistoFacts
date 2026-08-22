@@ -215,3 +215,58 @@ export function GoogleIcon(props) {
     </BaseIcon>
   );
 }
+
+export function SparklesIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M12 3v2m0 14v2m11-13h2m-14 0h2m6.36 6.36l1.41 1.41m-11.31 0l1.41-1.41m0 11.31l-1.41 1.41m11.31 0l-1.41-1.41" />
+      <path d="M18 12c0 2.21-1.79 4-4 4s-4-1.79-4-4 1.79-4 4-4 4 1.79 4 4z" />
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+    </BaseIcon>
+  );
+}
+
+export function TrophyIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H15a2.5 2.5 0 0 1 0 5H18M4 22h16M18 9a4 4 0 0 1-1.5 3.5c-.6.8-1.5 1.5-2.5 2-.5.3-1 .4-1.5.4s-1-.1-1.5-.4c-1-.5-1.9-1.2-2.5-2A4 4 0 0 1 6 9" />
+    </BaseIcon>
+  );
+}
+
+export function ArrowRightIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M6 12h10" />
+      <path d="M12 7l5 5-5 5" />
+    </BaseIcon>
+  );
+}
+
+export function ClockIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="M12 8v4l3 2" />
+    </BaseIcon>
+  );
+}
+
+export function ShieldIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M12 22s8-4 8-10V5c0-5-4-8-8-8S4 0 4 5v7c0 6 8 10 8 10z" />
+    </BaseIcon>
+  );
+}
+
+export function GlobeIcon(props) {
+  return (
+    <BaseIcon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15.3 15.3 0 0 1 0 20" />
+      <path d="M12 2a15.3 15.3 0 0 0 0 20" />
+    </BaseIcon>
+  );
+}

@@ -6,6 +6,7 @@ import FeedPage from './pages/FeedPage';
 import GroupsPage from './pages/GroupsPage';
 import FriendsPage from './pages/FriendsPage';
 import NotesPage from './pages/NotesPage';
+import LandingPage from './pages/LandingPage';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 
@@ -33,13 +34,35 @@ function PublicOnlyRoute({ children }) {
   return children;
 }
 
+function LandingRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-histo-dark flex items-center justify-center text-histo-gold font-ui text-sm">
+        Loading HistoFacts...
+      </div>
+    );
+  }
+  if (user) {
+    return <Navigate to="/home" replace />;
+  }
+  return children;
+}
+
 export default function App() {
   return (
     <ToastProvider>
       <AuthProvider>
         <Routes>
-          {/* Default entry point — if unauthenticated, ProtectedRoute redirects to /loginpg */}
-          <Route path="/" element={<Navigate to="/home" replace />} />
+          {/* Public landing page - redirects authenticated users to /home */}
+          <Route
+            path="/"
+            element={
+              <LandingRoute>
+                <LandingPage />
+              </LandingRoute>
+            }
+          />
           <Route
             path="/loginpg"
             element={
@@ -96,7 +119,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="*" element={<Navigate to="/home" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
     </ToastProvider>
