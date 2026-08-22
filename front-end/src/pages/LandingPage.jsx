@@ -14,6 +14,7 @@ import {
   Menu,
   X,
 } from 'lucide-react';
+import { ArrowRightIcon, ShieldIcon, SparklesIcon, BookOpenIcon } from '../components/MotionIcons';
 import { useAuth } from '../contexts/AuthContext';
 
 const featureData = [
@@ -260,12 +261,12 @@ export default function LandingPage() {
               />
               <ArrowRightIcon className="absolute right-6 top-1/2 -translate-y-1/2 h-5 w-5 text-histo-paper group-hover:text-histo-dark transition-colors" />
             </Link>
-            <Link
-              to="#features"
+            <a
+              href="#features"
               className="px-8 py-4 rounded-[2px] border-2 border-histo-dark/20 text-histo-ink text-sm font-ui font-bold uppercase tracking-[2px] hover:border-histo-copper hover:bg-histo-copper/10 hover:text-histo-copper transition-all duration-300"
             >
               Explore Features
-            </Link>
+            </a>
           </motion.div>
 
           {/* Trust Indicators */}
@@ -531,12 +532,12 @@ export default function LandingPage() {
                 <span className="relative z-10">Create Free Account</span>
                 <ArrowRightIcon className="absolute right-6 top-1/2 -translate-y-1/2 h-5 w-5 text-histo-dark group-hover:text-histo-ink transition-colors" />
               </Link>
-              <Link
-                to="#features"
+              <a
+                href="#features"
                 className="px-8 py-4 rounded-[2px] border-2 border-white/20 text-histo-paper text-sm font-ui font-bold uppercase tracking-[2px] hover:border-histo-gold hover:bg-histo-gold/10 hover:text-histo-gold transition-all duration-300"
               >
                 Learn More
-              </Link>
+              </a>
             </motion.div>
           </motion.div>
         </div>
