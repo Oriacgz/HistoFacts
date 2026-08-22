@@ -117,7 +117,7 @@ export default function LoginPage() {
     try {
       await register(name, email, password);
       toast.success('Registration successful! Welcome to HistoFacts.');
-      navigate('/');
+      navigate('/home');
     } catch (err) {
       // Fallback for offline local testing
       const next = [...registeredUsers, { name, email, password }];
@@ -149,13 +149,13 @@ export default function LoginPage() {
     try {
       const loggedUser = await login(email, password);
       toast.success(`Welcome back, ${loggedUser?.username || 'Scholar'}! Logged in successfully.`);
-      navigate('/');
+      navigate('/home');
     } catch (err) {
       // Check local registered fallback
       const localUser = registeredUsers.find((u) => u.email === email);
       if (localUser && localUser.password === password) {
         toast.success(`Welcome back, ${localUser.name || 'Scholar'}! Logged in successfully.`);
-        navigate('/');
+        navigate('/home');
       } else {
         setSignInErrors({ email: err.message || 'Login failed' });
         toast.error(err.message || 'Invalid credentials. Please try again.');
