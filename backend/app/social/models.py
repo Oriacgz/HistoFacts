@@ -18,9 +18,9 @@ class Post(Base):
     __tablename__ = "posts"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    group_id = Column(String, ForeignKey("groups.id", ondelete="CASCADE"), nullable=True, index=True)
-    event_id = Column(String, ForeignKey("historical_events.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    group_id = Column(String, nullable=True, index=True)
+    event_id = Column(String, nullable=True, index=True)
     content = Column(Text, nullable=False)
     like_count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -31,9 +31,9 @@ class Comment(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     post_id = Column(String, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
     parent_comment_id = Column(String, ForeignKey("comments.id", ondelete="CASCADE"), nullable=True, index=True)
-    mentioned_user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    mentioned_user_id = Column(String, nullable=True)
     content = Column(Text, nullable=False)
     like_count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -43,7 +43,7 @@ class Like(Base):
     __tablename__ = "likes"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
     post_id = Column(String, ForeignKey("posts.id", ondelete="CASCADE"), nullable=True, index=True)
     comment_id = Column(String, ForeignKey("comments.id", ondelete="CASCADE"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

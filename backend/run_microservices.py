@@ -10,6 +10,13 @@ import time
 import signal
 import threading
 
+# Ensure safe UTF-8 output across Windows cp1252 / PowerShell / Command Prompt
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 SERVICES = [
     ("Auth Service (:8001)", "app.auth.main:app", 8001),
     ("History Service (:8002)", "app.history.main:app", 8002),
@@ -31,7 +38,10 @@ def stream_logs(name: str, proc: subprocess.Popen):
             break
         text = line.decode("utf-8", errors="replace").rstrip()
         if text:
-            print(f"[{name}] {text}")
+            try:
+                print(f"[{name}] {text}")
+            except Exception:
+                pass
 
 
 def shutdown(signum=None, frame=None):
@@ -39,7 +49,7 @@ def shutdown(signum=None, frame=None):
     if not running:
         return
     running = False
-    print("\n🛑 Stopping all HistoFacts microservices...")
+    print("\n[!] Stopping all HistoFacts microservices...")
     for name, proc in processes:
         try:
             proc.terminate()
@@ -49,7 +59,7 @@ def shutdown(signum=None, frame=None):
                 proc.kill()
             except Exception:
                 pass
-    print("✅ All microservices stopped successfully.")
+    print("[+] All microservices stopped successfully.")
     sys.exit(0)
 
 
@@ -59,7 +69,7 @@ def main():
 
     python_exe = sys.executable
     print("=" * 70)
-    print("🚀 Starting HistoFacts Microservices Architecture (7 Processes)")
+    print(">> Starting HistoFacts Microservices Architecture (7 Processes)")
     print("=" * 70)
 
     for name, app_module, port in SERVICES:
@@ -76,7 +86,7 @@ def main():
             "info",
         ]
 
-        print(f"  ▶ Launching {name} -> http://localhost:{port}")
+        print(f"  [+] Launching {name} -> http://localhost:{port}")
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -91,10 +101,10 @@ def main():
         time.sleep(0.3)
 
     print("-" * 70)
-    print("✨ All 6 microservices & API Gateway are running!")
-    print("   🌐 Unified Gateway URL: http://localhost:8000")
-    print("   📖 Gateway Health:     http://localhost:8000/health")
-    print("   Press Ctrl+C to stop all services.")
+    print("[*] All 6 microservices & API Gateway are running!")
+    print("    Unified Gateway URL: http://localhost:8000")
+    print("    Gateway Health:     http://localhost:8000/health")
+    print("    Press Ctrl+C to stop all services.")
     print("=" * 70)
 
     try:
@@ -102,7 +112,7 @@ def main():
             for name, proc in processes:
                 ret = proc.poll()
                 if ret is not None and running:
-                    print(f"⚠️ Service '{name}' exited with code {ret}")
+                    print(f"[*] Service '{name}' exited with code {ret}")
             time.sleep(1)
     except KeyboardInterrupt:
         shutdown()

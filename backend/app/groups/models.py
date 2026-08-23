@@ -20,7 +20,7 @@ class Group(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=True)
-    created_by = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_by = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -28,6 +28,7 @@ class GroupMember(Base):
     __tablename__ = "group_members"
 
     group_id = Column(String, ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(String, primary_key=True)
     role = Column(String, nullable=False, default="member")  # admin, member
     joined_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
