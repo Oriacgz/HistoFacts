@@ -1,5 +1,5 @@
 """
-SQLAlchemy models for Quiz module (quiz_questions, quiz_attempts).
+SQLAlchemy models for Quiz module (quiz_questions, quiz_attempts, quiz_sessions).
 """
 
 import uuid
@@ -38,3 +38,20 @@ class QuizAttempt(Base):
     is_correct = Column(Boolean, nullable=False)
     attempted_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+
+class QuizSessionRecord(Base):
+    __tablename__ = "quiz_sessions"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, nullable=False, index=True)
+    quiz_type = Column(String, nullable=False, index=True)  # "personalized", "lobby", "global"
+    topic = Column(String, nullable=False)
+    difficulty = Column(String, default="medium")  # "easy", "medium", "hard", "standard"
+    score = Column(Integer, nullable=False, default=0)
+    max_score = Column(Integer, nullable=False, default=20)
+    correct_count = Column(Integer, nullable=False, default=0)
+    wrong_count = Column(Integer, nullable=False, default=0)
+    total_time_seconds = Column(Integer, default=0)
+    rank = Column(Integer, nullable=True)
+    details = Column(JSON, nullable=True)  # detailed question breakdown for history review
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

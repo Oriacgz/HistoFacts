@@ -59,18 +59,7 @@ export default function FriendsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-histo-paper text-histo-ink font-body histo-paper-texture">
-      {/* Header */}
-      <header className="sticky top-0 z-40 flex items-center justify-between px-8 py-4 bg-histo-dark text-white border-b border-white/10 shadow-medium">
-        <Link to="/" className="font-display text-2xl font-bold tracking-[4px] text-histo-paper uppercase">HISTOFACTS</Link>
-        <nav className="flex gap-6">
-          <Link to="/" className="text-xs font-ui tracking-wider uppercase text-histo-paper/85 hover:text-histo-gold transition-colors">Home</Link>
-          <Link to="/feed" className="text-xs font-ui tracking-wider uppercase text-histo-paper/85 hover:text-histo-gold transition-colors">Feed</Link>
-          <Link to="/friends" className="text-xs font-ui tracking-wider uppercase text-histo-gold font-semibold">Friends</Link>
-        </nav>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-4 py-8">
+    <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="font-display text-3xl font-bold text-histo-dark mb-1">Scholar Connections</h1>
@@ -228,7 +217,6 @@ export default function FriendsPage() {
             )}
           </div>
         )}
-      </main>
-    </div>
+    </main>
   );
 }
