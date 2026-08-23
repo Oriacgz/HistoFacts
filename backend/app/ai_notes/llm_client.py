@@ -1,10 +1,19 @@
 """
-LLM client wrapper for curriculum-aware AI note generation.
-Calls OpenAI / Anthropic / compatible API server-side, with fallback generator.
+LLM client wrapper for curriculum-aware AI note generation and Handwritten Notes restyling.
+Calls OpenAI / Anthropic / compatible API server-side, with fallback generator and token usage metrics.
 """
 
 import httpx
 from app.core.config import settings
+
+
+def calculate_approx_tokens(text: str) -> int:
+    """Estimate token count from text (~4 chars per token or ~1.3 tokens per word)."""
+    if not text:
+        return 0
+    words = len(text.split())
+    chars = len(text)
+    return max(int(words * 1.3), int(chars / 3.8))
 
 
 async def generate_curriculum_note(
@@ -14,12 +23,12 @@ async def generate_curriculum_note(
     attachment_type: str | None = None,
     attachment_text: str | None = None,
     attachment_data: str | None = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, int]:
     """
     Generate study notes tailored to a specific curriculum, optionally analyzing an attached document/image.
 
     Returns:
-        tuple[str, str]: (title, content_markdown)
+        tuple[str, str, int]: (title, content_markdown, actual_tokens_used)
     """
     clean_topic_title = topic.strip().replace("\n", " ")
     if len(clean_topic_title) > 60:
@@ -36,7 +45,6 @@ async def generate_curriculum_note(
     if attachment_name:
         attachment_instructions += f"\n\nAttached Source File: '{attachment_name}' (Type: {attachment_type or 'document'})."
     if attachment_text:
-        # Limit attachment text in prompt to ~12000 chars to avoid exceeding token limits
         snippet = attachment_text[:12000]
         attachment_instructions += f"\n\n--- SOURCE MATERIAL CONTENT ---\n{snippet}\n--- END SOURCE MATERIAL ---\n\nCarefully analyze, extract, and incorporate the primary facts, concepts, arguments, timelines, and figures from this attached source into the structured curriculum study notes."
 
@@ -57,7 +65,6 @@ async def generate_curriculum_note(
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
                 user_content = prompt
-                # If image attachment data (data URL) is provided, use multimodal format
                 if attachment_data and attachment_data.startswith("data:image/"):
                     user_content = [
                         {"type": "text", "text": prompt},
@@ -88,11 +95,13 @@ async def generate_curriculum_note(
                 if resp.status_code == 200:
                     data = resp.json()
                     content = data["choices"][0]["message"]["content"]
-                    return title, content
+                    usage = data.get("usage", {})
+                    tokens_used = usage.get("total_tokens", calculate_approx_tokens(prompt) + calculate_approx_tokens(content))
+                    return title, content, tokens_used
         except Exception as e:
             print(f"LLM API call error: {e}")
 
-    # High-quality fallback template when API key is not present or offline
+    # Fallback template
     source_section = ""
     if attachment_name:
         preview_text = ""
@@ -131,4 +140,102 @@ async def generate_curriculum_note(
         f"3. Assess the long-term historical significance of these events from a comparative perspective.\n"
     )
 
-    return title, fallback_content
+    tokens_used = calculate_approx_tokens(prompt) + calculate_approx_tokens(fallback_content)
+    return title, fallback_content, tokens_used
+
+
+async def generate_handwritten_note(
+    original_title: str,
+    original_content: str,
+) -> tuple[str, str, int]:
+    """
+    Restyle an already-generated formal note into student handwritten lecture notes style.
+
+    Returns:
+        tuple[str, str, int]: (new_title, rewritten_content, actual_tokens_used)
+    """
+    title = f"Handwritten Notes: {original_title.replace('Study Notes: ', '').replace('Handwritten Notes: ', '')}"
+
+    prompt = (
+        f"You are converting a formal study note into the style of a student's own handwritten class notes.\n\n"
+        f"Rewrite the note below following these rules:\n"
+        f"- Use short, abbreviated phrases instead of full sentences where it reads naturally (e.g. 'govt' not 'government', '->' for 'leads to', 'w/' for 'with', 'b/c' for 'because')\n"
+        f"- Break ideas into quick bullet fragments, not paragraphs\n"
+        f"- Use arrows (→) to show cause-effect or sequence between events\n"
+        f"- Mark key terms and dates the way a student would underline them — use **bold**\n"
+        f"- Keep it tight — this should read like notes taken *during* a lecture, not a polished summary\n"
+        f"- Do not omit or invent facts. Every date, name, and fact in the original must still be present — only the style changes\n\n"
+        f"Original note:\n{original_content}\n\n"
+        f"Rewritten (handwritten style):"
+    )
+
+    if settings.llm_api_key:
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.llm_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "gpt-4o-mini",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a top student writing fast, crisp, abbreviated handwritten lecture notes in a notebook.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.7,
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    usage = data.get("usage", {})
+                    tokens_used = usage.get("total_tokens", calculate_approx_tokens(prompt) + calculate_approx_tokens(content))
+                    return title, content, tokens_used
+        except Exception as e:
+            print(f"Handwritten LLM API call error: {e}")
+
+    # Fallback handwritten transformation
+    # Convert sentences into abbreviated student bullet fragments with arrows
+    lines = original_content.splitlines()
+    hw_lines = [f"# ✍️ {title}\n"]
+    for line in lines:
+        l = line.strip()
+        if not l:
+            continue
+        if l.startswith('# '):
+            continue
+        elif l.startswith('## '):
+            hw_lines.append(f"\n## 📌 {l.replace('## ', '').replace('📌 ', '')}")
+        elif l.startswith('- ') or l.startswith('* ') or (len(l) > 2 and l[0].isdigit() and l[1] in ('.', ')')):
+            clean = l.lstrip('-* 0123456789.)')
+            # Shorten common words to student slang
+            abbrev = (
+                clean.replace("government", "govt")
+                .replace("because", "b/c")
+                .replace("with", "w/")
+                .replace("without", "w/o")
+                .replace("between", "btw")
+                .replace("leads to", "→")
+                .replace("caused", "→ caused")
+                .replace("resulting in", "→")
+            )
+            hw_lines.append(f"• {abbrev}")
+        else:
+            abbrev = (
+                l.replace("government", "govt")
+                .replace("because", "b/c")
+                .replace("with", "w/")
+                .replace("leads to", "→")
+                .replace("resulting in", "→")
+            )
+            hw_lines.append(f"→ {abbrev}")
+
+    hw_lines.append("\n💡 *Exam Tip: Remember key dates & arrow sequences above!*")
+    rewritten_fallback = "\n".join(hw_lines)
+    tokens_used = calculate_approx_tokens(prompt) + calculate_approx_tokens(rewritten_fallback)
+    return title, rewritten_fallback, tokens_used

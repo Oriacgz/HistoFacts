@@ -25,10 +25,26 @@ import {
   Plus,
   Search,
   CheckCircle2,
+  Coins,
+  Zap,
+  ShoppingBag,
+  PenTool,
+  AlertCircle,
+  HelpCircle,
+  Clock,
+  Sparkle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { generateNoteApi, getMyNotesApi, deleteNoteApi } from '../api/aiNotes';
+import {
+  generateNoteApi,
+  generateHandwrittenNoteApi,
+  getMyNotesApi,
+  deleteNoteApi,
+  getWalletApi,
+  getShopPacksApi,
+  purchasePackApi,
+} from '../api/aiNotes';
 
 const SUGGESTED_PROMPTS = [
   {
@@ -53,6 +69,23 @@ const SUGGESTED_PROMPTS = [
   },
 ];
 
+// Helper to estimate tokens client-side from input text (~1.3 tokens per word or 3.8 chars/token)
+function estimateClientTokens(text, attachments = []) {
+  if (!text && attachments.length === 0) return 0;
+  const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const promptTokens = Math.max(Math.round(wordCount * 1.3), Math.round(text.length / 3.8));
+  let attachmentTokens = 0;
+  attachments.forEach((a) => {
+    if (a.extractedText) {
+      attachmentTokens += Math.round(a.extractedText.length / 4);
+    } else {
+      attachmentTokens += 500;
+    }
+  });
+  // Prompt + Expected Output allowance
+  return promptTokens + attachmentTokens + 1200;
+}
+
 // Helper to extract text / data from attached files in browser
 async function processAttachedFile(file) {
   return new Promise((resolve) => {
@@ -65,7 +98,6 @@ async function processAttachedFile(file) {
       dataUrl: null,
     };
 
-    // If Image: get preview URL and Base64 data URL
     if (file.type.startsWith('image/')) {
       fileInfo.previewUrl = URL.createObjectURL(file);
       const reader = new FileReader();
@@ -78,7 +110,6 @@ async function processAttachedFile(file) {
       return;
     }
 
-    // If Text / Markdown / JSON / CSV: read as plain text
     if (
       file.type.includes('text') ||
       file.name.endsWith('.txt') ||
@@ -97,7 +128,6 @@ async function processAttachedFile(file) {
       return;
     }
 
-    // For PDFs & Word / Other Docs: read as ArrayBuffer to extract text streams and base64
     const reader = new FileReader();
     reader.onload = () => {
       try {
@@ -151,7 +181,7 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Markdown Formatter Component for AI Response Blocks
+// Markdown Formatter Component for Standard AI Blocks
 function MarkdownBlockViewer({ content }) {
   if (!content) return null;
 
@@ -161,11 +191,8 @@ function MarkdownBlockViewer({ content }) {
     <div className="space-y-4 text-histo-ink font-body leading-relaxed max-w-none">
       {lines.map((line, idx) => {
         const trimmed = line.trim();
-        if (!trimmed) {
-          return <div key={idx} className="h-1.5" />;
-        }
+        if (!trimmed) return <div key={idx} className="h-1.5" />;
 
-        // H1 Heading
         if (trimmed.startsWith('# ')) {
           return (
             <div key={idx} className="pb-2 border-b border-histo-copper/20 pt-1 mb-3">
@@ -176,19 +203,16 @@ function MarkdownBlockViewer({ content }) {
           );
         }
 
-        // H2 Heading (Sections)
         if (trimmed.startsWith('## ')) {
-          const headingText = trimmed.replace(/^##\s+/, '');
           return (
             <div key={idx} className="pt-4 pb-1.5 flex items-center gap-2 border-b border-histo-dark/10 text-histo-dark">
               <h2 className="font-display text-base sm:text-lg font-bold tracking-wide text-histo-dark">
-                {headingText}
+                {trimmed.replace(/^##\s+/, '')}
               </h2>
             </div>
           );
         }
 
-        // H3 Heading
         if (trimmed.startsWith('### ')) {
           return (
             <h3 key={idx} className="font-display text-sm sm:text-base font-bold text-histo-dark pt-2">
@@ -197,7 +221,6 @@ function MarkdownBlockViewer({ content }) {
           );
         }
 
-        // Blockquote
         if (trimmed.startsWith('>')) {
           return (
             <div
@@ -209,21 +232,18 @@ function MarkdownBlockViewer({ content }) {
           );
         }
 
-        // Numbered list item
         if (/^\d+\.\s+/.test(trimmed)) {
           const numberMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
           if (numberMatch) {
-            const num = numberMatch[1];
-            const text = numberMatch[2];
             return (
               <div key={idx} className="flex items-start gap-2.5 my-1.5 pl-1">
                 <span className="h-5 w-5 rounded-full bg-histo-copper/15 text-histo-copper font-ui font-bold text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
-                  {num}
+                  {numberMatch[1]}
                 </span>
                 <div
                   className="font-body text-sm text-histo-ink flex-1 leading-relaxed"
                   dangerouslySetInnerHTML={{
-                    __html: text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-histo-dark font-semibold">$1</strong>'),
+                    __html: numberMatch[2].replace(/\*\*(.*?)\*\*/g, '<strong class="text-histo-dark font-semibold">$1</strong>'),
                   }}
                 />
               </div>
@@ -231,7 +251,6 @@ function MarkdownBlockViewer({ content }) {
           }
         }
 
-        // Bullet list item
         if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
           const rawText = trimmed.replace(/^[-*]\s+/, '');
           return (
@@ -247,7 +266,6 @@ function MarkdownBlockViewer({ content }) {
           );
         }
 
-        // Scope / meta line
         if (trimmed.startsWith('**Curriculum Scope:**')) {
           return (
             <div key={idx} className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-histo-cream border border-histo-copper/20 rounded-md font-ui text-xs text-histo-dark font-medium mb-2">
@@ -257,13 +275,74 @@ function MarkdownBlockViewer({ content }) {
           );
         }
 
-        // Regular paragraph
         return (
           <p
             key={idx}
             className="font-body text-sm text-histo-ink/90 leading-relaxed my-1"
             dangerouslySetInnerHTML={{
               __html: trimmed.replace(/\*\*(.*?)\*\*/g, '<strong class="text-histo-dark font-semibold">$1</strong>'),
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// Markdown Formatter Component for Handwritten Notebook Style Blocks
+function HandwrittenBlockViewer({ content }) {
+  if (!content) return null;
+
+  const lines = content.split('\n');
+
+  return (
+    <div className="handwritten-notebook p-6 sm:p-8 rounded-lg border border-blue-200/50 shadow-inner text-[#1b2a4a] text-xl sm:text-2xl leading-[28px] tracking-wide select-text">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={idx} className="h-4" />;
+
+        if (trimmed.startsWith('# ')) {
+          return (
+            <div key={idx} className="pb-1 border-b-2 border-red-300/60 mb-2">
+              <h2 className="text-2xl sm:text-3xl font-bold text-[#142340] tracking-tight">
+                {trimmed.replace(/^#\s+/, '')}
+              </h2>
+            </div>
+          );
+        }
+
+        if (trimmed.startsWith('## ')) {
+          return (
+            <div key={idx} className="pt-3 pb-1 text-[#2d4b6a] font-bold text-xl sm:text-2xl flex items-center gap-2">
+              <span>{trimmed.replace(/^##\s+/, '')}</span>
+            </div>
+          );
+        }
+
+        if (trimmed.startsWith('• ') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+          const raw = trimmed.replace(/^[•\-*]\s+/, '');
+          return (
+            <div key={idx} className="pl-4 my-1 flex items-start gap-2">
+              <span className="text-histo-copper font-bold">•</span>
+              <span
+                dangerouslySetInnerHTML={{
+                  __html: raw
+                    .replace(/→/g, '<span class="text-red-500 font-bold px-1">→</span>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong class="text-blue-950 font-bold underline decoration-amber-400 decoration-2">$1</strong>'),
+                }}
+              />
+            </div>
+          );
+        }
+
+        return (
+          <p
+            key={idx}
+            className="my-1 pl-2"
+            dangerouslySetInnerHTML={{
+              __html: trimmed
+                .replace(/→/g, '<span class="text-red-500 font-bold px-1">→</span>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong class="text-blue-950 font-bold underline decoration-amber-400 decoration-2">$1</strong>'),
             }}
           />
         );
@@ -284,6 +363,7 @@ export default function NotesPage() {
   const [activeNoteId, setActiveNoteId] = useState(null);
   const [inputValue, setInputValue] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isRestylingId, setIsRestylingId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedMessageId, setCopiedMessageId] = useState(null);
@@ -294,15 +374,44 @@ export default function NotesPage() {
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
 
+  // Token Wallet & Shop State
+  const [wallet, setWallet] = useState({
+    token_balance: 350000,
+    histoin_balance: 0,
+    next_refresh_at: new Date().toISOString(),
+    daily_refresh_amount: 50000,
+    free_refill_cap: 350000,
+    purchased_ceiling: 1000000,
+  });
+  const [shopOpen, setShopOpen] = useState(false);
+  const [shopPacks, setShopPacks] = useState([]);
+  const [confirmPack, setConfirmPack] = useState(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+
+  // Debounced cost estimate state
+  const [estimatedTokens, setEstimatedTokens] = useState(0);
+
   const fileInputRef = useRef(null);
   const chatBottomRef = useRef(null);
 
-  // Load Saved Notes from API
+  // Fetch Wallet & Notes
+  const fetchWallet = useCallback(async () => {
+    try {
+      const data = await getWalletApi();
+      if (data) setWallet(data);
+    } catch {
+      // Fallback default state
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
-      const notesData = await getMyNotesApi().catch(() => []);
-      const fetchedNotes = notesData || [];
-      setNotes(fetchedNotes);
+      const [notesData, walletData] = await Promise.all([
+        getMyNotesApi().catch(() => []),
+        getWalletApi().catch(() => null),
+      ]);
+      setNotes(notesData || []);
+      if (walletData) setWallet(walletData);
     } catch {
       const sampleNotes = [
         {
@@ -347,10 +456,62 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
     loadData();
   }, [loadData]);
 
-  // Scroll to bottom when messages update or generating
+  // Debounced token estimate calculation (~300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const est = estimateClientTokens(inputValue, attachedFiles);
+      setEstimatedTokens(est);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [inputValue, attachedFiles]);
+
+  // Open Shop & Load Packs
+  const handleOpenShop = async () => {
+    setShopOpen(true);
+    try {
+      const packs = await getShopPacksApi();
+      setShopPacks(packs || []);
+    } catch {
+      setShopPacks([
+        { id: 'p-1', name: 'Starter Pack', token_amount: 50000, histoin_cost: 100, is_active: true },
+        { id: 'p-2', name: 'Popular Pack', token_amount: 150000, histoin_cost: 250, is_active: true },
+        { id: 'p-3', name: 'Mega Pack', token_amount: 350000, histoin_cost: 500, is_active: true },
+      ]);
+    }
+  };
+
+  // Buy Token Pack
+  const handleBuyPack = async (pack) => {
+    if (wallet.histoin_balance < pack.histoin_cost) {
+      toast.error(`Insufficient Histoins! Need ${pack.histoin_cost} 🪙`);
+      return;
+    }
+    setConfirmPack(pack);
+  };
+
+  const confirmPurchase = async () => {
+    if (!confirmPack) return;
+    setIsPurchasing(true);
+    try {
+      const res = await purchasePackApi(confirmPack.id);
+      setWallet((prev) => ({
+        ...prev,
+        token_balance: res.token_balance,
+        histoin_balance: res.histoin_balance,
+      }));
+      toast.success(`Purchased ${confirmPack.name}! +${res.tokens_credited?.toLocaleString()} tokens.`);
+      setConfirmPack(null);
+    } catch (err) {
+      toast.error(err.message || 'Purchase failed');
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
+
+  // Scroll to bottom when messages update
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: shouldReduceMotion ? 'auto' : 'smooth' });
-  }, [messages, isGenerating, shouldReduceMotion]);
+  }, [messages, isGenerating, isRestylingId, shouldReduceMotion]);
 
   // Handle File Input Selection
   const handleFileSelect = async (e) => {
@@ -367,7 +528,7 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
       setAttachedFiles((prev) => [...prev, ...processed]);
       toast.success(`Attached ${files.length} file${files.length > 1 ? 's' : ''}`);
     } catch {
-      toast.error('Failed to process one or more attached files');
+      toast.error('Failed to process attached files');
     } finally {
       setIsProcessingFiles(false);
     }
@@ -413,15 +574,75 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
     setTimeout(() => setCopiedMessageId(null), 2000);
   };
 
+  // Convert Note to Handwritten Style
+  const handleConvertToHandwritten = async (noteId, messageId) => {
+    if (!noteId) {
+      toast.info('Please save or select a note to convert');
+      return;
+    }
+
+    if (wallet.token_balance < 1000) {
+      toast.error('Not enough tokens to restyle! Please visit the Shop.');
+      handleOpenShop();
+      return;
+    }
+
+    setIsRestylingId(messageId);
+    try {
+      const res = await generateHandwrittenNoteApi(noteId);
+
+      const hwMsgId = `ai-hw-${Date.now()}`;
+      const hwMessage = {
+        id: hwMsgId,
+        noteId: res.id,
+        role: 'assistant',
+        title: res.title,
+        content: res.content,
+        style: 'handwritten',
+        timestamp: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, hwMessage]);
+
+      const savedNote = {
+        id: res.id || `n-hw-${Date.now()}`,
+        title: res.title,
+        content: res.content,
+        style: 'handwritten',
+        created_at: new Date().toISOString(),
+      };
+      setNotes((prev) => [savedNote, ...prev]);
+      setActiveNoteId(savedNote.id);
+      fetchWallet();
+      toast.success('Converted to Handwritten Notes!');
+    } catch (err) {
+      if (err.status === 402) {
+        toast.error('Insufficient tokens! Visit shop to refill.');
+        handleOpenShop();
+      } else {
+        toast.error('Failed to convert to handwritten notes');
+      }
+    } finally {
+      setIsRestylingId(null);
+    }
+  };
+
   // Send Message / Generate Answer Block
   const handleSendMessage = async (customPrompt = null) => {
     const promptText = (customPrompt || inputValue).trim();
     if ((!promptText && attachedFiles.length === 0) || isGenerating) return;
 
+    // Check token balance
+    const estCost = estimateClientTokens(promptText, attachedFiles);
+    if (wallet.token_balance < estCost) {
+      toast.error(`Not enough tokens! You need ~${estCost.toLocaleString()} tokens.`);
+      handleOpenShop();
+      return;
+    }
+
     const currentFiles = [...attachedFiles];
     const userPrompt = promptText || (currentFiles.length > 0 ? `Analyze attached document: ${currentFiles[0].name}` : 'Generate study notes');
 
-    // Add user message to conversation thread
     const userMsgId = `user-${Date.now()}`;
     const userMessage = {
       id: userMsgId,
@@ -453,60 +674,72 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
       const aiMsgId = `ai-${Date.now()}`;
       const aiMessage = {
         id: aiMsgId,
+        noteId: res.id,
         role: 'assistant',
         title: res.title,
         content: res.content,
+        style: res.style || 'standard',
         attachment_name: primaryFile?.name || null,
         timestamp: new Date().toISOString(),
       };
 
       setMessages((prev) => [...prev, aiMessage]);
 
-      // Save to left sidebar notes list
       const savedNote = {
         id: res.id || `n-${Date.now()}`,
         title: res.title || userPrompt.slice(0, 45),
         content: res.content,
+        style: res.style || 'standard',
         created_at: new Date().toISOString(),
       };
       setNotes((prev) => [savedNote, ...prev]);
       setActiveNoteId(savedNote.id);
-      toast.success('Answer generated!');
-    } catch {
-      // Local fallback generation
-      let sourceSection = '';
-      if (primaryFile) {
-        sourceSection = `\n\n## 📎 Attached Source Analysis (${primaryFile.name})\n- **Analyzed File:** \`${primaryFile.name}\`\n- **Synthesis:** Extracted primary historical arguments and key evidence.`;
+      fetchWallet();
+      toast.success('Answer generated on canvas!');
+    } catch (err) {
+      if (err.status === 402) {
+        toast.error('Insufficient tokens! Visit shop to refill.');
+        handleOpenShop();
+      } else {
+        // Local fallback generation
+        let sourceSection = '';
+        if (primaryFile) {
+          sourceSection = `\n\n## 📎 Attached Source Analysis (${primaryFile.name})\n- **Analyzed File:** \`${primaryFile.name}\`\n- **Synthesis:** Extracted primary historical arguments and key evidence.`;
+        }
+
+        const fallbackContent = `# Study Notes: ${userPrompt}\n\n## 📌 Key Takeaways & Core Concepts\n- **Topic:** ${userPrompt}\n- **Historical Significance:** Critical milestone in world history and institutional development.\n- **Core Theme:** Political evolution, socio-economic factors, and lasting societal impacts.${sourceSection}\n\n## 🏛️ Historical Context & Background\nUnderstanding the conditions leading up to **${userPrompt}** provides vital context on how leadership, public policy, and socio-economic tensions converged.\n\n## 📜 Major Timeline & Key Events\n1. **Origins & Catalysts:** Societal, economic, and philosophical triggers leading to change.\n2. **Pivotal Turning Point:** Crucial events and key leadership shifts that redefined policies.\n3. **Outcome & Legacy:** Long-term legal, administrative, and cultural transformations.\n\n## 🎯 Examination & Curriculum Relevance\n- **Descriptive & Essay Focus:** Analyze cause-and-effect relationships and source evidence.\n- **High-Yield Fact Points:** Memorize key dates, prominent figures, treaties, and declarations.\n\n## ❓ Self-Assessment & Exam Questions\n1. What were the primary socio-economic factors driving ${userPrompt}?\n2. How did these historical developments influence subsequent governance and state institutions?`;
+
+        const fallbackNoteId = `n-${Date.now()}`;
+        const aiMsgId = `ai-${Date.now()}`;
+        const aiMessage = {
+          id: aiMsgId,
+          noteId: fallbackNoteId,
+          role: 'assistant',
+          title: `Notes: ${userPrompt.slice(0, 45)}`,
+          content: fallbackContent,
+          style: 'standard',
+          attachment_name: primaryFile?.name || null,
+          timestamp: new Date().toISOString(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+
+        const savedNote = {
+          id: fallbackNoteId,
+          title: userPrompt.slice(0, 45),
+          content: fallbackContent,
+          style: 'standard',
+          created_at: new Date().toISOString(),
+        };
+        setNotes((prev) => [savedNote, ...prev]);
+        setActiveNoteId(savedNote.id);
+        fetchWallet();
       }
-
-      const fallbackContent = `# Study Notes: ${userPrompt}\n\n## 📌 Key Takeaways & Core Concepts\n- **Topic:** ${userPrompt}\n- **Historical Significance:** Critical milestone in world history and institutional development.\n- **Core Theme:** Political evolution, socio-economic factors, and lasting societal impacts.${sourceSection}\n\n## 🏛️ Historical Context & Background\nUnderstanding the conditions leading up to **${userPrompt}** provides vital context on how leadership, public policy, and socio-economic tensions converged.\n\n## 📜 Major Timeline & Key Events\n1. **Origins & Catalysts:** Societal, economic, and philosophical triggers leading to change.\n2. **Pivotal Turning Point:** Crucial events and key leadership shifts that redefined policies.\n3. **Outcome & Legacy:** Long-term legal, administrative, and cultural transformations.\n\n## 🎯 Examination & Curriculum Relevance\n- **Descriptive & Essay Focus:** Analyze cause-and-effect relationships and source evidence.\n- **High-Yield Fact Points:** Memorize key dates, prominent figures, treaties, and declarations.\n\n## ❓ Self-Assessment & Exam Questions\n1. What were the primary socio-economic factors driving ${userPrompt}?\n2. How did these historical developments influence subsequent governance and state institutions?`;
-
-      const aiMsgId = `ai-${Date.now()}`;
-      const aiMessage = {
-        id: aiMsgId,
-        role: 'assistant',
-        title: `Notes: ${userPrompt.slice(0, 45)}`,
-        content: fallbackContent,
-        attachment_name: primaryFile?.name || null,
-        timestamp: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, aiMessage]);
-
-      const savedNote = {
-        id: `n-${Date.now()}`,
-        title: userPrompt.slice(0, 45),
-        content: fallbackContent,
-        created_at: new Date().toISOString(),
-      };
-      setNotes((prev) => [savedNote, ...prev]);
-      setActiveNoteId(savedNote.id);
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // Start a fresh new chat session
   const handleNewChat = () => {
     setMessages([]);
     setActiveNoteId(null);
@@ -514,27 +747,27 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
     setAttachedFiles([]);
   };
 
-  // Load a saved note into conversation view
   const handleSelectSavedNote = (note) => {
     setActiveNoteId(note.id);
     setMessages([
       {
         id: `user-saved-${note.id}`,
         role: 'user',
-        content: note.title.replace(/^Study Notes:\s*/, ''),
+        content: note.title.replace(/^Study Notes:\s*/, '').replace(/^Handwritten:\s*/, ''),
         timestamp: note.created_at || new Date().toISOString(),
       },
       {
         id: `ai-saved-${note.id}`,
+        noteId: note.id,
         role: 'assistant',
         title: note.title,
         content: note.content,
+        style: note.style || (note.title.toLowerCase().includes('handwritten') ? 'handwritten' : 'standard'),
         timestamp: note.created_at || new Date().toISOString(),
       },
     ]);
   };
 
-  // Delete note from library
   const handleDeleteNote = async (noteId, e) => {
     e.stopPropagation();
     if (!confirm('Delete this note from library?')) return;
@@ -554,11 +787,12 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
     }
   };
 
-  // Filter notes in sidebar search
   const filteredNotes = notes.filter((n) => {
     const q = searchQuery.toLowerCase();
     return n.title && n.title.toLowerCase().includes(q);
   });
+
+  const isInsufficient = wallet.token_balance < (estimatedTokens || 1200);
 
   return (
     <div
@@ -591,8 +825,167 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
             </div>
             <h3 className="font-display text-2xl font-bold mb-2">Drop PDFs, Docs, or Images Here</h3>
             <p className="font-ui text-sm text-histo-cream/80 max-w-md">
-              HistoFacts AI will read your files and generate structured study answers on the canvas.
+              HistoFacts AI will synthesize structured notes from your source documents.
             </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Shop Modal */}
+      <AnimatePresence>
+        {shopOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShopOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white border border-histo-dark/15 rounded-2xl shadow-deep max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              {/* Shop Header */}
+              <div className="p-5 bg-gradient-to-r from-histo-dark to-histo-medium text-white flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-xl bg-histo-gold/20 flex items-center justify-center text-histo-gold">
+                    <ShoppingBag className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-lg font-bold">Histoins Token Shop</h3>
+                    <p className="font-ui text-xs text-histo-cream/80">Exchange Histoins for AI Generation Tokens</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShopOpen(false)}
+                  className="p-1 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Wallet Balances Banner */}
+              <div className="p-4 bg-histo-cream/50 border-b border-histo-dark/10 flex items-center justify-around text-center">
+                <div>
+                  <span className="font-ui text-[11px] font-semibold text-histo-ink/60 uppercase block">Your Histoins</span>
+                  <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                    <Coins className="h-4 w-4 text-amber-500" />
+                    <span className="font-display text-lg font-bold text-histo-dark">{wallet.histoin_balance.toLocaleString()} 🪙</span>
+                  </div>
+                </div>
+                <div className="h-8 w-[1px] bg-histo-dark/15" />
+                <div>
+                  <span className="font-ui text-[11px] font-semibold text-histo-ink/60 uppercase block">Current Tokens</span>
+                  <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                    <Zap className="h-4 w-4 text-histo-copper" />
+                    <span className="font-display text-lg font-bold text-histo-dark">{wallet.token_balance.toLocaleString()} ⚡</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Token Packs List */}
+              <div className="p-5 overflow-y-auto space-y-3">
+                <span className="font-ui text-xs font-bold text-histo-ink/50 uppercase tracking-wider block mb-1">
+                  Available Token Packs
+                </span>
+
+                {shopPacks.map((pack) => {
+                  const canAfford = wallet.histoin_balance >= pack.histoin_cost;
+                  return (
+                    <div
+                      key={pack.id}
+                      className="p-4 rounded-xl border border-histo-dark/15 bg-white hover:border-histo-copper transition-all shadow-xs flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-display text-sm font-bold text-histo-dark">{pack.name}</h4>
+                          {pack.token_amount >= 350000 && (
+                            <span className="text-[10px] font-ui font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">
+                              Best Value
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-ui text-xs text-histo-copper font-semibold mt-0.5">
+                          +{pack.token_amount.toLocaleString()} Tokens
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => handleBuyPack(pack)}
+                        disabled={!canAfford}
+                        className={`px-4 py-2 rounded-lg font-ui text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                          canAfford
+                            ? 'bg-histo-copper text-white hover:bg-histo-dark active:scale-95'
+                            : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                        }`}
+                      >
+                        <Coins className="h-3.5 w-3.5" />
+                        <span>{pack.histoin_cost} 🪙</span>
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {/* Info on how to earn Histoins */}
+                <div className="p-3.5 bg-blue-50/70 border border-blue-200/60 rounded-xl text-blue-900 mt-4 text-xs font-ui space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <HelpCircle className="h-4 w-4 text-blue-600 shrink-0" />
+                    <span>How to Earn Histoins:</span>
+                  </div>
+                  <p className="text-blue-800/80 leading-relaxed pl-5.5">
+                    • <strong>Daily Login:</strong> +10 Histoins every day on first activity.<br />
+                    • <strong>History Quizzes:</strong> +20 Histoins for completing quizzes (max 3/day).
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Purchase Confirmation Dialog */}
+      <AnimatePresence>
+        {confirmPack && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-sm w-full border border-histo-dark/15 shadow-deep text-center"
+            >
+              <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-3">
+                <Coins className="h-6 w-6" />
+              </div>
+              <h4 className="font-display text-base font-bold text-histo-dark">Confirm Token Purchase</h4>
+              <p className="font-ui text-xs text-histo-ink/70 mt-1 mb-5">
+                Spend <strong>{confirmPack.histoin_cost} Histoins</strong> to credit{' '}
+                <strong>+{confirmPack.token_amount.toLocaleString()} Tokens</strong>?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmPack(null)}
+                  disabled={isPurchasing}
+                  className="flex-1 py-2 rounded-lg border border-histo-dark/15 text-xs font-ui font-semibold hover:bg-histo-cream transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmPurchase}
+                  disabled={isPurchasing}
+                  className="flex-1 py-2 rounded-lg bg-histo-copper text-white text-xs font-ui font-bold hover:bg-histo-dark transition-all shadow-xs flex items-center justify-center gap-1.5"
+                >
+                  {isPurchasing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Confirm'}
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -608,14 +1001,13 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             className="fixed lg:relative inset-y-0 left-0 z-40 w-72 bg-white border-r border-histo-dark/10 shadow-xl flex flex-col shrink-0"
           >
-            {/* Sidebar Header */}
-            <div className="flex items-center justify-between p-4 border-b border-histo-dark/10">
-              <h2 className="font-display text-lg font-bold text-histo-dark flex items-center gap-2">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-histo-dark/10 min-h-[64px]">
+              <h2 className="font-display text-lg font-bold text-histo-dark flex items-center gap-2.5">
                 <FileText className="h-5 w-5 text-histo-copper" />
                 Notes Library
               </h2>
               <button
-                className="lg:hidden p-1.5 rounded hover:bg-histo-cream text-histo-ink/60 hover:text-histo-dark"
+                className="lg:hidden p-2 rounded-lg hover:bg-histo-cream text-histo-ink/60 hover:text-histo-dark"
                 onClick={() => setSidebarOpen(false)}
                 aria-label="Close sidebar"
               >
@@ -668,6 +1060,7 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
               ) : (
                 filteredNotes.map((note) => {
                   const isActive = activeNoteId === note.id;
+                  const isHandwritten = note.style === 'handwritten' || note.title.toLowerCase().includes('handwritten');
                   return (
                     <div
                       key={note.id}
@@ -679,9 +1072,16 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
                       }`}
                     >
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-display text-xs font-bold text-histo-dark truncate leading-tight group-hover:text-histo-copper transition-colors">
-                          {note.title.replace(/^Study Notes:\s*/, '')}
-                        </h4>
+                        <div className="flex items-center gap-1.5">
+                          {isHandwritten && (
+                            <span className="text-[9px] font-ui px-1.5 py-0.2 bg-purple-100 text-purple-800 rounded font-semibold flex items-center gap-0.5">
+                              ✍️ Hand
+                            </span>
+                          )}
+                          <h4 className="font-display text-xs font-bold text-histo-dark truncate leading-tight group-hover:text-histo-copper transition-colors">
+                            {note.title.replace(/^Study Notes:\s*/, '').replace(/^Handwritten Notes:\s*/, '')}
+                          </h4>
+                        </div>
                         <p className="font-ui text-[10px] text-histo-ink/40 mt-0.5">
                           {note.created_at ? new Date(note.created_at).toLocaleDateString() : 'Today'}
                         </p>
@@ -726,102 +1126,119 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
       {/* Main Single Canvas Workspace */}
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* Top Header Bar */}
-        <header className="sticky top-0 z-20 bg-histo-paper/95 backdrop-blur-sm border-b border-histo-dark/10 px-4 py-3 flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <header className="sticky top-0 z-20 bg-histo-paper/95 backdrop-blur-md border-b border-histo-dark/10 px-5 sm:px-6 py-3.5 sm:py-4 flex items-center justify-between gap-4 shrink-0 shadow-xs min-h-[64px]">
+          <div className="flex items-center gap-3 min-w-0">
             <button
-              className="p-1.5 rounded-md bg-histo-dark text-white hover:bg-histo-copper transition-colors flex items-center justify-center shrink-0"
+              className="p-2 rounded-lg bg-histo-dark text-white hover:bg-histo-copper transition-colors flex items-center justify-center shrink-0 shadow-2xs cursor-pointer"
               onClick={() => setSidebarOpen(!sidebarOpen)}
               title={sidebarOpen ? 'Hide notes library' : 'Show notes library'}
               aria-label={sidebarOpen ? 'Close sidebar' : 'Open notes library'}
             >
-              {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+              {sidebarOpen ? <X className="h-4.5 w-4.5" /> : <Menu className="h-4.5 w-4.5" />}
             </button>
 
             {/* Back to Home Button */}
             <Link
               to="/home"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[4px] bg-histo-cream border border-histo-dark/15 text-histo-dark hover:text-histo-copper hover:border-histo-copper/50 transition-colors text-xs font-ui font-semibold uppercase tracking-wider shrink-0"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-histo-cream/90 border border-histo-dark/15 text-histo-dark hover:text-histo-copper hover:border-histo-copper/50 transition-colors text-xs font-ui font-bold uppercase tracking-wider shrink-0 shadow-2xs"
               title="Return to Dashboard Home"
             >
-              <ArrowLeft className="h-3.5 w-3.5" />
+              <ArrowLeft className="h-4 w-4" />
               <span className="hidden sm:inline">Home</span>
             </Link>
 
-            <div className="flex items-center gap-2 truncate">
-              <h1 className="font-display text-base sm:text-lg font-bold text-histo-dark truncate">
+            <div className="flex items-center gap-2.5 truncate">
+              <h1 className="font-display text-lg sm:text-xl font-bold text-histo-dark tracking-tight truncate">
                 AI Notes Assistant
               </h1>
-              <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 bg-histo-copper/10 text-histo-copper rounded-full text-[10px] font-ui uppercase tracking-wider shrink-0 font-semibold">
+              <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 bg-histo-copper/10 text-histo-copper rounded-full text-[10px] font-ui uppercase tracking-wider shrink-0 font-bold">
                 <Sparkles className="h-3 w-3" />
                 AI Powered
               </span>
             </div>
           </div>
 
-          {/* User Profile Avatar & Dropdown */}
-          <div className="relative flex items-center gap-3 shrink-0">
-            {user ? (
-              <button
-                type="button"
-                onClick={() => setProfileMenuOpen(!profileMenuOpen)}
-                className="flex items-center gap-2 cursor-pointer bg-transparent border-none outline-none"
-              >
-                <div className="h-8 w-8 rounded-full bg-histo-copper/20 border border-histo-copper/50 flex items-center justify-center text-histo-copper font-display font-bold text-xs shadow-xs">
-                  {user.username ? user.username[0].toUpperCase() : 'U'}
-                </div>
-              </button>
-            ) : (
-              <Link to="/loginpg" className="text-xs font-ui font-semibold text-histo-copper hover:underline">
-                Sign In
-              </Link>
-            )}
+          {/* Shop / Histoins Badge & User Profile */}
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Shop & Histoin Currency Button */}
+            <button
+              onClick={handleOpenShop}
+              className="flex items-center gap-2 px-3.5 py-2 bg-amber-50 hover:bg-amber-100/90 border border-amber-300 rounded-full font-ui text-xs sm:text-sm font-bold text-amber-900 transition-all shadow-xs active:scale-95 cursor-pointer"
+              title="Open Token Shop"
+            >
+              <Coins className="h-4 w-4 text-amber-500 shrink-0" />
+              <span>{wallet.histoin_balance.toLocaleString()} 🪙</span>
+              <span className="hidden sm:inline-block ml-0.5 px-2 py-0.5 bg-amber-200/80 rounded-full text-[10px] text-amber-950 font-bold uppercase tracking-wider">
+                Shop
+              </span>
+            </button>
 
-            {/* User Dropdown Menu */}
-            {user && profileMenuOpen && (
-              <div className="absolute right-0 top-full mt-2 w-56 bg-histo-dark text-white border border-histo-gold/30 rounded-[4px] shadow-deep p-2 z-50">
-                <div className="px-3 py-2 border-b border-white/10 mb-1">
-                  <p className="font-display text-sm font-bold text-histo-paper">{user.username}</p>
-                  <p className="font-ui text-[10px] text-white/50 truncate">{user.email}</p>
-                </div>
-                <Link
-                  to="/home"
-                  onClick={() => setProfileMenuOpen(false)}
-                  className="w-full text-left px-3 py-1.5 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5 text-histo-gold/80" />
-                  <span>Dashboard Home</span>
-                </Link>
-                <Link
-                  to="/friends"
-                  onClick={() => setProfileMenuOpen(false)}
-                  className="w-full text-left px-3 py-1.5 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2"
-                >
-                  <Users className="h-3.5 w-3.5 text-histo-gold/80" />
-                  <span>Friends & Scholars</span>
-                </Link>
-                <Link
-                  to="/feed"
-                  onClick={() => setProfileMenuOpen(false)}
-                  className="w-full text-left px-3 py-1.5 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2"
-                >
-                  <MessageSquare className="h-3.5 w-3.5 text-histo-gold/80" />
-                  <span>Community Feed</span>
-                </Link>
-                <div className="h-[1px] bg-white/10 my-1" />
+            {/* User Profile Avatar & Dropdown */}
+            <div className="relative">
+              {user ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    logout();
-                    setProfileMenuOpen(false);
-                    navigate('/loginpg');
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-xs font-ui font-semibold text-red-400 hover:bg-red-500/10 rounded-[2px] transition-colors flex items-center gap-2 cursor-pointer"
+                  onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+                  className="flex items-center gap-2.5 cursor-pointer bg-transparent border-none outline-none group"
                 >
-                  <LogOut className="h-3.5 w-3.5 text-red-400" />
-                  <span>Log Out</span>
+                  <div className="h-9.5 w-9.5 rounded-full bg-histo-copper/20 border-2 border-histo-copper/40 group-hover:border-histo-copper flex items-center justify-center text-histo-copper font-display font-bold text-sm shadow-xs transition-colors">
+                    {user.username ? user.username[0].toUpperCase() : 'U'}
+                  </div>
+                  <div className="hidden lg:flex flex-col text-left">
+                    <span className="text-xs font-ui font-semibold text-histo-dark group-hover:text-histo-copper transition-colors truncate max-w-[120px]">
+                      {user.username}
+                    </span>
+                    <span className="text-[10px] font-ui text-histo-copper font-medium tracking-wide">
+                      Scholar
+                    </span>
+                  </div>
                 </button>
-              </div>
-            )}
+              ) : (
+                <Link to="/loginpg" className="px-3.5 py-1.5 rounded-lg bg-histo-copper text-white text-xs font-ui font-bold hover:bg-histo-dark transition-colors">
+                  Sign In
+                </Link>
+              )}
+
+              {user && profileMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-56 bg-histo-dark text-white border border-histo-gold/30 rounded-[4px] shadow-deep p-2 z-50">
+                  <div className="px-3 py-2 border-b border-white/10 mb-1">
+                    <p className="font-display text-sm font-bold text-histo-paper">{user.username}</p>
+                    <p className="font-ui text-[10px] text-white/50 truncate">{user.email}</p>
+                  </div>
+                  <Link
+                    to="/home"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="w-full text-left px-3 py-1.5 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5 text-histo-gold/80" />
+                    <span>Dashboard Home</span>
+                  </Link>
+                  <button
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      handleOpenShop();
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <ShoppingBag className="h-3.5 w-3.5 text-histo-gold/80" />
+                    <span>Token Shop</span>
+                  </button>
+                  <div className="h-[1px] bg-white/10 my-1" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      logout();
+                      setProfileMenuOpen(false);
+                      navigate('/loginpg');
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs font-ui font-semibold text-red-400 hover:bg-red-500/10 rounded-[2px] transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <LogOut className="h-3.5 w-3.5 text-red-400" />
+                    <span>Log Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -907,13 +1324,12 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
             </motion.div>
           )}
 
-          {/* Conversation Feed (ChatGPT / Claude Style Blocks) */}
+          {/* Conversation Feed */}
           {messages.map((msg) => {
             if (msg.role === 'user') {
               return (
                 <div key={msg.id} className="max-w-4xl mx-auto flex justify-end">
                   <div className="max-w-[85%] bg-histo-dark text-white rounded-2xl rounded-br-xs px-5 py-3.5 shadow-soft space-y-2">
-                    {/* Attached files preview in user message */}
                     {msg.attachments && msg.attachments.length > 0 && (
                       <div className="flex flex-wrap gap-2 pb-1.5 border-b border-white/15">
                         {msg.attachments.map((f, fi) => (
@@ -935,8 +1351,10 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
               );
             }
 
-            // AI Answer Block (Different distinct block with Copy button on top right)
+            // AI Answer Block
             const isBlockCopied = copiedMessageId === msg.id;
+            const isHandwritten = msg.style === 'handwritten';
+            const isRestylingThis = isRestylingId === msg.id;
 
             return (
               <motion.div
@@ -945,45 +1363,77 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
                 animate={{ opacity: 1, y: 0 }}
                 className="max-w-4xl mx-auto bg-white border border-histo-dark/15 rounded-xl shadow-soft overflow-hidden"
               >
-                {/* AI Block Header with Copy Button on Top Right */}
+                {/* AI Block Header */}
                 <div className="flex items-center justify-between px-5 py-3 bg-histo-cream/40 border-b border-histo-dark/10">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-md bg-histo-copper/15 flex items-center justify-center text-histo-copper">
-                      <Sparkles className="h-3.5 w-3.5" />
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`w-6 h-6 rounded-md flex items-center justify-center ${isHandwritten ? 'bg-purple-100 text-purple-700' : 'bg-histo-copper/15 text-histo-copper'}`}>
+                      {isHandwritten ? <PenTool className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
                     </div>
-                    <span className="font-ui text-xs font-bold text-histo-dark">HistoFacts AI</span>
+                    <span className="font-ui text-xs font-bold text-histo-dark truncate">
+                      {isHandwritten ? '✍️ Handwritten Lecture Notes' : 'HistoFacts AI'}
+                    </span>
                     {msg.attachment_name && (
-                      <span className="text-[10px] font-ui px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center gap-1">
+                      <span className="text-[10px] font-ui px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center gap-1 shrink-0">
                         <Paperclip className="h-2.5 w-2.5" />
                         {msg.attachment_name}
                       </span>
                     )}
                   </div>
 
-                  {/* Copy Button on Top Right of that Block */}
-                  <button
-                    type="button"
-                    onClick={() => handleCopyBlock(msg.id, msg.content)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-white border border-histo-dark/15 hover:border-histo-copper hover:bg-histo-cream transition-all font-ui text-xs text-histo-ink/70 hover:text-histo-copper cursor-pointer shadow-2xs"
-                    title="Copy this response"
-                  >
-                    {isBlockCopied ? (
-                      <>
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                        <span className="text-emerald-600 font-semibold text-[11px]">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3.5 w-3.5" />
-                        <span className="text-[11px] font-medium">Copy</span>
-                      </>
+                  {/* Actions on Top Right of that Block */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Convert to Handwritten Button (on standard notes) */}
+                    {!isHandwritten && msg.noteId && (
+                      <button
+                        type="button"
+                        onClick={() => handleConvertToHandwritten(msg.noteId, msg.id)}
+                        disabled={isRestylingThis}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-[4px] bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 transition-all font-ui text-xs font-semibold cursor-pointer shadow-2xs active:scale-95 disabled:opacity-50"
+                        title="Restyle as student handwritten class notes"
+                      >
+                        {isRestylingThis ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-700" />
+                            <span className="text-[11px]">Writing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <PenTool className="h-3.5 w-3.5 text-purple-700" />
+                            <span className="text-[11px] hidden sm:inline">Handwritten Style</span>
+                          </>
+                        )}
+                      </button>
                     )}
-                  </button>
+
+                    {/* Copy Button on Top Right */}
+                    <button
+                      type="button"
+                      onClick={() => handleCopyBlock(msg.id, msg.content)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-white border border-histo-dark/15 hover:border-histo-copper hover:bg-histo-cream transition-all font-ui text-xs text-histo-ink/70 hover:text-histo-copper cursor-pointer shadow-2xs"
+                      title="Copy this response"
+                    >
+                      {isBlockCopied ? (
+                        <>
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                          <span className="text-emerald-600 font-semibold text-[11px]">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3.5 w-3.5" />
+                          <span className="text-[11px] font-medium">Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                {/* AI Block Content */}
+                {/* AI Block Content Body */}
                 <div className="p-6 sm:p-7">
-                  <MarkdownBlockViewer content={msg.content} />
+                  {isHandwritten ? (
+                    <HandwrittenBlockViewer content={msg.content} />
+                  ) : (
+                    <MarkdownBlockViewer content={msg.content} />
+                  )}
                 </div>
               </motion.div>
             );
@@ -1050,7 +1500,7 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
                     <button
                       type="button"
                       onClick={() => removeAttachedFile(idx)}
-                      className="p-1 text-histo-ink/40 hover:text-red-500 rounded transition-colors shrink-0"
+                      className="p-1 text-histo-ink/40 hover:text-red-500 rounded transition-colors shrink-0 cursor-pointer"
                       title="Remove attachment"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -1106,8 +1556,12 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
                 {/* Send Button */}
                 <button
                   type="submit"
-                  disabled={isGenerating || (!inputValue.trim() && attachedFiles.length === 0)}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 bg-histo-copper text-white rounded-full hover:bg-histo-dark active:scale-95 transition-all duration-200 disabled:opacity-30 disabled:hover:bg-histo-copper disabled:cursor-not-allowed flex items-center justify-center shrink-0 shadow-soft cursor-pointer"
+                  disabled={isGenerating || isInsufficient || (!inputValue.trim() && attachedFiles.length === 0)}
+                  className={`absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 text-white rounded-full transition-all duration-200 flex items-center justify-center shrink-0 shadow-soft cursor-pointer ${
+                    isInsufficient
+                      ? 'bg-gray-300 cursor-not-allowed opacity-50'
+                      : 'bg-histo-copper hover:bg-histo-dark active:scale-95 disabled:opacity-30 disabled:hover:bg-histo-copper disabled:cursor-not-allowed'
+                  }`}
                   aria-label="Send query"
                 >
                   {isGenerating ? (
@@ -1119,9 +1573,43 @@ France in 1789 was divided into Three Estates. The Third Estate (98% of the popu
               </div>
             </form>
 
-            <div className="flex items-center justify-between text-[10px] font-ui text-histo-ink/50 px-3">
-              <span>📎 Attach PDFs, Docs, or Images to synthesize study notes</span>
-              <span className="hidden sm:inline">Press Enter to send, Shift+Enter for new line</span>
+            {/* Token Quota Counter & Live Estimation Row */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-ui px-2">
+              {/* Token Quota Pill */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleOpenShop}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-histo-cream/80 hover:bg-histo-cream border border-histo-dark/15 rounded-full text-histo-dark hover:text-histo-copper font-medium transition-colors cursor-pointer"
+                  title="Click to refill tokens in Shop"
+                >
+                  <Zap className="h-3.5 w-3.5 text-histo-copper" />
+                  <span>
+                    <strong>{wallet.token_balance.toLocaleString()}</strong> / {wallet.free_refill_cap.toLocaleString()} tokens
+                  </span>
+                </button>
+
+                {/* Live typing token estimate */}
+                {inputValue.trim().length > 0 && (
+                  <span className="text-histo-ink/60 animate-fade-in hidden sm:inline">
+                    • ~{estimatedTokens.toLocaleString()} tokens for this note
+                  </span>
+                )}
+              </div>
+
+              {/* Insufficient Tokens Alert or Shortcut Hint */}
+              {isInsufficient ? (
+                <div className="flex items-center gap-1.5 text-red-600 font-semibold animate-pulse">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  <span>Not enough tokens —</span>
+                  <button onClick={handleOpenShop} className="underline hover:text-red-800 cursor-pointer">
+                    visit the Shop
+                  </button>
+                </div>
+              ) : (
+                <span className="hidden sm:inline text-histo-ink/40 text-[10px]">
+                  Daily refresh +{wallet.daily_refresh_amount.toLocaleString()} tokens/day • Press Enter to send
+                </span>
+              )}
             </div>
           </div>
         </div>

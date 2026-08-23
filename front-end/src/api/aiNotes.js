@@ -11,18 +11,26 @@ export async function generateNoteApi(paramsOrTopic, curriculum = 'NCERT Class 1
       attachment_type: paramsOrTopic.attachment_type || null,
       attachment_text: paramsOrTopic.attachment_text || null,
       attachment_data: paramsOrTopic.attachment_data || null,
+      style: paramsOrTopic.style || 'standard',
     };
   } else {
     body = {
       topic: paramsOrTopic,
       curriculum,
       event_id: eventId,
+      style: 'standard',
     };
   }
 
   return apiFetch('/api/notes/generate', {
     method: 'POST',
     body: JSON.stringify(body),
+  });
+}
+
+export async function generateHandwrittenNoteApi(noteId) {
+  return apiFetch(`/api/notes/${noteId}/handwritten`, {
+    method: 'POST',
   });
 }
 
@@ -57,5 +65,19 @@ export async function shareNoteToGroupApi(noteId, groupId) {
 export async function deleteNoteApi(noteId) {
   return apiFetch(`/api/notes/${noteId}`, {
     method: 'DELETE',
+  });
+}
+
+export async function getWalletApi() {
+  return apiFetch('/api/wallet/me');
+}
+
+export async function getShopPacksApi() {
+  return apiFetch('/api/shop/packs');
+}
+
+export async function purchasePackApi(packId) {
+  return apiFetch(`/api/shop/purchase/${packId}`, {
+    method: 'POST',
   });
 }

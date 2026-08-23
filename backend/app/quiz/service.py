@@ -119,4 +119,9 @@ async def record_quiz_attempt(
     db.add(attempt)
     await db.flush()
 
+    # Reward +20 Histoins for correct answer (up to 3/day)
+    if is_correct and user_id:
+        from app.ai_notes.wallet_service import reward_quiz_histoins
+        await reward_quiz_histoins(user_id, db)
+
     return attempt, qq.correct_answer
