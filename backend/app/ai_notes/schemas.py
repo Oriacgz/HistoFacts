@@ -7,9 +7,13 @@ from pydantic import BaseModel, Field
 
 
 class GenerateNoteRequest(BaseModel):
-    topic: str = Field(..., min_length=2, max_length=200)
+    topic: str = Field(..., min_length=1, max_length=2000)
     curriculum: str = Field(..., min_length=2, max_length=100)  # e.g. "NCERT Class 10 History"
     event_id: str | None = None
+    attachment_name: str | None = None
+    attachment_type: str | None = None
+    attachment_text: str | None = None
+    attachment_data: str | None = None
 
 
 class NoteResponse(BaseModel):

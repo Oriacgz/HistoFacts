@@ -11,7 +11,14 @@ from app.ai_notes.llm_client import generate_curriculum_note
 
 
 async def create_note_for_user(req: GenerateNoteRequest, user_id: str, db: AsyncSession) -> Note:
-    title, content = await generate_curriculum_note(req.topic, req.curriculum)
+    title, content = await generate_curriculum_note(
+        topic=req.topic,
+        curriculum=req.curriculum,
+        attachment_name=req.attachment_name,
+        attachment_type=req.attachment_type,
+        attachment_text=req.attachment_text,
+        attachment_data=req.attachment_data,
+    )
 
     note = Note(
         user_id=user_id,
@@ -63,5 +70,17 @@ async def share_note_to_group(note_id: str, group_id: str, user_id: str, db: Asy
 
     shared = GroupSharedNote(group_id=group_id, note_id=note_id, shared_by=user_id)
     db.add(shared)
+    await db.flush()
+    return True
+
+
+async def delete_user_note(note_id: str, user_id: str, db: AsyncSession) -> bool:
+    res = await db.execute(
+        select(Note).where(Note.id == note_id, Note.user_id == user_id)
+    )
+    note = res.scalar_one_or_none()
+    if not note:
+        return False
+    await db.delete(note)
     await db.flush()
     return True
