@@ -27,7 +27,7 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
         role="admin",
     )
     db.add(member)
-    await db.flush()
+    await db.commit()
 
     u_res = await db.execute(select(User).where(User.id == creator_id))
     creator = u_res.scalar_one_or_none()
@@ -88,5 +88,5 @@ async def add_group_member(group_id: str, user_id: str, role: str, db: AsyncSess
 
     member = GroupMember(group_id=group_id, user_id=user_id, role=role)
     db.add(member)
-    await db.flush()
+    await db.commit()
     return True

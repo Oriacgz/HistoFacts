@@ -51,7 +51,8 @@ async def create_note_for_user(req: GenerateNoteRequest, user_id: str, db: Async
         is_ai_generated=True,
     )
     db.add(note)
-    await db.flush()
+    await db.commit()
+    await db.refresh(note)
     return note
 
 
@@ -90,7 +91,8 @@ async def create_handwritten_note_for_user(note_id: str, user_id: str, db: Async
         is_ai_generated=True,
     )
     db.add(new_note)
-    await db.flush()
+    await db.commit()
+    await db.refresh(new_note)
     return new_note
 
 

@@ -1,0 +1,34 @@
+"""
+Inter-service HTTP client for microservice communication.
+Allows services to talk across HTTP boundaries or fallback to local in-process calls.
+"""
+
+import httpx
+import logging
+from app.core.config import settings
+
+logger = logging.getLogger("histofacts.inter_service")
+
+
+async def call_notes_init_wallet(user_id: str) -> bool:
+    """Notify AI Notes Service to initialize a new user's wallet with signup bonus."""
+    url = f"{settings.notes_service_url}/api/wallet/internal/init"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(url, json={"user_id": user_id})
+            return resp.status_code in (200, 201)
+    except Exception as e:
+        logger.warning(f"Inter-service HTTP call to {url} failed: {e}. Falling back to in-process logic.")
+        return False
+
+
+async def call_notes_reward_quiz(user_id: str, amount: int = 20) -> bool:
+    """Notify AI Notes Service to credit Histoins for correct quiz attempt."""
+    url = f"{settings.notes_service_url}/api/wallet/internal/reward-quiz"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(url, json={"user_id": user_id, "amount": amount})
+            return resp.status_code in (200, 201)
+    except Exception as e:
+        logger.warning(f"Inter-service HTTP call to {url} failed: {e}. Falling back to in-process logic.")
+        return False

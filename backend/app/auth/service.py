@@ -43,6 +43,9 @@ async def register_user(req: UserRegisterRequest, db: AsyncSession) -> tuple[Use
     from app.ai_notes.wallet_service import get_or_create_wallets
     await get_or_create_wallets(user.id, db)
 
+    await db.commit()
+    await db.refresh(user)
+
     access_token = create_access_token({"sub": str(user.id)})
     refresh_token = create_refresh_token({"sub": str(user.id)})
 

@@ -64,6 +64,8 @@ async def restyle_handwritten_note(
 
 @router.get("/api/notes", response_model=list[NoteResponse])
 @router.get("/notes", response_model=list[NoteResponse], include_in_schema=False)
+@router.get("/api/notes/me", response_model=list[NoteResponse], include_in_schema=False)
+@router.get("/notes/me", response_model=list[NoteResponse], include_in_schema=False)
 async def list_notes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -166,3 +168,36 @@ async def purchase_pack(
     """
     result = await purchase_token_pack(current_user.id, pack_id, db)
     return PurchaseResponse(**result)
+
+
+# ── Internal Inter-Service Endpoints ─────────────────────────────
+
+from pydantic import BaseModel
+
+class InternalWalletInitRequest(BaseModel):
+    user_id: str
+
+class InternalQuizRewardRequest(BaseModel):
+    user_id: str
+    amount: int = 20
+
+@router.post("/api/wallet/internal/init", status_code=status.HTTP_201_CREATED, include_in_schema=False)
+@router.post("/wallet/internal/init", status_code=status.HTTP_201_CREATED, include_in_schema=False)
+async def internal_init_wallet(
+    req: InternalWalletInitRequest,
+    db: AsyncSession = Depends(get_async_session),
+):
+    await get_or_create_wallets(req.user_id, db)
+    return {"status": "initialized", "user_id": req.user_id}
+
+
+@router.post("/api/wallet/internal/reward-quiz", status_code=status.HTTP_200_OK, include_in_schema=False)
+@router.post("/wallet/internal/reward-quiz", status_code=status.HTTP_200_OK, include_in_schema=False)
+async def internal_reward_quiz(
+    req: InternalQuizRewardRequest,
+    db: AsyncSession = Depends(get_async_session),
+):
+    from app.ai_notes.wallet_service import reward_quiz_histoins
+    rewarded = await reward_quiz_histoins(req.user_id, db)
+    return {"status": "rewarded" if rewarded else "cap_reached", "user_id": req.user_id}
+

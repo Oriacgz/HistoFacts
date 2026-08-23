@@ -16,6 +16,9 @@ from app.quiz.schemas import (
 from app.quiz.service import get_quiz_questions_by_topic, record_quiz_attempt
 from app.core.database import get_async_session
 
+from app.core.deps import get_optional_current_user
+from app.auth.models import User
+
 router = APIRouter(prefix="/api/quiz", tags=["Quiz"])
 
 
@@ -31,10 +34,12 @@ async def get_questions(
 @router.post("/attempt", response_model=QuizAttemptResponse, status_code=status.HTTP_201_CREATED)
 async def submit_attempt(
     req: QuizAttemptRequest,
+    current_user: User | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     try:
-        attempt, correct_answer = await record_quiz_attempt(req, user_id=None, db=db)
+        user_id = current_user.id if current_user else None
+        attempt, correct_answer = await record_quiz_attempt(req, user_id=user_id, db=db)
         return QuizAttemptResponse(
             id=attempt.id,
             question_id=attempt.question_id,

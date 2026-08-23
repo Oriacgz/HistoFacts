@@ -86,49 +86,91 @@ async def seed_initial_events(db: AsyncSession):
     await db.commit()
 
 
-async def sync_wikimedia_events_for_date(month: str, day: str, db: AsyncSession):
+import asyncio
+import logging
+
+logger = logging.getLogger("histofacts.history.sync")
+
+
+async def sync_wikimedia_events_for_date(
+    month: str,
+    day: str,
+    db: AsyncSession,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+) -> int:
     """
     Fetch events from Wikimedia 'On This Day' feed for month and day (e.g. month='03', day='17')
-    and upsert into PostgreSQL historical_events table.
+    and upsert into PostgreSQL historical_events table with exponential backoff retry.
+
+    Returns:
+        int: Number of new events inserted.
     """
     url = WIKIMEDIA_ON_THIS_DAY_URL.format(month=month.zfill(2), day=day.zfill(2))
     date_key = f"{month.zfill(2)}-{day.zfill(2)}"
+    events_inserted = 0
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers={"User-Agent": "HistoFacts/1.0"})
-            if resp.status_code != 200:
-                return
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                resp = await client.get(url, headers={"User-Agent": "HistoFacts/1.0 (Educational Project)"})
 
-            data = resp.json()
-            events = data.get("selected", [])
+                if resp.status_code == 429:
+                    retry_after = float(resp.headers.get("Retry-After", initial_delay * (2 ** (attempt - 1))))
+                    logger.warning(f"Rate limited by Wikimedia API (429). Retrying in {retry_after}s...")
+                    await asyncio.sleep(retry_after)
+                    continue
 
-            for item in events:
-                text = item.get("text", "")
-                year = str(item.get("year", ""))
-                pages = item.get("pages", [])
-                source_url = pages[0]["content_urls"]["desktop"]["page"] if pages else None
-                title = pages[0]["title"] if pages else text[:50]
+                if resp.status_code != 200:
+                    logger.warning(f"Wikimedia API returned status {resp.status_code} on attempt {attempt}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(initial_delay * (2 ** (attempt - 1)))
+                        continue
+                    return 0
 
-                # Check if event already exists
-                existing = await db.execute(
-                    select(HistoricalEvent).where(
-                        HistoricalEvent.date == date_key,
-                        HistoricalEvent.title == title,
+                data = resp.json()
+                events = data.get("selected", [])
+
+                for item in events:
+                    text = item.get("text", "")
+                    year = str(item.get("year", ""))
+                    pages = item.get("pages", [])
+                    source_url = pages[0]["content_urls"]["desktop"]["page"] if pages else None
+                    title = pages[0]["title"] if pages else text[:50]
+
+                    # Check if event already exists
+                    existing = await db.execute(
+                        select(HistoricalEvent).where(
+                            HistoricalEvent.date == date_key,
+                            HistoricalEvent.title == title,
+                        )
                     )
-                )
-                if not existing.scalar_one_or_none():
-                    event = HistoricalEvent(
-                        date=date_key,
-                        year=year,
-                        title=title,
-                        description=text,
-                        category="World History",
-                        source="Wikimedia",
-                        source_url=source_url,
-                    )
-                    db.add(event)
+                    if not existing.scalar_one_or_none():
+                        event = HistoricalEvent(
+                            date=date_key,
+                            year=year,
+                            title=title,
+                            description=text,
+                            category="World History",
+                            source="Wikimedia",
+                            source_url=source_url,
+                        )
+                        db.add(event)
+                        events_inserted += 1
 
-            await db.commit()
-    except Exception as err:
-        print(f"Error syncing Wikimedia events for {date_key}: {err}")
+                if events_inserted > 0:
+                    await db.commit()
+                return events_inserted
+
+        except httpx.RequestError as req_err:
+            logger.warning(f"Network error syncing Wikimedia events on attempt {attempt}: {req_err}")
+            if attempt < max_retries:
+                await asyncio.sleep(initial_delay * (2 ** (attempt - 1)))
+            else:
+                logger.error(f"Failed to sync Wikimedia events for {date_key} after {max_retries} attempts.")
+        except Exception as err:
+            logger.error(f"Unexpected error syncing Wikimedia events for {date_key}: {err}")
+            break
+
+    return events_inserted
+

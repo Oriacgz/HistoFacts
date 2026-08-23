@@ -124,4 +124,7 @@ async def record_quiz_attempt(
         from app.ai_notes.wallet_service import reward_quiz_histoins
         await reward_quiz_histoins(user_id, db)
 
+    await db.commit()
+    await db.refresh(attempt)
+
     return attempt, qq.correct_answer

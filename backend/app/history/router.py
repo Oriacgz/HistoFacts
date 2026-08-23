@@ -103,7 +103,8 @@ async def add_bookmark(
 
     bm = Bookmark(user_id=current_user.id, event_id=event_id)
     db.add(bm)
-    await db.flush()
+    await db.commit()
+    await db.refresh(bm)
 
     return BookmarkResponse(
         id=bm.id,
@@ -131,6 +132,8 @@ async def remove_bookmark(
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
     await db.delete(bm)
+    await db.commit()
+
 
 
 @router.get("/bookmarks/me", response_model=list[BookmarkResponse])

@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_provider: str = "openai"
 
+    # ── Microservices Discovery URLs ──────────────────────────
+    auth_service_url: str = "http://127.0.0.1:8001"
+    history_service_url: str = "http://127.0.0.1:8002"
+    social_service_url: str = "http://127.0.0.1:8003"
+    groups_service_url: str = "http://127.0.0.1:8004"
+    notes_service_url: str = "http://127.0.0.1:8005"
+    quiz_service_url: str = "http://127.0.0.1:8006"
+
 
 # Singleton — import this everywhere
 settings = Settings()
+

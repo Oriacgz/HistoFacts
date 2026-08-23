@@ -1,10 +1,8 @@
-version: '3.8'
-
 services:
-  db:
-    image: pgvector/pgvector:pg16
+  # ── PostgreSQL Database ──────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
     container_name: histofacts-postgres
-    restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
@@ -12,29 +10,135 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  backend:
-    build: ./backend
-    container_name: histofacts-backend
-    restart: always
-    ports:
-      - "8000:8000"
+  # ── 1. Auth & Identity Microservice ──────────────────────────
+  auth-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: histofacts-auth-service
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:password@db:5432/histofacts
-      SECRET_KEY: dev-secret-key-histofacts
-      CORS_ORIGINS: "http://localhost,http://localhost:5173,http://localhost:80"
-    depends_on:
-      - db
-
-  frontend:
-    build: ./front-end
-    container_name: histofacts-frontend
-    restart: always
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
+      - APP_MODULE=app.auth.main:app
+      - PORT=8001
+      - SECRET_KEY=histofacts-production-secret-key-2026
+      - NOTES_SERVICE_URL=http://notes-service:8005
     ports:
-      - "80:80"
+      - "8001:8001"
     depends_on:
-      - backend
+      postgres:
+        condition: service_healthy
+
+  # ── 2. History Content Microservice ──────────────────────────
+  history-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: histofacts-history-service
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
+      - APP_MODULE=app.history.main:app
+      - PORT=8002
+      - SECRET_KEY=histofacts-production-secret-key-2026
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── 3. Social Discussion Microservice ────────────────────────
+  social-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: histofacts-social-service
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
+      - APP_MODULE=app.social.main:app
+      - PORT=8003
+      - SECRET_KEY=histofacts-production-secret-key-2026
+      - GROUPS_SERVICE_URL=http://groups-service:8004
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── 4. Groups Microservice ───────────────────────────────────
+  groups-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: histofacts-groups-service
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
+      - APP_MODULE=app.groups.main:app
+      - PORT=8004
+      - SECRET_KEY=histofacts-production-secret-key-2026
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── 5. AI Notes & Token Economy Microservice ─────────────────
+  notes-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: histofacts-notes-service
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
+      - APP_MODULE=app.ai_notes.main:app
+      - PORT=8005
+      - SECRET_KEY=histofacts-production-secret-key-2026
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+    ports:
+      - "8005:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── 6. Quiz & Assessment Microservice ────────────────────────
+  quiz-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: histofacts-quiz-service
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
+      - APP_MODULE=app.quiz.main:app
+      - PORT=8006
+      - SECRET_KEY=histofacts-production-secret-key-2026
+      - NOTES_SERVICE_URL=http://notes-service:8005
+    ports:
+      - "8006:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── API Gateway (Nginx Reverse Proxy) ────────────────────────
+  api-gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: histofacts-api-gateway
+    ports:
+      - "8000:80"
+    depends_on:
+      - auth-service
+      - history-service
+      - social-service
+      - groups-service
+      - notes-service
+      - quiz-service
 
 volumes:
-  postgres_data:
+  pgdata:

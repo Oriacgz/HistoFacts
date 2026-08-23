@@ -19,7 +19,8 @@ async def create_post(req: CreatePostRequest, user_id: str, db: AsyncSession) ->
         content=req.content,
     )
     db.add(post)
-    await db.flush()
+    await db.commit()
+    await db.refresh(post)
     return post
 
 
@@ -130,7 +131,8 @@ async def add_comment(post_id: str, req: CreateCommentRequest, user_id: str, db:
         content=req.content,
     )
     db.add(comment)
-    await db.flush()
+    await db.commit()
+    await db.refresh(comment)
     return comment
 
 
@@ -155,5 +157,5 @@ async def toggle_post_like(post_id: str, user_id: str, db: AsyncSession) -> tupl
         post.like_count = (post.like_count or 0) + 1
         liked = True
 
-    await db.flush()
+    await db.commit()
     return liked, post.like_count
