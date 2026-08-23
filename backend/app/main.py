@@ -2,21 +2,39 @@
 Main FastAPI application entry point.
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core.database import engine, Base, async_session_factory
 from app.auth.router import router as auth_router
 from app.history.router import router as history_router
 from app.quiz.router import router as quiz_router
 from app.social.router import router as social_router
 from app.groups.router import router as groups_router
 from app.ai_notes.router import router as notes_router
+from app.ai_notes.wallet_service import seed_token_packs
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: ensure tables exist and seed initial data
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with async_session_factory() as session:
+        await seed_token_packs(session)
+
+    yield
+    # Shutdown logic if needed
+
 
 app = FastAPI(
     title="HistoFacts API",
-    description="Backend API for Daily Historical Facts & Stories",
+    description="Backend API for Daily Historical Facts, AI Notes & Token Economy",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS Configuration

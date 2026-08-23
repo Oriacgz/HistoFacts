@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { getMyGroupsApi, createGroupApi } from '../api/groups';
 
+
 export default function GroupsPage() {
   const { user } = useAuth();
   const [groups, setGroups] = useState([]);
@@ -46,19 +47,7 @@ export default function GroupsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-histo-paper text-histo-ink font-body histo-paper-texture">
-      {/* Header */}
-      <header className="sticky top-0 z-40 flex items-center justify-between px-8 py-4 bg-histo-dark text-white border-b border-white/10 shadow-medium">
-        <Link to="/" className="font-display text-2xl font-bold tracking-[4px] text-histo-paper uppercase">HISTOFACTS</Link>
-        <nav className="flex gap-6">
-          <Link to="/" className="text-xs font-ui tracking-wider uppercase text-histo-paper/85 hover:text-histo-gold transition-colors">Home</Link>
-          <Link to="/feed" className="text-xs font-ui tracking-wider uppercase text-histo-paper/85 hover:text-histo-gold transition-colors">Feed</Link>
-          <Link to="/groups" className="text-xs font-ui tracking-wider uppercase text-histo-gold font-semibold">Groups</Link>
-        </nav>
-      </header>
-
-      {/* Main Container */}
-      <main className="max-w-5xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+    <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         
         {/* Left Column: Group List */}
         <div className="lg:col-span-7 flex flex-col gap-6">
@@ -136,7 +125,6 @@ export default function GroupsPage() {
           </div>
         </div>
 
-      </main>
-    </div>
+    </main>
   );
 }

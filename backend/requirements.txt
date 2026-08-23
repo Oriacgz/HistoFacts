@@ -1,27 +1,32 @@
 # Web framework
-fastapi==0.115.12
-uvicorn[standard]==0.34.3
+fastapi>=0.115.12,<0.116
+uvicorn[standard]>=0.34.3,<0.35
 
 # Database
-sqlalchemy[asyncio]==2.0.41
-asyncpg==0.30.0
-alembic==1.16.1
+sqlalchemy[asyncio]>=2.0.41,<2.1
+asyncpg>=0.30.0,<0.31
+alembic>=1.16.1,<1.17
 
 # Auth
-python-jose[cryptography]==3.4.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.3.0
+python-jose[cryptography]>=3.4.0,<3.5
+passlib[bcrypt]>=1.7.4,<1.8
+bcrypt>=4.3.0,<4.4
 
 # Settings / validation
-pydantic==2.11.3
-pydantic-settings==2.9.1
-python-dotenv==1.1.0
+pydantic>=2.11.3,<3
+pydantic-settings>=2.9.1,<3
+python-dotenv>=1.1.0,<2
 
 # HTTP client (for Wikidata sync, LLM calls)
-httpx==0.28.1
+httpx>=0.28.1,<0.29
 
 # pgvector support
-pgvector==0.4.1
+pgvector>=0.4.1,<0.5
 
 # CORS
-python-multipart==0.0.20
+python-multipart>=0.0.20,<0.1
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+aiosqlite>=0.20.0

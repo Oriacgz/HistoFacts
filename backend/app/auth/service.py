@@ -39,6 +39,13 @@ async def register_user(req: UserRegisterRequest, db: AsyncSession) -> tuple[Use
     db.add(user)
     await db.flush()  # assign user.id
 
+    # Initialize Token Wallet (350,000 signup bonus) and Histoin Wallet
+    from app.ai_notes.wallet_service import get_or_create_wallets
+    await get_or_create_wallets(user.id, db)
+
+    await db.commit()
+    await db.refresh(user)
+
     access_token = create_access_token({"sub": str(user.id)})
     refresh_token = create_refresh_token({"sub": str(user.id)})
 

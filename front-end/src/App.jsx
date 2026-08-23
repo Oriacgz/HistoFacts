@@ -7,6 +7,7 @@ import GroupsPage from './pages/GroupsPage';
 import FriendsPage from './pages/FriendsPage';
 import NotesPage from './pages/NotesPage';
 import LandingPage from './pages/LandingPage';
+import MainLayout from './components/MainLayout';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 
@@ -71,46 +72,28 @@ export default function App() {
               </PublicOnlyRoute>
             }
           />
+
+          {/* 
+            Protected routes inside MainLayout.
+            MainLayout renders the persistent Navbar + <Outlet />.
+            When switching between these routes, only the Outlet content
+            re-renders — the Navbar stays mounted (no page reload flicker).
+          */}
           <Route
-            path="/home"
             element={
               <ProtectedRoute>
-                <DashboardPage />
+                <MainLayout />
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="/quiz"
-            element={
-              <ProtectedRoute>
-                <QuizPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/feed"
-            element={
-              <ProtectedRoute>
-                <FeedPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/groups"
-            element={
-              <ProtectedRoute>
-                <GroupsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/friends"
-            element={
-              <ProtectedRoute>
-                <FriendsPage />
-              </ProtectedRoute>
-            }
-          />
+          >
+            <Route path="/home" element={<DashboardPage />} />
+            <Route path="/quiz" element={<QuizPage />} />
+            <Route path="/feed" element={<FeedPage />} />
+            <Route path="/groups" element={<GroupsPage />} />
+            <Route path="/friends" element={<FriendsPage />} />
+          </Route>
+
+          {/* Notes has its own specialized layout/navbar */}
           <Route
             path="/notes"
             element={
@@ -119,6 +102,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
