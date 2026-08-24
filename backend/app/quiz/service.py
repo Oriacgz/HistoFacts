@@ -7,9 +7,10 @@ import json
 import uuid
 import asyncio
 from datetime import datetime, timezone
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord
+from app.auth.models import User
 from app.quiz.schemas import (
     QuizAttemptRequest,
     GenerateQuizRequest,
@@ -252,24 +253,7 @@ async def get_quiz_session_detail(
     return res.scalar_one_or_none()
 
 
-# Global Leaderboard Mock/Real generator
-MOCK_LEADERBOARD_USERS = [
-    {"user_id": "u-1", "username": "Aurelius", "tag": "4102", "score": 78, "accuracy": 97.5, "quizzes_taken": 42},
-    {"user_id": "u-2", "username": "Hypatia", "tag": "8901", "score": 76, "accuracy": 95.0, "quizzes_taken": 40},
-    {"user_id": "u-3", "username": "Ashoka", "tag": "2390", "score": 72, "accuracy": 92.5, "quizzes_taken": 38},
-    {"user_id": "u-4", "username": "Herodotus", "tag": "7741", "score": 68, "accuracy": 90.0, "quizzes_taken": 36},
-    {"user_id": "u-5", "username": "Cleopatra", "tag": "1203", "score": 64, "accuracy": 87.5, "quizzes_taken": 34},
-    {"user_id": "u-6", "username": "Chanakya", "tag": "9904", "score": 60, "accuracy": 85.0, "quizzes_taken": 32},
-    {"user_id": "u-7", "username": "Voltaire", "tag": "6120", "score": 58, "accuracy": 82.5, "quizzes_taken": 30},
-    {"user_id": "u-8", "username": "IbnBattuta", "tag": "3340", "score": 54, "accuracy": 80.0, "quizzes_taken": 28},
-    {"user_id": "u-9", "username": "JoanOfArc", "tag": "5512", "score": 50, "accuracy": 77.5, "quizzes_taken": 26},
-    {"user_id": "u-10", "username": "SunTzu", "tag": "8021", "score": 46, "accuracy": 75.0, "quizzes_taken": 24},
-    {"user_id": "u-11", "username": "MarcoPolo", "tag": "1199", "score": 42, "accuracy": 72.5, "quizzes_taken": 22},
-    {"user_id": "u-12", "username": "Aristotle", "tag": "4433", "score": 38, "accuracy": 70.0, "quizzes_taken": 20},
-]
-
-
-def get_global_leaderboard_data(current_user=None) -> LeaderboardResponse:
+async def get_global_leaderboard_data(db: AsyncSession, current_user: User | None = None) -> LeaderboardResponse:
     now = datetime.now(timezone.utc)
     month_name = now.strftime("%B %Y")
     
@@ -278,39 +262,61 @@ def get_global_leaderboard_data(current_user=None) -> LeaderboardResponse:
     days_in_month = calendar.monthrange(now.year, now.month)[1]
     days_remaining = max(1, days_in_month - now.day)
 
+    # Aggregate quiz sessions by user_id
+    query = (
+        select(
+            QuizSessionRecord.user_id,
+            func.sum(QuizSessionRecord.score).label("total_score"),
+            func.count(QuizSessionRecord.id).label("quizzes_taken"),
+            func.sum(QuizSessionRecord.correct_count).label("total_correct"),
+            func.sum(QuizSessionRecord.correct_count + QuizSessionRecord.wrong_count).label("total_questions"),
+        )
+        .group_by(QuizSessionRecord.user_id)
+        .order_by(func.sum(QuizSessionRecord.score).desc())
+        .limit(50)
+    )
+    result = await db.execute(query)
+    rows = result.all()
+
     entries = []
     user_rank = None
+    rank = 1
 
-    for i, u in enumerate(MOCK_LEADERBOARD_USERS, start=1):
+    # Fetch user details for the aggregated user_ids
+    user_ids = [row.user_id for row in rows]
+    user_map = {}
+    if user_ids:
+        users_query = select(User).where(User.id.in_(user_ids))
+        users_result = await db.execute(users_query)
+        user_map = {u.id: u for u in users_result.scalars().all()}
+
+    for row in rows:
+        u_id = row.user_id
+        db_user = user_map.get(u_id)
+        username = db_user.username if db_user else f"Scholar_{str(u_id)[:6]}"
+        tag = getattr(db_user, "tag", "0001") if db_user else "0001"
+        total_score = int(row.total_score or 0)
+        quizzes_taken = int(row.quizzes_taken or 0)
+        total_correct = int(row.total_correct or 0)
+        total_questions = int(row.total_questions or 0)
+        accuracy = round((total_correct / total_questions) * 100.0, 1) if total_questions > 0 else 0.0
+
         is_me = False
-        if current_user and (u["username"].lower() == current_user.username.lower() or u["user_id"] == str(current_user.id)):
+        if current_user and (str(u_id) == str(current_user.id) or (db_user and db_user.username.lower() == current_user.username.lower())):
             is_me = True
-            user_rank = i
+            user_rank = rank
 
         entries.append(LeaderboardEntry(
-            rank=i,
-            user_id=u["user_id"],
-            username=u["username"],
-            tag=u["tag"],
-            score=u["score"],
-            accuracy=u["accuracy"],
-            quizzes_taken=u["quizzes_taken"],
+            rank=rank,
+            user_id=str(u_id),
+            username=username,
+            tag=tag,
+            score=total_score,
+            accuracy=accuracy,
+            quizzes_taken=quizzes_taken,
             is_current_user=is_me,
         ))
-
-    # If current user is logged in but not in top 12, append them as rank 13
-    if current_user and user_rank is None:
-        user_rank = 13
-        entries.append(LeaderboardEntry(
-            rank=13,
-            user_id=str(current_user.id),
-            username=current_user.username,
-            tag=getattr(current_user, "tag", "0001"),
-            score=34,
-            accuracy=68.0,
-            quizzes_taken=18,
-            is_current_user=True,
-        ))
+        rank += 1
 
     return LeaderboardResponse(
         month_name=month_name,

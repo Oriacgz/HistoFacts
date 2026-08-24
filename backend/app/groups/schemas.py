@@ -3,7 +3,7 @@ Pydantic schemas for Groups module.
 """
 
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.auth.schemas import UserResponse
 
 
@@ -13,17 +13,18 @@ class CreateGroupRequest(BaseModel):
 
 
 class GroupMemberResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     group_id: str
     user_id: str
     role: str
     joined_at: datetime
     user: UserResponse | None = None
 
-    class Config:
-        from_attributes = True
-
 
 class GroupResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     description: str | None = None
@@ -31,6 +32,3 @@ class GroupResponse(BaseModel):
     created_at: datetime
     member_count: int = 1
     members: list[GroupMemberResponse] = []
-
-    class Config:
-        from_attributes = True

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Chart } from 'chart.js/auto';
 import { RotateCcw, Sparkles, ArrowRight, Trophy, BarChart3, Award, ChevronRight } from 'lucide-react';
-import { DIFFICULTY_CONFIG } from '../data/quizData';
+import { DIFFICULTY_CONFIG } from '../constants';
 import { ResultsSummary } from '../components';
 
 function PerformanceChart({ score, totalQuestions, chartRef }) {

@@ -9,6 +9,7 @@ export default function FeedPage() {
   const [posts, setPosts] = useState([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [activeReplyId, setActiveReplyId] = useState(null);
   const [replyContent, setReplyContent] = useState('');
 
@@ -17,19 +18,9 @@ export default function FeedPage() {
     try {
       const data = await getPublicFeedApi();
       setPosts(data || []);
-    } catch {
-      // Fallback mock post if offline
-      setPosts([
-        {
-          id: 'mock-1',
-          content: 'Did you know that Saint Patrick was actually born in Roman Britain before being captured and brought to Ireland?',
-          like_count: 5,
-          comment_count: 2,
-          created_at: new Date().toISOString(),
-          author: { username: 'HistoryBuff', tag: '1234' },
-          comments: [],
-        },
-      ]);
+    } catch (err) {
+      console.error('Failed to load feed:', err);
+      setError('Unable to load discussion feed. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -47,19 +38,9 @@ export default function FeedPage() {
       const created = await createPostApi(newPostContent.trim());
       setPosts([created, ...posts]);
       setNewPostContent('');
-    } catch {
-      // Offline fallback push
-      const fallbackPost = {
-        id: `post-${Date.now()}`,
-        content: newPostContent,
-        like_count: 0,
-        comment_count: 0,
-        created_at: new Date().toISOString(),
-        author: user ? { username: user.username, tag: user.tag } : { username: 'Scholar', tag: '0000' },
-        comments: [],
-      };
-      setPosts([fallbackPost, ...posts]);
-      setNewPostContent('');
+    } catch (err) {
+      console.error('Failed to create post:', err);
+      setError('Failed to create post. Please try again.');
     }
   };
 
@@ -67,8 +48,8 @@ export default function FeedPage() {
     try {
       const { new_like_count } = await togglePostLikeApi(postId);
       setPosts(posts.map(p => p.id === postId ? { ...p, like_count: new_like_count } : p));
-    } catch {
-      setPosts(posts.map(p => p.id === postId ? { ...p, like_count: p.like_count + 1 } : p));
+    } catch (err) {
+      console.error('Failed to toggle like:', err);
     }
   };
 

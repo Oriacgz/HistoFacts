@@ -3,7 +3,7 @@ Pydantic schemas for auth requests and responses.
 """
 
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
 class UserRegisterRequest(BaseModel):
@@ -22,6 +22,8 @@ class RefreshTokenRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     username: str
     tag: str
@@ -29,8 +31,22 @@ class UserResponse(BaseModel):
     avatar_url: str | None = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+
+class FriendResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    username: str
+    tag: str
+    avatar_url: str | None = None
+    status: str = "accepted"
+    requested_at: datetime | None = None
+
+
+class AddFriendRequest(BaseModel):
+    friend_id: str | None = None
+    username: str | None = None
+    tag: str | None = None
 
 
 class TokenResponse(BaseModel):

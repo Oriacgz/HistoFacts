@@ -28,8 +28,12 @@ export function useLobbySocket({ code, user, role = 'player' }) {
   const getWsUrl = useCallback(() => {
     const loc = window.location;
     const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Connect to backend gateway or fallback to service port 8006
-    return `${protocol}//${loc.hostname}:8006/api/quiz/ws/lobby/${code}`;
+    // Connect through standard API Gateway
+    const port = import.meta.env.VITE_GATEWAY_WS_PORT || (loc.port === '5173' || loc.port === '3000' ? '8000' : loc.port);
+    const portSegment = port ? `:${port}` : '';
+    const token = localStorage.getItem('access_token');
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${protocol}//${loc.hostname}${portSegment}/api/quiz/ws/lobby/${code}${tokenParam}`;
   }, [code]);
 
   const sendEvent = useCallback((type, payload = {}) => {
@@ -50,12 +54,14 @@ export function useLobbySocket({ code, user, role = 'player' }) {
       setIsReconnecting(false);
 
       // Authenticate / Join room on connect or reconnect
+      const token = localStorage.getItem('access_token');
       const userId = user?.id || `anon-${Math.random().toString(36).substring(2, 8)}`;
       const username = user?.username || 'Scholar';
       const tag = user?.tag || '0001';
 
       ws.send(JSON.stringify({
         type: 'join',
+        token,
         user_id: userId,
         username,
         tag,

@@ -3,6 +3,7 @@ FastAPI router for Quiz module endpoints and WebSocket Lobby.
 """
 
 import asyncio
+from app.core.security import decode_token
 from fastapi import APIRouter, Depends, Query, HTTPException, status, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,8 +112,9 @@ async def get_history_detail(
 @router.get("/leaderboard", response_model=LeaderboardResponse)
 async def get_global_leaderboard(
     current_user: User | None = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_async_session),
 ):
-    return get_global_leaderboard_data(current_user=current_user)
+    return await get_global_leaderboard_data(db=db, current_user=current_user)
 
 
 @router.post("/lobby/create")
@@ -154,6 +156,7 @@ async def get_lobby_info(code: str):
     }
 
 
+
 # -------------------------------------------------------------
 # WebSocket: Live Synchronous Kahoot-style Multiplayer Lobby
 # -------------------------------------------------------------
@@ -172,12 +175,24 @@ async def websocket_lobby_endpoint(websocket: WebSocket, code: str):
             data = await websocket.receive_json()
             msg_type = data.get("type")
 
-            # 1. Join / Reconnect
+            # 1. Join / Reconnect with JWT authentication
             if msg_type == "join":
-                user_id = data.get("user_id") or str(websocket.client.host)
+                token = data.get("token") or websocket.query_params.get("token")
+                authenticated_user_id = None
+                if token:
+                    payload = decode_token(token)
+                    if payload and payload.get("type") == "access":
+                        authenticated_user_id = payload.get("sub")
+
+                if authenticated_user_id:
+                    user_id = authenticated_user_id
+                    role = "host" if user_id == room.host_id else data.get("role", "player")
+                else:
+                    user_id = data.get("user_id") or f"guest-{str(websocket.client.host if websocket.client else 'client')}"
+                    role = "player"  # Guests cannot claim host privileges
+
                 username = data.get("username") or "Scholar"
                 tag = data.get("tag") or "0001"
-                role = data.get("role", "player")
 
                 # Restore or init participant state
                 if user_id not in room.participants:
@@ -194,6 +209,7 @@ async def websocket_lobby_endpoint(websocket: WebSocket, code: str):
                     # Silent reconnect!
                     room.participants[user_id]["ws"] = websocket
                     room.participants[user_id]["username"] = username
+                    room.participants[user_id]["role"] = role
 
                 # Send room snapshot to newly joined / reconnected user
                 curr_q = room.questions[room.current_question_index] if room.questions else None
@@ -218,8 +234,15 @@ async def websocket_lobby_endpoint(websocket: WebSocket, code: str):
                     "participants": room.get_participants_summary(),
                 })
 
-            # 2. Host starts the quiz
+            # 2. Host starts the quiz (Authorized only for room.host_id)
             elif msg_type == "start_quiz":
+                if user_id != room.host_id:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Unauthorized: Only the lobby host can start the quiz",
+                    })
+                    continue
+
                 if room.state == "waiting_room":
                     room.state = "question_active"
                     room.current_question_index = 0
@@ -261,8 +284,15 @@ async def websocket_lobby_endpoint(websocket: WebSocket, code: str):
                         "participants": room.get_participants_summary(),
                     })
 
-            # 4. Host advances to next question or mini-leaderboard
+            # 4. Host advances to next question or mini-leaderboard (Authorized only for room.host_id)
             elif msg_type == "show_leaderboard":
+                if user_id != room.host_id:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Unauthorized: Only the lobby host can show the leaderboard",
+                    })
+                    continue
+
                 room.state = "mini_leaderboard"
                 await room.broadcast({
                     "type": "show_mini_leaderboard",
@@ -270,6 +300,13 @@ async def websocket_lobby_endpoint(websocket: WebSocket, code: str):
                 })
 
             elif msg_type == "next_question":
+                if user_id != room.host_id:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Unauthorized: Only the lobby host can advance questions",
+                    })
+                    continue
+
                 if room.current_question_index + 1 < len(room.questions):
                     room.current_question_index += 1
                     room.state = "question_active"
@@ -289,15 +326,17 @@ async def websocket_lobby_endpoint(websocket: WebSocket, code: str):
                         "leaderboard": sorted(room.get_participants_summary(), key=lambda x: x["score"], reverse=True),
                     })
 
-            # 5. Server time tick update (client can also request sync)
+            # 5. Server time tick update (Authorized only for room.host_id)
             elif msg_type == "tick":
-                new_time = data.get("time_remaining")
-                if new_time is not None:
-                    room.time_remaining = new_time
-                    await room.broadcast({
-                        "type": "time_sync",
-                        "time_remaining": room.time_remaining,
-                    })
+                if user_id == room.host_id:
+                    new_time = data.get("time_remaining")
+                    if new_time is not None:
+                        room.time_remaining = new_time
+                        await room.broadcast({
+                            "type": "time_sync",
+                            "time_remaining": room.time_remaining,
+                        })
+
 
     except WebSocketDisconnect:
         if user_id and user_id in room.participants:

@@ -1,205 +1,142 @@
-# HistoFacts
+# HistoFacts 🏛️
 
-> **Daily Facts and Stories from the Past**  
-> A modern, microservices-ready historical learning platform featuring daily historical events, AI-powered curriculum notes with a token economy, handwritten notes styling, interactive quizzes, and community study circles.
+> **AI-powered historical education platform** — multiplayer quizzes, AI-generated study notes, a social history feed, and a token economy — all in one.
+
+[![Backend Tests](https://img.shields.io/badge/backend%20tests-13%2F13%20passing-brightgreen)](#testing)
+[![Frontend Tests](https://img.shields.io/badge/frontend%20tests-11%2F11%20passing-brightgreen)](#testing)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
 
 ---
 
-## Architecture Overview
+## 📖 Table of Contents
 
-HistoFacts is architected into **6 independent domain microservices** fronted by an **API Gateway**, allowing seamless local development as well as containerized multi-service deployment.
+1. [Product Overview](#product-overview)
+2. [Features](#features)
+3. [System Architecture](#system-architecture)
+4. [Tech Stack](#tech-stack)
+5. [Project Structure](#project-structure)
+6. [Local Development Setup](#local-development-setup)
+7. [Environment Variables](#environment-variables)
+8. [Database Migrations](#database-migrations)
+9. [Testing](#testing)
+10. [Docker Compose Deployment](#docker-compose-deployment)
+11. [WebSocket Multiplayer Lobby](#websocket-multiplayer-lobby)
+12. [Security Architecture](#security-architecture)
+13. [Troubleshooting](#troubleshooting)
+
+---
+
+## Product Overview
+
+HistoFacts is a full-stack SPA built for history enthusiasts, students, and competitive exam aspirants. It combines:
+
+- **On-this-day history feed** synced from Wikimedia
+- **AI-powered personalized quizzes** from topic or uploaded PDF
+- **Kahoot-style real-time multiplayer quiz lobbies** (WebSocket)
+- **AI study notes** with token economy (LLM-powered)
+- **Social discussion feed** (posts, comments, likes)
+- **Study groups** with shared notes
+- **Friends system** and global leaderboard
+- **Histoins reward economy** earned by quiz participation
+
+---
+
+## Features
+
+| Feature | Description |
+|---|---|
+| 📅 Today in History | Date-specific events from Wikimedia with full search |
+| 🧠 Personalized Quiz | AI-generates questions from any topic or uploaded document |
+| 🎮 Multiplayer Lobby | Kahoot-style real-time quiz rooms with JWT-authenticated host control |
+| 📝 AI Notes | LLM-generated structured notes with curriculum tagging |
+| 🪙 Token Economy | AI usage costs tokens; Histoins earned by quiz, spent at shop |
+| 💬 Social Feed | Posts, threaded comments, likes with event context |
+| 👥 Study Groups | Create groups, share notes, group-scoped posts |
+| 🤝 Friends | Add/remove friends, see their activity |
+| 🏆 Leaderboard | Monthly global quiz leaderboard with accuracy and score ranking |
+| 🔖 Bookmarks | Save historical events for later |
+
+---
+
+## System Architecture
 
 ```
-                               ┌────────────────────────┐
-                               │ React Frontend (SPA)   │
-                               └───────────┬────────────┘
-                                           │ http://localhost:8000/api/*
-                                           ▼
-                               ┌────────────────────────┐
-                               │      API Gateway       │
-                               │ (Nginx / FastAPI Proxy)│
-                               └───────────┬────────────┘
-         ┌──────────────┬──────────────┬───┴──────────┬──────────────┬──────────────┐
-         │              │              │              │              │              │
-         ▼ :8001        ▼ :8002        ▼ :8003        ▼ :8004        ▼ :8005        ▼ :8006
-  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
-  │   Auth     │ │  History   │ │   Social   │ │   Groups   │ │  AI Notes  │ │    Quiz    │
-  │  Service   │ │  Service   │ │  Service   │ │  Service   │ │  Service   │ │  Service   │
-  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘
-        │              │              │              │              │              │
-        └──────────────┴──────────────┼──────────────┴──────────────┴──────────────┘
-                                      ▼
-                        ┌────────────────────────┐
-                        │   PostgreSQL Database  │
-                        │ (Isolated Domain Data) │
-                        └────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                     Browser (React SPA)                  │
+│  React + Vite · Code-Split Lazy Routes · WebSocket Client │
+└─────────────────────┬────────────────────────────────────┘
+                      │ HTTP / WebSocket
+┌─────────────────────▼────────────────────────────────────┐
+│              API Gateway  (port 8000)                     │
+│  Nginx (Docker) · WebSocket Upgrade · /internal block     │
+│  OR FastAPI Gateway (Python) — microservice URL resolver  │
+└──────┬──────────────────────────────────────┬────────────┘
+       │ HTTP Proxy                           │ WS Proxy
+       │                                      │
+┌──────▼──────────────────────────────────────▼────────────┐
+│                   FastAPI Backend                         │
+│  Modular Monolith mode (default) OR Microservices mode   │
+│                                                           │
+│  ┌────────────┐ ┌────────────┐ ┌──────────────────────┐  │
+│  │  Auth      │ │  History   │ │  Quiz (WebSocket)    │  │
+│  │  :8001     │ │  :8002     │ │  :8006               │  │
+│  └────────────┘ └────────────┘ └──────────────────────┘  │
+│  ┌────────────┐ ┌────────────┐ ┌──────────────────────┐  │
+│  │  Social    │ │  Groups    │ │  AI Notes + Wallet   │  │
+│  │  :8003     │ │  :8004     │ │  :8005               │  │
+│  └────────────┘ └────────────┘ └──────────────────────┘  │
+└──────────────────────────────┬───────────────────────────┘
+                               │ asyncpg
+┌──────────────────────────────▼───────────────────────────┐
+│                   PostgreSQL Database                     │
+│  19 Tables · Alembic Migrations · Async SQLAlchemy ORM   │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### The 6 Independent Microservices
+### Deployment Modes
 
-| Service | Port | Entrypoint | Endpoints | Description |
-|---|---|---|---|---|
-| **1. Auth & Identity** | `:8001` | `app.auth.main:app` | `/api/auth/*` | Registration, JWT login & refresh, unique 4-digit `#tag` generator, user search |
-| **2. History Content** | `:8002` | `app.history.main:app` | `/api/events/*` | Today's facts feed, calendar date browser, keyword search, bookmarks, resilient Wikimedia sync |
-| **3. Social Discussion** | `:8003` | `app.social.main:app` | `/api/social/*` | Public Chronicle feed, threaded nested replies (`parent_comment_id`), like counter |
-| **4. Groups Service** | `:8004` | `app.groups.main:app` | `/api/groups/*` | Group creation, membership roles (`admin`/`member`), group discussion circles |
-| **5. AI Notes & Economy** | `:8005` | `app.ai_notes.main:app` | `/api/notes/*`<br>`/api/wallet/*`<br>`/api/shop/*` | LLM curriculum notes synthesis, multi-format attachments (PDF/docs/images), handwritten notes restyling, token quota wallet, Histoins token pack shop |
-| **6. Quiz & Assessment** | `:8006` | `app.quiz.main:app` | `/api/quiz/*` | Topic-based question bank, attempt tracking, accuracy scoring, and +20 Histoin reward earnings |
+**Modular Monolith** (default for local dev):
+All modules run inside one FastAPI process. The `app/main.py` aggregates all routers. Use `uvicorn app.main:app`.
+
+**Microservices** (Docker Compose):
+Each module has its own `app/<module>/main.py` FastAPI instance, exposed on a separate port. An API Gateway (Nginx or Python FastAPI) routes traffic. Use `docker compose up`.
 
 ---
 
 ## Tech Stack
 
+### Backend
+| Layer | Technology |
+|---|---|
+| Web Framework | FastAPI 0.115 |
+| ORM | SQLAlchemy 2 (async) + asyncpg |
+| Migrations | Alembic |
+| Auth | JWT (python-jose) + bcrypt (passlib) |
+| Validation | Pydantic v2 |
+| HTTP Client | httpx (async, shared client with lifespan) |
+| WebSocket | FastAPI WebSocket + starlette |
+| Testing | pytest + pytest-asyncio + httpx |
+
 ### Frontend
-- **React 19** with Vite
-- **TailwindCSS 4** with custom parchment palette & typography tokens
-- **Framer Motion** for transitions
-- **Google Fonts** (`Playfair Display`, `Lora`, `Poppins`, `Caveat`, `Patrick Hand`)
-- **Lucide React** for icons
-- **React Router v7**
+| Layer | Technology |
+|---|---|
+| Framework | React 19 + Vite 8 |
+| Routing | React Router v7 |
+| State | React Context (AuthContext, ToastContext) |
+| Styling | Tailwind CSS + custom CSS variables |
+| Animation | Framer Motion |
+| Charts | Chart.js |
+| Icons | Lucide React |
+| Testing | Vitest |
+| Build | Vite (code splitting, lazy routes) |
 
-### Backend & Microservices
-- **FastAPI** (Python 3.11 asynchronous microservices)
-- **SQLAlchemy 2.0 (Asyncio)** + **asyncpg** + **aiosqlite** (testing)
-- **PostgreSQL 16** (with UUID keys and audit ledgers)
-- **Alembic** for schema migrations
-- **JWT Authentication** (access token + refresh token)
-- **Pytest** + **Pytest-Asyncio** for automated testing (100% passing)
-
-### Deployment & Gateway
-- **API Gateway**: Nginx reverse proxy (production) / FastAPI Proxy (development)
-- **Docker & Docker Compose** for multi-container deployment
-- **GitHub Actions CI** for automated test & build verification
-
----
-
-## Key Features
-
-### 1. Daily Historical Events & Discovery
-- **"On This Day" Facts**: Curated historical events synced automatically from Wikimedia with exponential backoff retry.
-- **Date Browser & Search**: Explore history by specific date (`MM-DD`) or full-text keyword search.
-- **Bookmarks**: Save historical events to your personal study library.
-
-### 2. AI Notes, Token Economy & Handwritten Style
-- **Curriculum-Aware Generation**: Grounded notes tailored to NCERT, CBSE, UPSC, and international syllabi.
-- **Multi-Format Attachment Support**: Attach PDFs, Word docs (`.docx`), Markdown, text files, and images for AI analysis.
-- **Token Quota System**:
-  - **350,000 Signup Bonus Tokens** for new accounts.
-  - **Lazy Daily Refill**: +50,000 free tokens/day up to a 350,000 free cap (back-fills multiple missed days).
-  - **Atomic Deductions**: Pre-flight token check before LLM calls and row-level locking (`with_for_update`) to prevent race conditions.
-  - **Live Cost Estimator**: Debounced live cost estimate while typing.
-- **Histoins Virtual Currency & Token Pack Shop**:
-  - Earn Histoins via daily login (+10 🪙) and correct quiz answers (+20 🪙).
-  - Exchange Histoins for token packs in the shop (Starter: 50K for 100 🪙, Popular: 150K for 250 🪙, Mega: 350K for 500 🪙).
-- **Handwritten Notes Styling**:
-  - Convert any formal note into student lecture notes with abbreviations (`govt`, `b/c`, `w/`), arrows (`→`), and bold highlights.
-  - Rendered on a lined notebook canvas with red margin line and handwriting typography.
-
-### 3. Community & Social Features
-- **Public Chronicle Feed**: Post historical observations, ask questions, and share insights.
-- **Threaded Comment Hierarchy**: Nested discussions via self-referencing `parent_comment_id`.
-- **Study Groups**: Create private groups, invite friends, and share study notes.
-- **Unique Handles**: Discord-style username and 4-digit unique tag (e.g. `Scholar#4102`).
-
-### 4. Interactive Quizzes
-- Topic-based question banks covering ancient, medieval, modern, and world history.
-- Immediate feedback, score calculation, and Histoin rewards.
-
----
-
-## Getting Started
-
-### Prerequisites
-- Python 3.11+
-- Node.js 18+ / 20+
-- PostgreSQL 16+ (or Docker)
-
----
-
-### Running the Application
-
-#### Method 1: Local Microservices Runner (Recommended for Dev)
-Spawns all 6 microservice processes + the API Gateway concurrently with color-coded logging:
-
-```bash
-# 1. Setup Backend
-cd backend
-python -m venv venv
-# Windows:
-venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
-
-pip install -r requirements.txt
-cp .env.example .env
-
-# Run all 6 microservices + API Gateway
-python run_microservices.py
-```
-
-In a second terminal, start the frontend:
-```bash
-# 2. Setup Frontend
-cd front-end
-npm install
-npm run dev
-```
-
-- **Frontend SPA**: http://localhost:5173
-- **Unified API Gateway**: http://localhost:8000
-- **Gateway Health Matrix**: http://localhost:8000/health
-
----
-
-#### Method 2: Docker Compose (All-in-One Containerized Setup)
-Builds and starts all 6 microservice containers, PostgreSQL, and the Nginx API Gateway:
-
-```bash
-docker compose up --build
-```
-
-- **API Gateway (Nginx)**: http://localhost:8000
-- **Frontend SPA**: http://localhost:5173 (or containerized port)
-- **Auth Microservice**: http://localhost:8001
-- **History Microservice**: http://localhost:8002
-- **Social Microservice**: http://localhost:8003
-- **Groups Microservice**: http://localhost:8004
-- **AI Notes Microservice**: http://localhost:8005
-- **Quiz Microservice**: http://localhost:8006
-
----
-
-## Running Automated Tests
-
-Run the backend test suite across all 6 modules and the API Gateway (using in-memory SQLite):
-
-```bash
-cd backend
-pytest -v
-```
-
-All 11 test suites verify:
-- Registration, JWT auth, refresh tokens, unique `#tag` generator
-- Events date browser, keyword search, bookmarks CRUD
-- Chronicle posts, threaded replies, like counter
-- Groups lifecycle and member feeds
-- AI notes synthesis, token wallet deduction, handwritten notes restyling, token pack shop purchases
-- Quiz evaluation and Histoin rewards
-- API Gateway routing and service resolution
-
----
-
-## API Gateway Route Table
-
-| Path Prefix | Destination Microservice | Direct Swagger Docs |
-|---|---|---|
-| `/api/auth/*` | Auth Service (`:8001`) | http://localhost:8001/docs |
-| `/api/events/*` | History Service (`:8002`) | http://localhost:8002/docs |
-| `/api/social/*` | Social Service (`:8003`) | http://localhost:8003/docs |
-| `/api/groups/*` | Groups Service (`:8004`) | http://localhost:8004/docs |
-| `/api/notes/*`<br>`/api/wallet/*`<br>`/api/shop/*` | AI Notes Service (`:8005`) | http://localhost:8005/docs |
-| `/api/quiz/*` | Quiz Service (`:8006`) | http://localhost:8006/docs |
-| `/health` | API Gateway Health Check | http://localhost:8000/health |
+### Infrastructure
+| Layer | Technology |
+|---|---|
+| Container | Docker + Docker Compose |
+| Reverse Proxy | Nginx (WebSocket + SPA fallback) |
+| Database | PostgreSQL 16 |
+| CI | GitHub Actions |
 
 ---
 
@@ -207,39 +144,356 @@ All 11 test suites verify:
 
 ```
 HistoFacts/
+├── .env.example                  # Root env variable template
 ├── .github/
-│   └── workflows/
-│       └── ci.yml             # GitHub Actions CI (Backend tests + Frontend build)
+│   └── workflows/ci.yml          # CI: backend tests + frontend tests + build
+├── docker-compose.yml            # Full microservices deployment
 ├── gateway/
-│   ├── nginx.conf             # Production Nginx API Gateway reverse proxy
-│   └── Dockerfile             # Gateway container definition
-├── front-end/                 # React 19 + Vite SPA
-│   ├── src/
-│   │   ├── api/               # API clients (aiNotes, auth, history, quiz, social, groups)
-│   │   ├── components/        # Reusable UI widgets
-│   │   ├── contexts/          # Auth and Toast contexts
-│   │   ├── pages/             # NotesPage, Dashboard, FeedPage, QuizPage, etc.
-│   │   ├── index.css          # Tailwind theme tokens & notebook styles
-│   │   └── App.jsx            # Routing and layout
-│   └── package.json
-├── backend/                   # FastAPI Microservices Backend
-│   ├── app/
-│   │   ├── auth/              # Microservice 1 (:8001) - Auth & Identity
-│   │   ├── history/           # Microservice 2 (:8002) - History Content & Sync
-│   │   ├── social/            # Microservice 3 (:8003) - Social Discussion
-│   │   ├── groups/            # Microservice 4 (:8004) - Groups & Circles
-│   │   ├── ai_notes/          # Microservice 5 (:8005) - AI Notes & Token Economy
-│   │   ├── quiz/              # Microservice 6 (:8006) - Quiz & Assessment
-│   │   ├── gateway/           # Development FastAPI Proxy Gateway (:8000)
-│   │   └── core/              # Shared config, database, security, inter-service client
-│   ├── tests/                 # Pytest test suite (11 test suites)
-│   ├── run_microservices.py   # Multi-service process runner
-│   ├── requirements.txt
 │   ├── Dockerfile
-│   └── alembic/               # Database migrations
-├── docs/
-│   ├── project-context.md     # Master project architecture documentation
-│   └── microservices-architecture.md
-├── docker-compose.yml
-└── README.md
+│   └── nginx.conf                # Nginx reverse proxy + WebSocket upgrade
+├── backend/
+│   ├── .env.example              # Backend-specific env template
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── alembic.ini
+│   ├── alembic/
+│   │   └── versions/
+│   │       ├── 2026_08_22_..._initial_schema.py
+│   │       └── 2026_08_24_..._add_wallets_and_quiz_sessions.py
+│   ├── app/
+│   │   ├── main.py               # Modular-monolith entrypoint (all routers)
+│   │   ├── core/
+│   │   │   ├── config.py         # Settings (env-driven via pydantic-settings)
+│   │   │   ├── database.py       # Async SQLAlchemy engine + session factory
+│   │   │   ├── deps.py           # Shared FastAPI dependencies (auth, internal)
+│   │   │   ├── security.py       # JWT creation/decode + password hashing
+│   │   │   └── inter_service.py  # Inter-microservice HTTP client
+│   │   ├── auth/                 # Users, JWT login/register, friends
+│   │   ├── history/              # Events, bookmarks, Wikimedia sync
+│   │   ├── social/               # Posts, comments, likes
+│   │   ├── groups/               # Groups, members, group notes
+│   │   ├── ai_notes/             # Notes, token wallet, Histoins, shop
+│   │   ├── quiz/                 # Questions, attempts, sessions, WS lobby
+│   │   └── gateway/              # FastAPI gateway (microservices mode)
+│   └── tests/
+│       ├── test_auth.py
+│       ├── test_history.py
+│       ├── test_social.py
+│       ├── test_groups.py
+│       ├── test_ai_notes.py
+│       ├── test_quiz.py
+│       ├── test_gateway.py
+│       └── test_migrations.py
+└── front-end/
+    ├── Dockerfile
+    ├── nginx.conf                 # SPA routing fallback (try_files)
+    ├── package.json
+    ├── vite.config.js
+    └── src/
+        ├── App.jsx               # React Router + lazy-loaded route tree
+        ├── api/                  # Per-module API client functions
+        ├── components/           # Shared components (Navbar, Layout, Icons)
+        ├── contexts/             # AuthContext, ToastContext
+        ├── features/
+        │   ├── quiz/             # Quiz hub, personalized, lobby, global, history
+        │   └── ai-notes/         # Notes sidebar, markdown viewer, shop modal
+        └── pages/                # Page-level components
 ```
+
+---
+
+## Local Development Setup
+
+### Prerequisites
+- Python 3.11+
+- Node.js 20+
+- PostgreSQL 16 (or Docker)
+
+### 1. Backend Setup
+
+```bash
+cd backend
+
+# Create virtualenv
+python -m venv .venv
+.\.venv\Scripts\activate       # Windows
+# source .venv/bin/activate    # macOS/Linux
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your DATABASE_URL and SECRET_KEY
+
+# Run database migrations
+alembic upgrade head
+
+# Start the server (modular monolith mode)
+uvicorn app.main:app --reload --port 8000
+```
+
+Backend API available at: `http://localhost:8000`  
+Interactive docs: `http://localhost:8000/docs`
+
+### 2. Frontend Setup
+
+```bash
+cd front-end
+
+npm install
+
+# Start Vite dev server
+npm run dev
+```
+
+Frontend available at: `http://localhost:5173`
+
+The Vite dev server proxies `/api/*` to `localhost:8000` (configure in `vite.config.js`).
+
+### 3. Running as Microservices (Local, without Docker)
+
+```bash
+cd backend
+python run_microservices.py
+```
+
+This starts all 6 service processes on ports 8001–8006 and a gateway on 8000.
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_URL` | Async PostgreSQL URL | `postgresql+asyncpg://...` |
+| `SECRET_KEY` | JWT signing secret (change in production!) | — |
+| `ALGORITHM` | JWT algorithm | `HS256` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Access token TTL | `30` |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh token TTL | `7` |
+| `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:5173` |
+| `LLM_API_KEY` | API key for AI note generation | — |
+| `LLM_PROVIDER` | LLM provider name | `openai` |
+| `NOTES_SERVICE_URL` | URL of AI Notes microservice | `http://127.0.0.1:8005` |
+
+> [!IMPORTANT]
+> Always set a cryptographically strong `SECRET_KEY` in production. The fallback value is intentionally weak and only for local development.
+
+---
+
+## Database Migrations
+
+HistoFacts uses Alembic for schema migrations.
+
+```bash
+cd backend
+
+# Apply all migrations to latest version
+alembic upgrade head
+
+# Create a new migration after model changes
+alembic revision --autogenerate -m "describe_your_change"
+
+# Downgrade one step
+alembic downgrade -1
+
+# Downgrade to empty (drops all tables)
+alembic downgrade base
+
+# View migration history
+alembic history
+```
+
+### Migration Files
+
+| Migration | Tables Created |
+|---|---|
+| `2026_08_22_initial_schema` | `users`, `friends`, `historical_events`, `bookmarks`, `posts`, `comments`, `likes`, `notes`, `group_shared_notes`, `groups`, `group_members`, `quiz_questions`, `quiz_attempts` |
+| `2026_08_24_add_wallets_and_quiz_sessions` | `user_token_wallets`, `token_ledger`, `histoin_wallets`, `histoin_ledger`, `token_packs`, `quiz_sessions` |
+
+### Database Tables (19 total)
+
+`users` · `friends` · `historical_events` · `bookmarks` · `posts` · `comments` · `likes` · `groups` · `group_members` · `notes` · `group_shared_notes` · `quiz_questions` · `quiz_attempts` · `quiz_sessions` · `user_token_wallets` · `token_ledger` · `histoin_wallets` · `histoin_ledger` · `token_packs`
+
+---
+
+## Testing
+
+### Backend Tests (pytest)
+
+```bash
+cd backend
+.\.venv\Scripts\pytest -v
+```
+
+Expected: **13 tests, 0 failures**
+
+| Test File | Coverage |
+|---|---|
+| `test_auth.py` | Register, login, duplicate email, invalid password, friends flow |
+| `test_history.py` | Events search, bookmarks CRUD |
+| `test_social.py` | Posts, comments, likes flow |
+| `test_groups.py` | Group create, join, list |
+| `test_ai_notes.py` | Note generation, wallet init, token deduction, Histoin reward |
+| `test_quiz.py` | Quiz attempt, session save, Histoin reward integration |
+| `test_gateway.py` | Route resolution for all microservices |
+| `test_migrations.py` | Alembic upgrade to head + downgrade to base |
+
+### Frontend Tests (Vitest)
+
+```bash
+cd front-end
+npm test
+```
+
+Expected: **11 tests, 0 failures**
+
+| Test File | Coverage |
+|---|---|
+| `tokenEstimator.test.js` | Token estimation utilities (8 test cases) |
+| `client.test.js` | API client auth header injection (3 test cases) |
+
+### Production Build Verification
+
+```bash
+cd front-end
+npm run build
+```
+
+Expected: Successful build with code-split chunks, no errors.
+
+---
+
+## Docker Compose Deployment
+
+### Prerequisites
+- Docker Desktop
+- A `.env` file at repository root (copy from `.env.example`)
+
+### Start All Services
+
+```bash
+# Build and start everything
+docker compose up --build
+
+# Or run in background
+docker compose up --build -d
+```
+
+### Service Ports
+
+| Service | Port | Description |
+|---|---|---|
+| `api-gateway` | `8000` | Nginx gateway (public entrypoint) |
+| `auth-service` | `8001` | Auth & identity microservice |
+| `history-service` | `8002` | History content microservice |
+| `social-service` | `8003` | Social discussion microservice |
+| `groups-service` | `8004` | Groups microservice |
+| `notes-service` | `8005` | AI Notes & token economy microservice |
+| `quiz-service` | `8006` | Quiz & assessment microservice |
+| `frontend` | `3000` | React SPA (Nginx) |
+| `postgres` | `5432` | PostgreSQL database |
+
+### Run Migrations in Docker
+
+```bash
+docker compose exec auth-service alembic upgrade head
+```
+
+### Stop Services
+
+```bash
+docker compose down
+
+# Also remove volumes (⚠️ deletes all data)
+docker compose down -v
+```
+
+---
+
+## WebSocket Multiplayer Lobby
+
+HistoFacts implements a Kahoot-style multiplayer quiz using native FastAPI WebSockets.
+
+### Connection Flow
+
+```
+Client                    Server
+  │                          │
+  ├─── WS connect (+ ?token=<JWT>) ───►│
+  │◄── accept ─────────────────────────│
+  │                          │
+  ├─── { type: "join", token, username, tag, role } ──►│
+  │    Server validates JWT, resolves role             │
+  │◄── { type: "room_state", ...snapshot } ────────────│
+  │                          │
+  │     [quiz in progress]   │
+  ├─── { type: "submit_answer", selected_option } ─────►│
+  │◄── { type: "answer_acknowledged", score } ──────────│
+  │◄── { type: "participants_update" } ─────────────────│ (broadcast)
+```
+
+### Host Authorization
+
+Room control actions (`start_quiz`, `show_leaderboard`, `next_question`, `tick`) are **only executable by the room host**. The server validates `user_id == room.host_id` after JWT authentication. Non-host clients receive a `{ type: "error", message: "Unauthorized" }` response.
+
+### WebSocket URL
+
+```
+ws://localhost:8000/api/quiz/ws/lobby/{room_code}?token=<access_token>
+```
+
+---
+
+## Security Architecture
+
+### Authentication
+- JWT access tokens (30 min TTL) + refresh tokens (7 days TTL)
+- Passwords hashed with bcrypt
+- All protected endpoints use `get_current_user` dependency
+- Optional auth endpoints use `get_optional_current_user`
+
+### Internal Service Authorization
+Internal inter-service endpoints (`/api/wallet/internal/*`) are protected with a shared secret:
+- Server validates `X-Internal-Secret: <SECRET_KEY>` header
+- The API gateway blocks all `/internal/` paths from external traffic (HTTP 403)
+- Inter-service clients supply the header automatically via `inter_service.py`
+
+### WebSocket Security
+- JWT token validated on WebSocket connect (via query param `?token=` and `join` message payload)
+- Unauthenticated users join as guests with `role: player` only — they cannot claim host privileges
+- Host-only actions enforced server-side, not client-side
+
+### CORS
+- `allow_origins` driven by `settings.cors_origins` (parsed from `CORS_ORIGINS` env var)
+- No wildcard `*` when `allow_credentials=True`
+
+---
+
+## Troubleshooting
+
+### Backend won't start — `DATABASE_URL not set`
+Copy `backend/.env.example` to `backend/.env` and set your PostgreSQL URL.
+
+### `alembic upgrade head` fails — table already exists
+The database has partial schema. Run `alembic downgrade base` first, then `alembic upgrade head`.
+
+### WebSocket connection fails in development
+Ensure the backend is running on port 8000. In `useLobbySocket.js`, the WS URL targets port 8000 when running from Vite dev server ports (5173, 3000).
+
+### Frontend shows `Network Error` for all API calls
+Check `vite.config.js` — the `/api` proxy target must point to `http://localhost:8000`.
+
+### Pydantic warnings about `class Config`
+All schemas have been migrated to `ConfigDict`. If you see warnings, check for any custom schemas not yet updated.
+
+### Tests fail on Windows — `PermissionError` on SQLite cleanup
+Known Windows limitation: the SQLite test DB file may be locked. The test suite handles this with `engine.dispose()` in teardown. If it persists, delete `backend/test_migrations.db` manually.
+
+---
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.

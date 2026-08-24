@@ -27,7 +27,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
       - APP_MODULE=app.auth.main:app
       - PORT=8001
-      - SECRET_KEY=histofacts-production-secret-key-2026
+      - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
       - NOTES_SERVICE_URL=http://notes-service:8005
     ports:
       - "8001:8001"
@@ -45,7 +45,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
       - APP_MODULE=app.history.main:app
       - PORT=8002
-      - SECRET_KEY=histofacts-production-secret-key-2026
+      - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
     ports:
       - "8002:8002"
     depends_on:
@@ -62,7 +62,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
       - APP_MODULE=app.social.main:app
       - PORT=8003
-      - SECRET_KEY=histofacts-production-secret-key-2026
+      - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
       - GROUPS_SERVICE_URL=http://groups-service:8004
     ports:
       - "8003:8003"
@@ -80,7 +80,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
       - APP_MODULE=app.groups.main:app
       - PORT=8004
-      - SECRET_KEY=histofacts-production-secret-key-2026
+      - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
     ports:
       - "8004:8004"
     depends_on:
@@ -97,7 +97,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
       - APP_MODULE=app.ai_notes.main:app
       - PORT=8005
-      - SECRET_KEY=histofacts-production-secret-key-2026
+      - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
     ports:
@@ -116,7 +116,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
       - APP_MODULE=app.quiz.main:app
       - PORT=8006
-      - SECRET_KEY=histofacts-production-secret-key-2026
+      - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
       - NOTES_SERVICE_URL=http://notes-service:8005
     ports:
       - "8006:8006"
@@ -139,6 +139,17 @@ services:
       - groups-service
       - notes-service
       - quiz-service
+
+  # ── Frontend Web Application ─────────────────────────────────
+  frontend:
+    build:
+      context: ./front-end
+      dockerfile: Dockerfile
+    container_name: histofacts-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
 
 volumes:
   pgdata:
