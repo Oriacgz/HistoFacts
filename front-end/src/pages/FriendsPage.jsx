@@ -1,25 +1,41 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { searchUsersByTagApi } from '../api/friends';
+import { getFriendsApi, addFriendApi, removeFriendApi, searchUsersByTagApi } from '../api/friends';
 import { Users, Search, User } from 'lucide-react';
-
-const INITIAL_FRIENDS = [
-  { id: 'f-1', username: 'Ryan', tag: '3081', status: 'Online', bio: 'Specializes in Ancient Civilizations & Roman Republic' },
-  { id: 'f-2', username: 'Aurelius', tag: '4412', status: 'Offline', bio: 'Focus on Stoic Philosophy & European History' },
-  { id: 'f-3', username: 'Elena', tag: '8920', status: 'Online', bio: 'NCERT & Indian Freedom Movement Researcher' },
-];
 
 export default function FriendsPage() {
   const { user } = useAuth();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState('my-friends');
-  const [friendsList, setFriendsList] = useState(INITIAL_FRIENDS);
+  const [friendsList, setFriendsList] = useState([]);
+  const [loadingFriends, setLoadingFriends] = useState(true);
   const [searchTag, setSearchTag] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      loadFriends();
+    } else {
+      setFriendsList([]);
+      setLoadingFriends(false);
+    }
+  }, [user]);
+
+  const loadFriends = async () => {
+    setLoadingFriends(true);
+    try {
+      const data = await getFriendsApi();
+      setFriendsList(data || []);
+    } catch (err) {
+      console.error('Failed to load friends:', err);
+    } finally {
+      setLoadingFriends(false);
+    }
+  };
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -28,34 +44,39 @@ export default function FriendsPage() {
     try {
       const results = await searchUsersByTagApi(searchTag.trim());
       setSearchResults(results || []);
-    } catch {
-      setSearchResults([
-        { id: `search-${Date.now()}`, username: searchTag.split('#')[0] || searchTag, tag: '1234', bio: 'Scholar Explorer' },
-      ]);
+    } catch (err) {
+      console.error('Search failed:', err);
+      toast.error('Search failed. Please try again.');
+      setSearchResults([]);
     } finally {
       setSearching(false);
     }
   };
 
-  const handleAddFriend = (friendUser) => {
+  const handleAddFriend = async (friendUser) => {
     if (friendsList.some(f => f.username === friendUser.username && f.tag === friendUser.tag)) {
       toast.info(`Already friends with ${friendUser.username}#${friendUser.tag}!`);
       return;
     }
-    const newFriend = {
-      id: friendUser.id || `f-${Date.now()}`,
-      username: friendUser.username,
-      tag: friendUser.tag,
-      status: 'Online',
-      bio: 'New Connection',
-    };
-    setFriendsList([...friendsList, newFriend]);
-    toast.success(`Friend request accepted! Added ${friendUser.username}#${friendUser.tag}.`);
+    try {
+      const added = await addFriendApi({ friend_id: friendUser.id });
+      setFriendsList(prev => [...prev, added]);
+      toast.success(`Added ${friendUser.username}#${friendUser.tag} as friend!`);
+    } catch (err) {
+      console.error('Failed to add friend:', err);
+      toast.error('Failed to add friend. Please try again.');
+    }
   };
 
-  const handleRemoveFriend = (friendId, friendName) => {
-    setFriendsList(friendsList.filter(f => f.id !== friendId));
-    toast.info(`Removed ${friendName} from friends.`);
+  const handleRemoveFriend = async (friendId, friendName) => {
+    try {
+      await removeFriendApi(friendId);
+      setFriendsList(prev => prev.filter(f => f.id !== friendId));
+      toast.info(`Removed ${friendName} from friends.`);
+    } catch (err) {
+      console.error('Failed to remove friend:', err);
+      toast.error('Failed to remove friend. Please try again.');
+    }
   };
 
   return (

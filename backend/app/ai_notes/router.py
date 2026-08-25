@@ -4,6 +4,7 @@ FastAPI router for AI Notes, Token Wallet, Shop, and Handwritten Notes endpoints
 
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_notes.schemas import (
@@ -40,7 +41,6 @@ router = APIRouter(tags=["AI Notes & Token Economy"])
 # ── AI Notes Generation & Management ─────────────────────────────
 
 @router.post("/api/notes/generate", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
-@router.post("/notes/generate", response_model=NoteResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def generate_note(
     req: GenerateNoteRequest,
     current_user: User = Depends(get_current_user),
@@ -51,7 +51,6 @@ async def generate_note(
 
 
 @router.post("/api/notes/{note_id}/handwritten", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
-@router.post("/notes/{note_id}/handwritten", response_model=NoteResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def restyle_handwritten_note(
     note_id: str,
     current_user: User = Depends(get_current_user),
@@ -63,9 +62,7 @@ async def restyle_handwritten_note(
 
 
 @router.get("/api/notes", response_model=list[NoteResponse])
-@router.get("/notes", response_model=list[NoteResponse], include_in_schema=False)
 @router.get("/api/notes/me", response_model=list[NoteResponse], include_in_schema=False)
-@router.get("/notes/me", response_model=list[NoteResponse], include_in_schema=False)
 async def list_notes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -75,7 +72,6 @@ async def list_notes(
 
 
 @router.put("/api/notes/{note_id}", response_model=NoteResponse)
-@router.put("/notes/{note_id}", response_model=NoteResponse, include_in_schema=False)
 async def edit_note(
     note_id: str,
     req: UpdateNoteRequest,
@@ -89,7 +85,6 @@ async def edit_note(
 
 
 @router.delete("/api/notes/{note_id}", status_code=status.HTTP_200_OK)
-@router.delete("/notes/{note_id}", status_code=status.HTTP_200_OK, include_in_schema=False)
 async def delete_note(
     note_id: str,
     current_user: User = Depends(get_current_user),
@@ -102,7 +97,6 @@ async def delete_note(
 
 
 @router.post("/api/notes/{note_id}/share/{group_id}", status_code=status.HTTP_200_OK)
-@router.post("/notes/{note_id}/share/{group_id}", status_code=status.HTTP_200_OK, include_in_schema=False)
 async def share_note(
     note_id: str,
     group_id: str,
@@ -118,7 +112,6 @@ async def share_note(
 # ── Token & Histoin Wallet Endpoints ──────────────────────────────
 
 @router.get("/api/wallet/me", response_model=WalletResponse)
-@router.get("/wallet/me", response_model=WalletResponse, include_in_schema=False)
 async def get_my_wallet(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -146,7 +139,6 @@ async def get_my_wallet(
 # ── Shop Endpoints ────────────────────────────────────────────────
 
 @router.get("/api/shop/packs", response_model=list[TokenPackResponse])
-@router.get("/shop/packs", response_model=list[TokenPackResponse], include_in_schema=False)
 async def list_shop_packs(
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -156,7 +148,6 @@ async def list_shop_packs(
 
 
 @router.post("/api/shop/purchase/{pack_id}", response_model=PurchaseResponse)
-@router.post("/shop/purchase/{pack_id}", response_model=PurchaseResponse, include_in_schema=False)
 async def purchase_pack(
     pack_id: str,
     current_user: User = Depends(get_current_user),
@@ -172,19 +163,22 @@ async def purchase_pack(
 
 # ── Internal Inter-Service Endpoints ─────────────────────────────
 
-from pydantic import BaseModel
-
 class InternalWalletInitRequest(BaseModel):
     user_id: str
+
 
 class InternalQuizRewardRequest(BaseModel):
     user_id: str
     amount: int = 20
 
+
+from app.core.deps import verify_internal_service_secret
+
+
 @router.post("/api/wallet/internal/init", status_code=status.HTTP_201_CREATED, include_in_schema=False)
-@router.post("/wallet/internal/init", status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def internal_init_wallet(
     req: InternalWalletInitRequest,
+    _auth: bool = Depends(verify_internal_service_secret),
     db: AsyncSession = Depends(get_async_session),
 ):
     await get_or_create_wallets(req.user_id, db)
@@ -192,9 +186,9 @@ async def internal_init_wallet(
 
 
 @router.post("/api/wallet/internal/reward-quiz", status_code=status.HTTP_200_OK, include_in_schema=False)
-@router.post("/wallet/internal/reward-quiz", status_code=status.HTTP_200_OK, include_in_schema=False)
 async def internal_reward_quiz(
     req: InternalQuizRewardRequest,
+    _auth: bool = Depends(verify_internal_service_secret),
     db: AsyncSession = Depends(get_async_session),
 ):
     from app.ai_notes.wallet_service import reward_quiz_histoins

@@ -3,7 +3,7 @@ Pydantic schemas for Social module.
 """
 
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.auth.schemas import UserResponse
 
 
@@ -20,6 +20,8 @@ class CreateCommentRequest(BaseModel):
 
 
 class CommentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     post_id: str
     user_id: str
@@ -31,11 +33,10 @@ class CommentResponse(BaseModel):
     created_at: datetime
     replies: list["CommentResponse"] = []
 
-    class Config:
-        from_attributes = True
-
 
 class PostResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     user_id: str
     author: UserResponse | None = None
@@ -46,9 +47,6 @@ class PostResponse(BaseModel):
     created_at: datetime
     comment_count: int = 0
     comments: list[CommentResponse] = []
-
-    class Config:
-        from_attributes = True
 
 
 class LikeToggleResponse(BaseModel):
