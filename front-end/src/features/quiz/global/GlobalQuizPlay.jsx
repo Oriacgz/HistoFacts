@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ChevronLeft, Clock, Sparkles, CheckCircle, XCircle, Trophy, ArrowRight } from 'lucide-react';
-import { getGlobalQuizQuestionsApi, submitGlobalQuizApi } from '../api/quiz';
+import { getQuizQuestionsApi, generateQuizApi, saveQuizSessionApi } from '../../../api/quiz';
 import { QuestionCard, Countdown, ProgressIndicator, ResultsSummary } from '../components';
 
 const cardVariants = {
@@ -29,7 +29,10 @@ export default function GlobalQuizPlay({ onFinish, onBack }) {
   useEffect(() => {
     const fetchQuestions = async () => {
       try {
-        const data = await getGlobalQuizQuestionsApi();
+        let data = await getQuizQuestionsApi();
+        if (!data || data.length === 0) {
+          data = await generateQuizApi({ topic: 'World History Championship', difficulty: 'hard', count: 10 });
+        }
         if (data && data.length > 0) {
           setQuestions(data.map((q, i) => ({ ...q, id: q.id || `q-${i}` })));
         } else {
@@ -96,12 +99,28 @@ export default function GlobalQuizPlay({ onFinish, onBack }) {
 
     setSubmitting(true);
     try {
-      const answers = userAnswers.map((selectedOption, index) => ({
-        questionId: questions[index]?.id,
-        selectedOption,
-      })).filter(a => a.selectedOption !== null);
+      const correctCount = questions.reduce((acc, q, idx) => {
+        return acc + (userAnswers[idx] === q.correct_answer ? 1 : 0);
+      }, 0);
+      const totalTimeSecs = Math.max(1, Math.floor((Date.now() - quizStartTime) / 1000));
 
-      await submitGlobalQuizApi(answers);
+      await saveQuizSessionApi({
+        quiz_type: 'global',
+        topic: 'World History Championship',
+        difficulty: 'hard',
+        score: correctCount * 2,
+        max_score: totalQuestions * 2,
+        correct_count: correctCount,
+        wrong_count: totalQuestions - correctCount,
+        total_time_seconds: totalTimeSecs,
+        details: questions.map((item, index) => ({
+          question: item.question,
+          selected: userAnswers[index],
+          correct: item.correct_answer,
+          is_correct: userAnswers[index] === item.correct_answer,
+        })),
+      });
+
       setQuizEndTime(Date.now());
       setSubmitted(true);
       onFinish();

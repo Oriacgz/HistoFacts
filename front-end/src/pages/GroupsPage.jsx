@@ -11,17 +11,16 @@ export default function GroupsPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const loadGroups = async () => {
     setLoading(true);
     try {
       const data = await getMyGroupsApi();
       setGroups(data || []);
-    } catch {
-      setGroups([
-        { id: 'g1', name: 'Renaissance Scholars', description: 'Deep dive into 14th–17th century European art and science.', member_count: 14 },
-        { id: 'g2', name: 'Freedom Fighters Study Circle', description: 'Exploring anti-colonial independence movements worldwide.', member_count: 8 },
-      ]);
+    } catch (err) {
+      console.error('Failed to load groups:', err);
+      setError('Unable to load study groups. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -39,10 +38,9 @@ export default function GroupsPage() {
       setGroups([newGroup, ...groups]);
       setName('');
       setDescription('');
-    } catch {
-      setGroups([{ id: `g-${Date.now()}`, name, description, member_count: 1 }, ...groups]);
-      setName('');
-      setDescription('');
+    } catch (err) {
+      console.error('Failed to create group:', err);
+      setError('Failed to create group. Please try again.');
     }
   };
 

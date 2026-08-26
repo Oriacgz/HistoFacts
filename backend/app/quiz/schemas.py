@@ -3,19 +3,18 @@ Pydantic schemas for Quiz module.
 """
 
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class QuizQuestionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     topic: str
     question: str
     options: list[str]
     correct_answer: int
     difficulty: str
-
-    class Config:
-        from_attributes = True
 
 
 class GenerateQuizRequest(BaseModel):
@@ -71,6 +70,8 @@ class QuizSessionCreateRequest(BaseModel):
 
 
 class QuizSessionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     user_id: str
     quiz_type: str
@@ -84,9 +85,6 @@ class QuizSessionResponse(BaseModel):
     rank: int | None = None
     details: list[dict] | None = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class LeaderboardEntry(BaseModel):

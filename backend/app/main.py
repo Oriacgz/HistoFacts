@@ -14,7 +14,9 @@ from app.quiz.router import router as quiz_router
 from app.social.router import router as social_router
 from app.groups.router import router as groups_router
 from app.ai_notes.router import router as notes_router
+from app.history.sync import seed_initial_events
 from app.ai_notes.wallet_service import seed_token_packs
+from app.quiz.service import seed_quiz_questions
 
 
 @asynccontextmanager
@@ -25,6 +27,8 @@ async def lifespan(app: FastAPI):
 
     async with async_session_factory() as session:
         await seed_token_packs(session)
+        await seed_initial_events(session)
+        await seed_quiz_questions(session)
 
     yield
     # Shutdown logic if needed

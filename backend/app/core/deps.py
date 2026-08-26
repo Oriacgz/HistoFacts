@@ -2,16 +2,18 @@
 FastAPI dependencies shared across modules.
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.security import decode_token
 
 # Points at the login endpoint — tells Swagger UI where to send credentials
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 async def get_current_user(
@@ -50,9 +52,6 @@ async def get_current_user(
     return user
 
 
-oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
-
-
 async def get_optional_current_user(
     token: str | None = Depends(oauth2_scheme_optional),
     db: AsyncSession = Depends(get_async_session),
@@ -75,3 +74,17 @@ async def get_optional_current_user(
     result = await db.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()
 
+
+async def verify_internal_service_secret(
+    x_internal_secret: str | None = Header(None, alias="X-Internal-Secret"),
+):
+    """
+    Verify inter-service authorization header.
+    Only authorized backend microservices possessing the secret key can invoke internal endpoints.
+    """
+    if not x_internal_secret or x_internal_secret != settings.secret_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Invalid or missing internal service authorization token",
+        )
+    return True

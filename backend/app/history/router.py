@@ -19,20 +19,17 @@ router = APIRouter(prefix="/api/events", tags=["History"])
 
 @router.get("/today", response_model=list[HistoricalEventResponse])
 async def get_today_events(db: AsyncSession = Depends(get_async_session)):
-    await seed_initial_events(db)
     now = datetime.now()
     date_key = f"{now.month:02d}-{now.day:02d}"
 
-    # Try sync in background / on fetch if empty
-    res = await db.execute(select(HistoricalEvent).where(HistoricalEvent.date == date_key))
+    res = await db.execute(
+        select(HistoricalEvent)
+        .where(HistoricalEvent.date == date_key)
+        .order_by(HistoricalEvent.synced_at.desc())
+    )
     events = res.scalars().all()
 
-    if not events:
-        await sync_wikimedia_events_for_date(f"{now.month:02d}", f"{now.day:02d}", db)
-        res = await db.execute(select(HistoricalEvent).where(HistoricalEvent.date == date_key))
-        events = res.scalars().all()
-
-    # Fallback to all if date matches nothing
+    # Fallback to general historical events if date has no specific events
     if not events:
         res = await db.execute(select(HistoricalEvent).limit(10))
         events = res.scalars().all()
@@ -43,12 +40,15 @@ async def get_today_events(db: AsyncSession = Depends(get_async_session)):
 @router.get("/date/{month}/{day}", response_model=list[HistoricalEventResponse])
 async def get_events_by_date(month: int, day: int, db: AsyncSession = Depends(get_async_session)):
     date_key = f"{month:02d}-{day:02d}"
-    res = await db.execute(select(HistoricalEvent).where(HistoricalEvent.date == date_key))
+    res = await db.execute(
+        select(HistoricalEvent)
+        .where(HistoricalEvent.date == date_key)
+        .order_by(HistoricalEvent.synced_at.desc())
+    )
     events = res.scalars().all()
 
     if not events:
-        await sync_wikimedia_events_for_date(f"{month:02d}", f"{day:02d}", db)
-        res = await db.execute(select(HistoricalEvent).where(HistoricalEvent.date == date_key))
+        res = await db.execute(select(HistoricalEvent).limit(10))
         events = res.scalars().all()
 
     return events
@@ -141,21 +141,22 @@ async def get_my_bookmarks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    res = await db.execute(
-        select(Bookmark).where(Bookmark.user_id == current_user.id)
+    query = (
+        select(Bookmark, HistoricalEvent)
+        .join(HistoricalEvent, Bookmark.event_id == HistoricalEvent.id)
+        .where(Bookmark.user_id == current_user.id)
+        .order_by(Bookmark.created_at.desc())
     )
-    bookmarks = res.scalars().all()
-    out = []
-    for bm in bookmarks:
-        ev_res = await db.execute(select(HistoricalEvent).where(HistoricalEvent.id == bm.event_id))
-        ev = ev_res.scalar_one_or_none()
-        out.append(
-            BookmarkResponse(
-                id=bm.id,
-                user_id=bm.user_id,
-                event_id=bm.event_id,
-                created_at=bm.created_at,
-                event=HistoricalEventResponse.model_validate(ev) if ev else None,
-            )
+    res = await db.execute(query)
+    rows = res.all()
+    return [
+        BookmarkResponse(
+            id=bm.id,
+            user_id=bm.user_id,
+            event_id=bm.event_id,
+            created_at=bm.created_at,
+            event=HistoricalEventResponse.model_validate(ev),
         )
-    return out
+        for bm, ev in rows
+    ]
+

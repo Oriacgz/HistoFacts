@@ -81,3 +81,50 @@ async def test_login_invalid_password(client: AsyncClient):
     }
     resp = await client.post("/api/auth/login", json=payload)
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_friends_flow(client: AsyncClient):
+    # 1. Register User A
+    resp_a = await client.post(
+        "/api/auth/register",
+        json={"username": "AliceScholar", "email": "alice@example.com", "password": "Password123!"},
+    )
+    assert resp_a.status_code == 201
+    token_a = resp_a.json()["access_token"]
+    user_a = resp_a.json()["user"]
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    # 2. Register User B
+    resp_b = await client.post(
+        "/api/auth/register",
+        json={"username": "BobScholar", "email": "bob@example.com", "password": "Password123!"},
+    )
+    assert resp_b.status_code == 201
+    user_b = resp_b.json()["user"]
+
+    # 3. Add Friend (User A adds User B)
+    add_resp = await client.post(
+        "/api/auth/friends",
+        json={"friend_id": user_b["id"]},
+        headers=headers_a,
+    )
+    assert add_resp.status_code == 201
+    assert add_resp.json()["username"] == "BobScholar"
+
+    # 4. List Friends for User A
+    list_resp = await client.get("/api/auth/friends", headers=headers_a)
+    assert list_resp.status_code == 200
+    friends = list_resp.json()
+    assert len(friends) == 1
+    assert friends[0]["id"] == user_b["id"]
+
+    # 5. Remove Friend
+    del_resp = await client.delete(f"/api/auth/friends/{user_b['id']}", headers=headers_a)
+    assert del_resp.status_code == 204
+
+    # 6. Verify empty list
+    list_resp2 = await client.get("/api/auth/friends", headers=headers_a)
+    assert list_resp2.status_code == 200
+    assert len(list_resp2.json()) == 0
+

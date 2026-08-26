@@ -3,7 +3,7 @@ Pydantic schemas for AI Notes, Token Wallet, and Shop.
 """
 
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class GenerateNoteRequest(BaseModel):
@@ -18,6 +18,8 @@ class GenerateNoteRequest(BaseModel):
 
 
 class NoteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     user_id: str
     event_id: str | None = None
@@ -30,9 +32,6 @@ class NoteResponse(BaseModel):
     attachment_type: str | None = None
     is_ai_generated: bool
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class UpdateNoteRequest(BaseModel):
@@ -52,14 +51,13 @@ class WalletResponse(BaseModel):
 
 
 class TokenPackResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     token_amount: int
     histoin_cost: int
     is_active: bool
-
-    class Config:
-        from_attributes = True
 
 
 class PurchaseResponse(BaseModel):

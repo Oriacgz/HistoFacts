@@ -8,7 +8,7 @@ on:
 
 jobs:
   backend-tests:
-    name: Backend Test Suite
+    name: Backend Test Suite & Migrations
     runs-on: ubuntu-latest
 
     defaults:
@@ -34,8 +34,8 @@ jobs:
       - name: Run Pytest Test Suite
         run: pytest -v
 
-  frontend-build:
-    name: Frontend Build & Lint
+  frontend-ci:
+    name: Frontend Tests & Build
     runs-on: ubuntu-latest
 
     defaults:
@@ -55,6 +55,9 @@ jobs:
 
       - name: Install Frontend Dependencies
         run: npm ci
+
+      - name: Run Frontend Tests (Vitest)
+        run: npm test
 
       - name: Build Frontend (Vite)
         run: npm run build
