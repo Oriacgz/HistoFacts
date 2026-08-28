@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { MessageCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useChat } from '../contexts/ChatContext';
 import { getMyGroupsApi, createGroupApi } from '../api/groups';
 
 
 export default function GroupsPage() {
   const { user } = useAuth();
+  const { openGroupChat } = useChat();
   const [groups, setGroups] = useState([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -71,13 +74,21 @@ export default function GroupsPage() {
                     </div>
                     <p className="font-body text-xs text-histo-ink/80 leading-relaxed mb-4">{group.description || 'No description provided.'}</p>
                   </div>
-                  <div className="flex justify-end pt-2 border-t border-histo-dark/10">
+                  <div className="flex items-center justify-between pt-3 border-t border-histo-dark/10">
                     <button
                       type="button"
+                      onClick={() => openGroupChat(group.id)}
+                      className="inline-flex items-center gap-1.5 text-xs font-ui font-bold text-histo-copper hover:text-histo-dark transition-colors cursor-pointer bg-transparent border-none p-0"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      <span>Group Chat</span>
+                    </button>
+                    <Link
+                      to={`/feed?group=${group.id}`}
                       className="text-xs font-ui font-bold text-histo-dark uppercase hover:text-histo-gold transition-colors cursor-pointer"
                     >
                       Enter Discussion →
-                    </button>
+                    </Link>
                   </div>
                 </motion.div>
               ))}

@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useChat } from '../contexts/ChatContext';
 import { getFriendsApi, addFriendApi, removeFriendApi, searchUsersByTagApi } from '../api/friends';
-import { Users, Search, User } from 'lucide-react';
+import { Users, Search, User, MessageSquare } from 'lucide-react';
 
 export default function FriendsPage() {
   const { user } = useAuth();
+  const { openDirectChat } = useChat();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState('my-friends');
   const [friendsList, setFriendsList] = useState([]);
@@ -160,16 +162,18 @@ export default function FriendsPage() {
                     </div>
 
                     <div className="flex items-center justify-between pt-3 border-t border-histo-dark/10">
-                      <Link
-                        to="/feed"
-                        className="text-xs font-ui font-semibold text-histo-copper hover:text-histo-dark transition-colors"
+                      <button
+                        type="button"
+                        onClick={() => openDirectChat(friend.id)}
+                        className="inline-flex items-center gap-1.5 text-xs font-ui font-semibold text-histo-copper hover:text-histo-dark transition-colors cursor-pointer bg-transparent border-none p-0"
                       >
-                        View Activity →
-                      </Link>
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        <span>Message →</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleRemoveFriend(friend.id, `${friend.username}#${friend.tag}`)}
-                        className="text-[11px] font-ui text-red-500 hover:underline cursor-pointer"
+                        className="text-[11px] font-ui text-red-500 hover:underline cursor-pointer bg-transparent border-none"
                       >
                         Remove
                       </button>
