@@ -17,10 +17,14 @@ def test_gateway_route_resolution():
     assert target is not None
     assert target[0].endswith("8002")
 
-    # 3. Social route
+    # 3. Social & Chat routes
     target = resolve_target_service("/api/social/posts")
     assert target is not None
     assert target[0].endswith("8003")
+
+    target_chat = resolve_target_service("/api/chat/conversations")
+    assert target_chat is not None
+    assert target_chat[0].endswith("8003")
 
     # 4. Groups route
     target = resolve_target_service("/api/groups")

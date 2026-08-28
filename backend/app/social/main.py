@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.social.router import router as social_router
+from app.chat.router import router as chat_router
 
 
 @asynccontextmanager
@@ -37,6 +38,7 @@ app.add_middleware(
 )
 
 app.include_router(social_router)
+app.include_router(chat_router)
 
 
 @app.get("/health", tags=["System"])

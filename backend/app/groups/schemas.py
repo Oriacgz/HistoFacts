@@ -10,6 +10,10 @@ from app.auth.schemas import UserResponse
 class CreateGroupRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     description: str | None = None
+    member_ids: list[str] = Field(
+        default=[],
+        description="List of initial member user IDs to invite. Total members (creator + invited) must be between 3 and 50."
+    )
 
 
 class GroupMemberResponse(BaseModel):

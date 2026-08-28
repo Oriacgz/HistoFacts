@@ -21,7 +21,10 @@ async def create_new_group(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    return await create_group(req, current_user.id, db)
+    try:
+        return await create_group(req, current_user.id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("", response_model=list[GroupResponse])
@@ -38,7 +41,7 @@ async def join_group(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    added = await add_group_member(group_id, current_user.id, "member", db)
+    added, msg = await add_group_member(group_id, current_user.id, "member", db)
     if not added:
-        raise HTTPException(status_code=400, detail="Already a member of this group")
+        raise HTTPException(status_code=400, detail=msg)
     return {"status": "joined", "group_id": group_id}

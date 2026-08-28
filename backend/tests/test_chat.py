@@ -30,6 +30,7 @@ async def test_direct_and_group_chat_flow(client: AsyncClient):
         json={"username": "CharlieExplorer", "email": "charlie@example.com", "password": "Password123!"},
     )
     t3 = u3_resp.json()["access_token"]
+    u3_id = u3_resp.json()["user"]["id"]
     h3 = {"Authorization": f"Bearer {t3}"}
 
     # 2. Test Get-or-Create Direct Conversation (Idempotence & Canonical Ordering)
@@ -130,13 +131,14 @@ async def test_direct_and_group_chat_flow(client: AsyncClient):
     # 8. Group Chat Flow
     grp_resp = await client.post(
         "/api/groups",
-        json={"name": "Renaissance Guild", "description": "Italian Renaissance studies"},
+        json={
+            "name": "Renaissance Guild",
+            "description": "Italian Renaissance studies",
+            "member_ids": [u2_id, u3_id],
+        },
         headers=h1,
     )
     grp_id = grp_resp.json()["id"]
-
-    # Bob joins group
-    await client.post(f"/api/groups/{grp_id}/join", headers=h2)
 
     # Get or create group chat
     grp_chat_resp = await client.post(f"/api/chat/conversations/group/{grp_id}", headers=h1)

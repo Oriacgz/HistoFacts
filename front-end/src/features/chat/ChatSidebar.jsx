@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, X, MessageCircle, Users } from 'lucide-react';
+import { ArrowLeft, X, MessageCircle, Users, UserPlus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useChat } from '../../contexts/ChatContext';
 import { getMessagesApi, getNewMessagesApi, sendMessageApi } from '../../api/chat';
@@ -10,6 +11,7 @@ import ChatComposer from './ChatComposer';
 
 export default function ChatSidebar() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const {
     isChatOpen,
     closeChat,
@@ -232,22 +234,48 @@ export default function ChatSidebar() {
                 {/* List */}
                 <div className="flex-1 overflow-y-auto px-2 py-2">
                   {filteredConversations.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center px-6">
+                    <div className="flex flex-col items-center justify-center h-full text-center px-6 py-8">
                       {tab === 'direct' ? (
                         <>
-                          <MessageCircle className="h-10 w-10 text-histo-copper/30 mb-3" />
-                          <p className="text-sm font-display font-bold text-histo-dark/60 mb-1">No messages yet</p>
-                          <p className="text-[11px] font-body text-histo-ink/40 leading-relaxed">
-                            Start a chat from your friends list to begin a conversation.
+                          <div className="h-14 w-14 rounded-full bg-histo-copper/10 border border-histo-copper/20 flex items-center justify-center mb-3 text-histo-copper">
+                            <MessageCircle className="h-7 w-7" />
+                          </div>
+                          <p className="text-sm font-display font-bold text-histo-dark mb-1">No Conversations Yet</p>
+                          <p className="text-[11px] font-body text-histo-ink/60 leading-relaxed mb-4 max-w-[240px]">
+                            You haven't messaged any scholars yet. Connect with fellow historians to start chatting!
                           </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeChat();
+                              navigate('/friends');
+                            }}
+                            className="inline-flex items-center gap-2 bg-histo-copper text-white px-4 py-2.5 rounded-[2px] text-xs font-ui font-bold uppercase tracking-wider hover:bg-histo-dark transition-colors cursor-pointer shadow-soft"
+                          >
+                            <UserPlus className="h-4 w-4" />
+                            <span>Add Friends</span>
+                          </button>
                         </>
                       ) : (
                         <>
-                          <Users className="h-10 w-10 text-histo-copper/30 mb-3" />
-                          <p className="text-sm font-display font-bold text-histo-dark/60 mb-1">No group chats</p>
-                          <p className="text-[11px] font-body text-histo-ink/40 leading-relaxed">
-                            Open a group chat from the Groups page to start messaging.
+                          <div className="h-14 w-14 rounded-full bg-histo-copper/10 border border-histo-copper/20 flex items-center justify-center mb-3 text-histo-copper">
+                            <Users className="h-7 w-7" />
+                          </div>
+                          <p className="text-sm font-display font-bold text-histo-dark mb-1">No Study Groups Yet</p>
+                          <p className="text-[11px] font-body text-histo-ink/60 leading-relaxed mb-4 max-w-[240px]">
+                            Join an existing study guild or create one with at least 3 scholars (up to 50 members).
                           </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeChat();
+                              navigate('/groups');
+                            }}
+                            className="inline-flex items-center gap-2 bg-histo-copper text-white px-4 py-2.5 rounded-[2px] text-xs font-ui font-bold uppercase tracking-wider hover:bg-histo-dark transition-colors cursor-pointer shadow-soft"
+                          >
+                            <Users className="h-4 w-4" />
+                            <span>Explore & Create Groups</span>
+                          </button>
                         </>
                       )}
                     </div>
