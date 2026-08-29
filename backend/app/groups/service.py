@@ -9,6 +9,7 @@ from app.groups.models import Group, GroupMember
 from app.groups.schemas import CreateGroupRequest, GroupResponse, GroupMemberResponse
 from app.auth.models import User
 from app.auth.schemas import UserResponse
+from app.core.inter_service import notify
 
 
 async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSession) -> GroupResponse:
@@ -46,6 +47,23 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
         ))
 
     await db.commit()
+
+    # Fire-and-forget notification for invited members
+    creator_res = await db.execute(select(User).where(User.id == creator_id))
+    creator = creator_res.scalar_one_or_none()
+    creator_name = creator.username if creator else "Scholar"
+
+    for uid in unique_member_ids:
+        await notify(
+            user_id=uid,
+            type="group_invite",
+            payload={
+                "group_id": group.id,
+                "group_name": group.name,
+                "from_user_id": creator_id,
+                "from_user": creator_name,
+            },
+        )
 
     # Build response members
     members_resp = []

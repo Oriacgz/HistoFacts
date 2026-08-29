@@ -19,10 +19,10 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useChat } from '../contexts/ChatContext';
+import NotificationDropdown from './NotificationDropdown';
 
 const headerIcons = [
   { icon: Filter, label: 'Filters' },
-  { icon: Bell, label: 'Notifications' },
   { icon: Calendar, label: 'Historical Calendar' },
 ];
 
@@ -135,7 +135,7 @@ export default function Navbar() {
           <Search className="h-4.5 w-4.5 text-histo-paper/85 hover:text-histo-gold transition-colors" />
         </button>
 
-        {/* Header Icons (Filters, Notifications, Calendar) */}
+        {/* Header Icons (Filters, Calendar) */}
         <div className="hidden xl:flex gap-2">
           {headerIcons.map(({ icon: Icon, label }) => (
             <div
@@ -150,6 +150,9 @@ export default function Navbar() {
             </div>
           ))}
         </div>
+
+        {/* Notifications Dropdown */}
+        <NotificationDropdown />
 
         {/* Chat Button — toggles sidebar */}
         <button

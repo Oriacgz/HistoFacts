@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.auth.models import User, Friend, UserPresence
 from app.auth.schemas import FriendRequestResponse, FriendWithPresence, SearchUserResponse, UserResponse
+from app.core.inter_service import notify
 
 
 ONLINE_THRESHOLD_SECONDS = 60
@@ -47,6 +48,8 @@ async def send_friend_request(
     if not addressee:
         raise HTTPException(404, "User not found")
 
+    requester = await db.get(User, requester_id)
+
     # Check for existing relationship in either direction
     res = await db.execute(
         select(Friend).where(
@@ -66,6 +69,16 @@ async def send_friend_request(
             existing.status = "accepted"
             await db.commit()
             await db.refresh(existing)
+            await notify(
+                user_id=addressee_id,
+                type="friend_request_accepted",
+                payload={
+                    "request_id": existing.id,
+                    "from_user_id": requester_id,
+                    "from_user": requester.username if requester else "Scholar",
+                    "from_tag": requester.tag if requester else "0000",
+                },
+            )
             return await _build_friend_request_response(db, existing)
         raise HTTPException(409, "Request already pending")
 
@@ -73,6 +86,19 @@ async def send_friend_request(
     db.add(friend)
     await db.commit()
     await db.refresh(friend)
+
+    await notify(
+        user_id=addressee_id,
+        type="friend_request",
+        payload={
+            "request_id": friend.id,
+            "from_user_id": requester_id,
+            "from_user": requester.username if requester else "Scholar",
+            "from_tag": requester.tag if requester else "0000",
+            "avatar_url": requester.avatar_url if requester else None,
+        },
+    )
+
     return await _build_friend_request_response(db, friend)
 
 
@@ -116,6 +142,20 @@ async def accept_friend_request(db: AsyncSession, request_id: str, user_id: str)
     friend.status = "accepted"
     await db.commit()
     await db.refresh(friend)
+
+    acceptor = await db.get(User, user_id)
+    await notify(
+        user_id=friend.requester_id,
+        type="friend_request_accepted",
+        payload={
+            "request_id": friend.id,
+            "from_user_id": user_id,
+            "from_user": acceptor.username if acceptor else "Scholar",
+            "from_tag": acceptor.tag if acceptor else "0000",
+            "avatar_url": acceptor.avatar_url if acceptor else None,
+        },
+    )
+
     return await _build_friend_request_response(db, friend)
 
 

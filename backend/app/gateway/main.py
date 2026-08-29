@@ -53,6 +53,7 @@ SERVICE_ROUTES = [
     ("/api/wallet", settings.notes_service_url),
     ("/api/shop", settings.notes_service_url),
     ("/api/quiz", settings.quiz_service_url),
+    ("/api/notifications", settings.notification_service_url),
 ]
 
 
@@ -179,6 +180,7 @@ async def gateway_health(request: Request):
         "groups": f"{settings.groups_service_url}/health",
         "notes": f"{settings.notes_service_url}/health",
         "quiz": f"{settings.quiz_service_url}/health",
+        "notifications": f"{settings.notification_service_url}/health",
     }
 
     status_report = {}

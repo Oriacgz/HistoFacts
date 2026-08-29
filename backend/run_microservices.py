@@ -24,6 +24,7 @@ SERVICES = [
     ("Groups Service (:8004)", "app.groups.main:app", 8004),
     ("AI Notes Service (:8005)", "app.ai_notes.main:app", 8005),
     ("Quiz Service (:8006)", "app.quiz.main:app", 8006),
+    ("Notification Service (:8007)", "app.notification.main:app", 8007),
     ("API Gateway (:8000)", "app.gateway.main:app", 8000),
 ]
 
@@ -69,7 +70,7 @@ def main():
 
     python_exe = sys.executable
     print("=" * 70)
-    print(">> Starting HistoFacts Microservices Architecture (7 Processes)")
+    print(">> Starting HistoFacts Microservices Architecture (8 Processes)")
     print("=" * 70)
 
     for name, app_module, port in SERVICES:
@@ -101,7 +102,7 @@ def main():
         time.sleep(0.3)
 
     print("-" * 70)
-    print("[*] All 6 microservices & API Gateway are running!")
+    print("[*] All 7 microservices & API Gateway are running!")
     print("    Unified Gateway URL: http://localhost:8000")
     print("    Gateway Health:     http://localhost:8000/health")
     print("    Press Ctrl+C to stop all services.")

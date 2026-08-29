@@ -39,5 +39,9 @@ def test_gateway_route_resolution():
     # 6. Quiz route
     assert resolve_target_service("/api/quiz/questions")[0].endswith("8006")
 
-    # 7. Unknown route
+    # 7. Notification route
+    assert resolve_target_service("/api/notifications")[0].endswith("8007")
+
+    # 8. Unknown route
     assert resolve_target_service("/api/unknown/endpoint") is None
+
