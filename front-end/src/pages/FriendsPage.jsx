@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -10,10 +9,11 @@ import {
   removeFriendApi,
   searchUsersByTagApi,
   getIncomingFriendRequestsApi,
+  getOutgoingFriendRequestsApi,
   acceptFriendRequestApi,
   declineFriendRequestApi,
 } from '../api/friends';
-import { Users, Search, User, MessageSquare, Check, X, Bell } from 'lucide-react';
+import { Users, Search, User, MessageSquare, Check, X, Bell, Clock } from 'lucide-react';
 
 export default function FriendsPage() {
   const { user } = useAuth();
@@ -22,6 +22,7 @@ export default function FriendsPage() {
   const [activeTab, setActiveTab] = useState('my-friends');
   const [friendsList, setFriendsList] = useState([]);
   const [incomingRequests, setIncomingRequests] = useState([]);
+  const [pendingUserIds, setPendingUserIds] = useState(new Set());
   const [loadingFriends, setLoadingFriends] = useState(true);
   const [searchTag, setSearchTag] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -32,9 +33,11 @@ export default function FriendsPage() {
     if (user) {
       loadFriends();
       loadIncomingRequests();
+      loadOutgoingRequests();
     } else {
       setFriendsList([]);
       setIncomingRequests([]);
+      setPendingUserIds(new Set());
       setLoadingFriends(false);
     }
   }, [user]);
@@ -60,6 +63,16 @@ export default function FriendsPage() {
     }
   };
 
+  const loadOutgoingRequests = async () => {
+    try {
+      const reqs = await getOutgoingFriendRequestsApi();
+      const ids = new Set((reqs || []).map(r => r.addressee_id));
+      setPendingUserIds(ids);
+    } catch (err) {
+      console.error('Failed to load outgoing requests:', err);
+    }
+  };
+
   const handleSearch = async (e) => {
     e?.preventDefault();
     if (!searchTag.trim()) return;
@@ -77,13 +90,22 @@ export default function FriendsPage() {
     }
   };
 
+  const isFriend = (userId) => friendsList.some(f => f.id === userId);
+  const isPending = (userId) => pendingUserIds.has(userId);
+
   const handleAddFriend = async (friendUser) => {
-    if (friendsList.some(f => f.id === friendUser.id || (f.username === friendUser.username && f.tag === friendUser.tag))) {
+    if (isFriend(friendUser.id)) {
       toast.info(`Already friends with ${friendUser.username}#${friendUser.tag}!`);
+      return;
+    }
+    if (isPending(friendUser.id)) {
+      toast.info(`Friend request already sent to ${friendUser.username}#${friendUser.tag}.`);
       return;
     }
     try {
       await addFriendApi(friendUser.id);
+      // Optimistic: mark as pending immediately
+      setPendingUserIds(prev => new Set([...prev, friendUser.id]));
       toast.success(`Friend request sent to ${friendUser.username}#${friendUser.tag}!`);
     } catch (err) {
       console.error('Failed to add friend:', err);
@@ -123,6 +145,39 @@ export default function FriendsPage() {
     }
   };
 
+  const renderAddButton = (u) => {
+    if (u.id === user?.id) {
+      return (
+        <span className="text-[11px] font-ui text-histo-ink/40 italic px-4 py-2">You</span>
+      );
+    }
+    if (isFriend(u.id)) {
+      return (
+        <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-[2px] text-xs font-ui font-semibold">
+          <Check className="h-3.5 w-3.5" />
+          Friends
+        </span>
+      );
+    }
+    if (isPending(u.id)) {
+      return (
+        <span className="inline-flex items-center gap-1 bg-histo-gold/20 text-histo-dark px-4 py-2 rounded-[2px] text-xs font-ui font-semibold border border-histo-gold/30">
+          <Clock className="h-3.5 w-3.5" />
+          Pending
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => handleAddFriend(u)}
+        className="bg-histo-copper text-white px-4 py-2 rounded-[2px] text-xs font-ui font-semibold uppercase hover:bg-histo-dark transition-colors cursor-pointer shadow-soft"
+      >
+        + Add Friend
+      </button>
+    );
+  };
+
   return (
     <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-8">
       <div className="flex items-center justify-between mb-6">
@@ -155,9 +210,9 @@ export default function FriendsPage() {
               : 'border-transparent text-histo-ink/60 hover:text-histo-dark'
           }`}
         >
-          Requests ({incomingRequests.length})
+          Requests
           {incomingRequests.length > 0 && (
-            <span className="ml-1.5 px-1.5 py-0.2 bg-histo-copper text-white text-[10px] rounded-full">
+            <span className="ml-1.5 px-1.5 py-0.5 bg-histo-copper text-white text-[10px] rounded-full leading-none">
               {incomingRequests.length}
             </span>
           )}
@@ -338,13 +393,7 @@ export default function FriendsPage() {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleAddFriend(u)}
-                    className="bg-histo-copper text-white px-4 py-2 rounded-[2px] text-xs font-ui font-semibold uppercase hover:bg-histo-dark transition-colors cursor-pointer shadow-soft"
-                  >
-                    + Add Friend
-                  </button>
+                  {renderAddButton(u)}
                 </div>
               ))}
             </div>

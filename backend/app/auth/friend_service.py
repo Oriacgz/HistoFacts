@@ -2,8 +2,8 @@
 Friend and presence service logic.
 """
 
-from datetime import datetime, timezone
-from sqlalchemy import select, or_, and_, func
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import select, delete, or_, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
@@ -13,6 +13,19 @@ from app.core.inter_service import notify
 
 
 ONLINE_THRESHOLD_SECONDS = 60
+FRIEND_REQUEST_TTL_SECONDS = 30 * 60  # 30 minutes
+
+
+async def _expire_stale_requests(db: AsyncSession) -> None:
+    """Delete pending friend requests older than FRIEND_REQUEST_TTL_SECONDS."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=FRIEND_REQUEST_TTL_SECONDS)
+    await db.execute(
+        delete(Friend).where(
+            Friend.status == "pending",
+            Friend.created_at < cutoff,
+        )
+    )
+    await db.flush()
 
 
 async def search_users(query: str, db: AsyncSession) -> list[SearchUserResponse]:
@@ -60,6 +73,8 @@ async def send_friend_request(
     """Send a friend request. Auto-accepts if the other user already requested you."""
     if requester_id == addressee_id:
         raise HTTPException(400, "Can't add yourself")
+
+    await _expire_stale_requests(db)
 
     # Check if addressee exists
     addressee = await db.get(User, addressee_id)
@@ -122,6 +137,7 @@ async def send_friend_request(
 
 async def get_incoming_requests(db: AsyncSession, user_id: str) -> list[FriendRequestResponse]:
     """Get pending friend requests sent to the current user."""
+    await _expire_stale_requests(db)
     res = await db.execute(
         select(Friend).where(
             Friend.addressee_id == user_id,
@@ -134,6 +150,7 @@ async def get_incoming_requests(db: AsyncSession, user_id: str) -> list[FriendRe
 
 async def get_outgoing_requests(db: AsyncSession, user_id: str) -> list[FriendRequestResponse]:
     """Get pending friend requests sent by the current user."""
+    await _expire_stale_requests(db)
     res = await db.execute(
         select(Friend).where(
             Friend.requester_id == user_id,
