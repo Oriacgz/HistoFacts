@@ -2,7 +2,7 @@
 FastAPI router for Auth & Identity endpoints.
 """
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
@@ -72,11 +72,15 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 @router.get("/search", response_model=list[SearchUserResponse])
 async def search_users_endpoint(
-    q: str,
+    q: str = Query("", description="Search query: partial name or exact Name#Tag"),
+    tag: str | None = Query(None, description="Optional tag query fallback"),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Search users by partial name or exact Name#Tag."""
-    return await search_users(q, db)
+    search_term = (q or tag or "").strip()
+    if not search_term:
+        return []
+    return await search_users(search_term, db)
 
 
 @router.post("/friends/request", response_model=FriendRequestResponse, status_code=status.HTTP_201_CREATED)

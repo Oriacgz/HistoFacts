@@ -18,19 +18,37 @@ ONLINE_THRESHOLD_SECONDS = 60
 async def search_users(query: str, db: AsyncSession) -> list[SearchUserResponse]:
     """Search users by partial name or exact Name#Tag."""
     query = query.strip()
+    if not query:
+        return []
+
     if "#" in query:
         name, tag = query.rsplit("#", 1)
-        res = await db.execute(
-            select(User).where(
-                func.lower(User.username) == name.strip().lower(),
-                User.tag == tag.strip(),
+        name = name.strip()
+        tag = tag.strip()
+        if name and tag:
+            res = await db.execute(
+                select(User).where(
+                    func.lower(User.username) == name.lower(),
+                    User.tag == tag,
+                )
             )
-        )
-        user = res.scalar_one_or_none()
-        return [SearchUserResponse.model_validate(user)] if user else []
+            user = res.scalar_one_or_none()
+            return [SearchUserResponse.model_validate(user)] if user else []
+        elif tag:
+            # Query like "#9926"
+            res = await db.execute(
+                select(User).where(User.tag == tag).limit(10)
+            )
+            users = res.scalars().all()
+            return [SearchUserResponse.model_validate(u) for u in users]
     
     res = await db.execute(
-        select(User).where(User.username.ilike(f"%{query}%")).limit(10)
+        select(User).where(
+            or_(
+                User.username.ilike(f"%{query}%"),
+                User.tag == query,
+            )
+        ).limit(10)
     )
     users = res.scalars().all()
     return [SearchUserResponse.model_validate(u) for u in users]
