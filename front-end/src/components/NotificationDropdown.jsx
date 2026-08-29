@@ -25,7 +25,7 @@ import {
 const NOTIFICATION_CONFIG = {
   friend_request: {
     icon: UserPlus,
-    color: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+    color: 'text-histo-gold bg-histo-gold/15 border-histo-gold/40',
     target: () => '/friends',
     renderText: (p) => (
       <span>
@@ -35,7 +35,7 @@ const NOTIFICATION_CONFIG = {
   },
   friend_request_accepted: {
     icon: UserCheck,
-    color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    color: 'text-emerald-300 bg-emerald-500/15 border-emerald-500/30',
     target: () => '/friends',
     renderText: (p) => (
       <span>
@@ -45,18 +45,18 @@ const NOTIFICATION_CONFIG = {
   },
   comment_reply: {
     icon: MessageSquare,
-    color: 'text-histo-gold bg-histo-gold/10 border-histo-gold/20',
+    color: 'text-histo-copper bg-histo-copper/15 border-histo-copper/30',
     target: () => '/feed',
     renderText: (p) => (
       <span>
-        <strong className="font-semibold text-histo-paper">{p?.from_user || 'Someone'}</strong>{' '}
+        <strong className="font-semibold text-histo-paper">{p?.from_user || 'A scholar'}</strong>{' '}
         {p?.is_mention ? 'mentioned you in a comment' : 'replied to your comment'}
       </span>
     ),
   },
   group_invite: {
     icon: Users,
-    color: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+    color: 'text-amber-300 bg-amber-500/15 border-amber-500/30',
     target: () => '/groups',
     renderText: (p) => (
       <span>
@@ -66,17 +66,17 @@ const NOTIFICATION_CONFIG = {
   },
   note_ready: {
     icon: Sparkles,
-    color: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    color: 'text-histo-gold bg-histo-gold/20 border-histo-gold/40',
     target: () => '/notes',
     renderText: (p) => (
       <span>
-        AI Note <strong className="font-semibold text-histo-paper">"{p?.title || 'Historical Analysis'}"</strong> is ready
+        AI Note <strong className="font-semibold text-histo-gold">"{p?.title || 'Historical Analysis'}"</strong> is ready
       </span>
     ),
   },
   quiz_lobby_invite: {
     icon: Trophy,
-    color: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    color: 'text-histo-gold bg-histo-gold/15 border-histo-gold/30',
     target: (p) => (p?.code ? `/quiz?code=${p.code}` : '/quiz'),
     renderText: (p) => (
       <span>
@@ -124,7 +124,7 @@ export default function NotificationDropdown() {
       const data = await getUnreadCount();
       setUnreadCount(data.unread_count || 0);
     } catch {
-      // Ignored: silent failure on background poll
+      // Ignored: silent background polling failure
     }
   }, [user]);
 
@@ -134,7 +134,7 @@ export default function NotificationDropdown() {
     return () => clearInterval(interval);
   }, [fetchCount]);
 
-  // 2. Fetch full list when dropdown opens or filter changes
+  // 2. Fetch notifications when dropdown opens or filter changes
   const fetchList = useCallback(async (isLoadMore = false) => {
     if (!user) return;
     setLoading(true);
@@ -168,7 +168,7 @@ export default function NotificationDropdown() {
     }
   }, [isOpen, unreadOnly]);
 
-  // 3. Click outside handler
+  // 3. Click outside listener
   useEffect(() => {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -184,7 +184,6 @@ export default function NotificationDropdown() {
   // 4. Mark single notification as read
   const handleItemClick = async (notif) => {
     if (!notif.is_read) {
-      // Optimistically update only this single row
       setNotifications((prev) =>
         prev.map((item) => (item.id === notif.id ? { ...item, is_read: true } : item))
       );
@@ -207,7 +206,6 @@ export default function NotificationDropdown() {
   const handleMarkAllRead = async () => {
     if (unreadCount === 0) return;
 
-    // Optimistically update local state
     setNotifications((prev) => prev.map((item) => ({ ...item, is_read: true })));
     setUnreadCount(0);
 
@@ -231,8 +229,8 @@ export default function NotificationDropdown() {
         aria-label="Notifications"
         className={`group relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border transition-all duration-300 bg-transparent ${
           isOpen
-            ? 'border-histo-gold bg-histo-gold/10'
-            : 'border-white/10 hover:border-histo-gold/80 hover:bg-white/5'
+            ? 'border-histo-gold bg-histo-gold/15'
+            : 'border-white/10 hover:border-histo-gold hover:bg-white/5'
         }`}
       >
         <Bell
@@ -241,20 +239,20 @@ export default function NotificationDropdown() {
           }`}
         />
 
-        {/* Unread Badge */}
+        {/* Gold Scholar Unread Badge */}
         {unreadCount > 0 && (
           <motion.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            className="absolute -top-0.5 -right-0.5 flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-histo-gold px-1 font-ui text-[10px] font-bold text-histo-dark shadow-sm"
+            className="absolute -top-0.5 -right-0.5 flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-histo-gold px-1 font-ui text-[10px] font-bold text-histo-dark shadow-sm border border-histo-dark"
           >
             {unreadCount > 99 ? '99+' : unreadCount}
           </motion.span>
         )}
 
-        {/* Hover Tooltip (only when closed) */}
+        {/* Tooltip */}
         {!isOpen && (
-          <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-y-0 group-hover:opacity-100 z-50">
+          <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-[2px] bg-histo-dark border border-histo-gold/30 px-3 py-1.5 text-xs font-ui font-medium text-histo-paper opacity-0 shadow-deep transition duration-300 group-hover:translate-y-0 group-hover:opacity-100 z-50">
             Notifications {unreadCount > 0 ? `(${unreadCount} unread)` : ''}
           </span>
         )}
@@ -264,48 +262,46 @@ export default function NotificationDropdown() {
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.97 }}
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.97 }}
-            transition={{ duration: 0.16 }}
-            className="absolute right-0 top-full mt-3 w-80 sm:w-96 rounded-lg border border-histo-gold/30 bg-[#121214] shadow-2xl z-50 overflow-hidden text-left"
+            exit={{ opacity: 0, y: 8, scale: 0.96 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-3 w-80 sm:w-96 rounded-[4px] border border-histo-gold/30 bg-histo-dark text-histo-paper shadow-deep z-50 overflow-hidden text-left"
           >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 bg-white/[0.02]">
+            {/* Header with Scholar Aesthetic */}
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 bg-histo-navy/50">
               <div className="flex items-center gap-2">
-                <h3 className="font-display text-sm font-bold tracking-wide text-histo-paper">
+                <h3 className="font-display text-sm font-bold tracking-wider text-histo-paper uppercase">
                   Notifications
                 </h3>
                 {unreadCount > 0 && (
-                  <span className="rounded-full bg-histo-gold/20 px-2 py-0.5 font-mono text-[10px] font-bold text-histo-gold">
+                  <span className="rounded-[2px] bg-histo-gold/20 border border-histo-gold/40 px-2 py-0.5 font-mono text-[10px] font-bold text-histo-gold">
                     {unreadCount} new
                   </span>
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                {unreadCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleMarkAllRead}
-                    className="flex items-center gap-1 text-[11px] font-ui text-histo-gold/90 hover:text-histo-gold hover:underline cursor-pointer bg-transparent border-none p-0"
-                  >
-                    <CheckCheck className="h-3.5 w-3.5" />
-                    <span>Mark all read</span>
-                  </button>
-                )}
-              </div>
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleMarkAllRead}
+                  className="flex items-center gap-1 text-[11px] font-ui font-semibold text-histo-gold hover:text-histo-paper hover:underline cursor-pointer bg-transparent border-none p-0 transition-colors"
+                >
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  <span>Mark all read</span>
+                </button>
+              )}
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex border-b border-white/5 bg-black/20 px-4 py-1.5 gap-2">
+            <div className="flex border-b border-white/10 bg-histo-dark/80 px-4 py-1.5 gap-2">
               <button
                 type="button"
                 onClick={() => setUnreadOnly(false)}
-                className={`rounded px-2.5 py-1 text-xs font-ui transition-colors cursor-pointer border-none ${
+                className={`rounded-[2px] px-3 py-1 text-xs font-ui uppercase tracking-wider transition-colors cursor-pointer border-none ${
                   !unreadOnly
-                    ? 'bg-white/10 text-histo-gold font-semibold'
-                    : 'bg-transparent text-white/60 hover:text-white'
+                    ? 'bg-histo-gold text-histo-dark font-bold shadow-xs'
+                    : 'bg-transparent text-histo-paper/60 hover:text-histo-paper'
                 }`}
               >
                 All
@@ -313,10 +309,10 @@ export default function NotificationDropdown() {
               <button
                 type="button"
                 onClick={() => setUnreadOnly(true)}
-                className={`rounded px-2.5 py-1 text-xs font-ui transition-colors cursor-pointer border-none ${
+                className={`rounded-[2px] px-3 py-1 text-xs font-ui uppercase tracking-wider transition-colors cursor-pointer border-none ${
                   unreadOnly
-                    ? 'bg-white/10 text-histo-gold font-semibold'
-                    : 'bg-transparent text-white/60 hover:text-white'
+                    ? 'bg-histo-gold text-histo-dark font-bold shadow-xs'
+                    : 'bg-transparent text-histo-paper/60 hover:text-histo-paper'
                 }`}
               >
                 Unread only
@@ -324,34 +320,34 @@ export default function NotificationDropdown() {
             </div>
 
             {/* Notification List Container */}
-            <div className="max-h-[380px] overflow-y-auto divide-y divide-white/5 scrollbar-thin scrollbar-thumb-white/10">
+            <div className="max-h-[380px] overflow-y-auto divide-y divide-white/5 scrollbar-thin scrollbar-thumb-histo-gold/30 scrollbar-track-histo-dark">
               {loading && notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-white/50">
+                <div className="flex flex-col items-center justify-center py-10 text-histo-paper/60">
                   <Loader2 className="h-6 w-6 animate-spin text-histo-gold mb-2" />
-                  <span className="text-xs font-ui">Loading notifications...</span>
+                  <span className="text-xs font-ui">Loading scholar notices...</span>
                 </div>
               ) : notifications.length === 0 ? (
-                /* Empty State */
+                /* Empty State matching HistoFacts theme */
                 <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/5 border border-white/10 mb-3 text-histo-gold/60">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-histo-medium/40 border border-histo-gold/30 mb-3 text-histo-gold">
                     <Inbox className="h-6 w-6" />
                   </div>
-                  <p className="font-display text-sm font-semibold text-histo-paper">
+                  <p className="font-display text-base font-bold text-histo-paper">
                     You're all caught up
                   </p>
-                  <p className="font-ui text-xs text-white/50 mt-1 max-w-[220px]">
+                  <p className="font-body text-xs text-histo-paper/70 mt-1 max-w-[240px]">
                     {unreadOnly
                       ? 'No unread notifications right now.'
-                      : 'When you get friend requests, replies, or notes, they will appear here.'}
+                      : 'When you receive friend requests, comment replies, or AI notes, they will appear here.'}
                   </p>
                 </div>
               ) : (
                 notifications.map((notif) => {
                   const config = NOTIFICATION_CONFIG[notif.type] || {
                     icon: Bell,
-                    color: 'text-histo-gold bg-histo-gold/10 border-histo-gold/20',
+                    color: 'text-histo-gold bg-histo-gold/15 border-histo-gold/30',
                     target: () => '/home',
-                    renderText: () => <span>New notification</span>,
+                    renderText: () => <span>New historical update</span>,
                   };
                   const Icon = config.icon;
 
@@ -361,53 +357,53 @@ export default function NotificationDropdown() {
                       onClick={() => handleItemClick(notif)}
                       className={`group relative flex items-start gap-3 p-3.5 transition-colors cursor-pointer ${
                         !notif.is_read
-                          ? 'bg-histo-gold/[0.04] hover:bg-histo-gold/[0.08]'
-                          : 'hover:bg-white/[0.04]'
+                          ? 'bg-histo-gold/[0.08] hover:bg-histo-gold/[0.14] border-l-2 border-l-histo-gold'
+                          : 'hover:bg-white/[0.06] opacity-80 hover:opacity-100'
                       }`}
                     >
-                      {/* Icon */}
+                      {/* Category / Event Icon */}
                       <div
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${config.color}`}
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${config.color} shadow-xs`}
                       >
                         <Icon className="h-4 w-4" />
                       </div>
 
-                      {/* Content */}
+                      {/* Content Area */}
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-ui text-white/90 leading-relaxed">
+                        <div className="text-xs font-ui text-histo-paper/95 leading-relaxed">
                           {config.renderText(notif.payload)}
                         </div>
 
                         {notif.payload?.content_snippet && (
-                          <p className="mt-1 font-ui text-[11px] text-white/50 italic line-clamp-1 border-l border-white/20 pl-2">
+                          <p className="mt-1 font-body text-[11px] text-histo-paper/70 italic line-clamp-1 border-l border-histo-gold/30 pl-2">
                             "{notif.payload.content_snippet}"
                           </p>
                         )}
 
-                        <div className="mt-1 flex items-center gap-1 text-[10px] font-ui text-white/40">
+                        <div className="mt-1 flex items-center gap-1 text-[10px] font-ui text-histo-gold/75">
                           <Clock className="h-3 w-3" />
                           <span>{formatTimeAgo(notif.created_at)}</span>
                         </div>
                       </div>
 
-                      {/* Unread Dot Indicator */}
+                      {/* Unread Indicator Dot */}
                       {!notif.is_read && (
-                        <div className="h-2 w-2 rounded-full bg-histo-gold shrink-0 mt-1.5 shadow-sm" />
+                        <div className="h-2 w-2 rounded-full bg-histo-gold shrink-0 mt-1.5 shadow-sm ring-2 ring-histo-gold/30" />
                       )}
                     </div>
                   );
                 })
               )}
 
-              {/* Load More */}
+              {/* Load More Button */}
               {hasMore && !loading && (
-                <div className="p-2 text-center bg-white/[0.01]">
+                <div className="p-2 text-center bg-histo-navy/30 border-t border-white/5">
                   <button
                     type="button"
                     onClick={() => fetchList(true)}
-                    className="text-xs font-ui text-histo-gold hover:underline cursor-pointer bg-transparent border-none py-1"
+                    className="text-xs font-ui font-semibold text-histo-gold hover:text-histo-paper hover:underline cursor-pointer bg-transparent border-none py-1 transition-colors"
                   >
-                    Load older notifications
+                    Load older notices
                   </button>
                 </div>
               )}
