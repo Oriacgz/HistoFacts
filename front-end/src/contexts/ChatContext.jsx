@@ -43,7 +43,10 @@ export function ChatProvider({ children }) {
     return () => clearInterval(badgePoll);
   }, [user, isChatOpen, fetchConversations]);
 
-  const openChat = useCallback(() => setIsChatOpen(true), []);
+  const openChat = useCallback(() => {
+    setIsChatOpen(true);
+    fetchConversations();
+  }, [fetchConversations]);
   const closeChat = useCallback(() => {
     setIsChatOpen(false);
     setActiveConversation(null);
