@@ -8,6 +8,9 @@ from sqlalchemy import Boolean, Column, String, Text, Integer, DateTime, Foreign
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+import app.auth.models  # noqa: F401 - ensure users table is registered
+import app.groups.models  # noqa: F401 - ensure groups table is registered
+import app.history.models  # noqa: F401 - ensure historical_events table is registered
 
 
 def generate_uuid() -> str:
