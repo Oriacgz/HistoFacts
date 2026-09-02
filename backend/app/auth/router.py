@@ -2,7 +2,7 @@
 FastAPI router for Auth & Identity endpoints.
 """
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
@@ -12,8 +12,23 @@ from app.auth.schemas import (
     RefreshTokenRequest,
     UserResponse,
     TokenResponse,
+    FriendRequestCreate,
+    FriendRequestResponse,
+    FriendWithPresence,
+    SearchUserResponse,
 )
 from app.auth.service import register_user, authenticate_user, refresh_user_tokens
+from app.auth.friend_service import (
+    search_users,
+    send_friend_request,
+    get_incoming_requests,
+    get_outgoing_requests,
+    accept_friend_request,
+    decline_friend_request,
+    unfriend,
+    list_friends_with_presence,
+    heartbeat,
+)
 from app.core.database import get_async_session
 from app.core.deps import get_current_user
 
@@ -50,149 +65,98 @@ async def refresh(req: RefreshTokenRequest, db: AsyncSession = Depends(get_async
     )
 
 
-from sqlalchemy import select, or_, delete
-from fastapi import HTTPException
-from app.auth.models import Friend
-from app.auth.schemas import FriendResponse, AddFriendRequest
-
-
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     return UserResponse.model_validate(current_user)
 
 
-@router.get("/friends", response_model=list[FriendResponse])
-async def list_friends(
+@router.get("/search", response_model=list[SearchUserResponse])
+async def search_users_endpoint(
+    q: str = Query("", description="Search query: partial name or exact Name#Tag"),
+    tag: str | None = Query(None, description="Optional tag query fallback"),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Search users by partial name or exact Name#Tag."""
+    search_term = (q or tag or "").strip()
+    if not search_term:
+        return []
+    return await search_users(search_term, db)
+
+
+@router.post("/friends/request", response_model=FriendRequestResponse, status_code=status.HTTP_201_CREATED)
+async def create_friend_request(
+    req: FriendRequestCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """List all accepted friends of the current user."""
-    # Find friends where current_user is user_id or friend_id
-    query = (
-        select(Friend, User)
-        .join(User, (Friend.friend_id == User.id) | (Friend.user_id == User.id))
-        .where(
-            or_(Friend.user_id == current_user.id, Friend.friend_id == current_user.id),
-            User.id != current_user.id,
-            Friend.status == "accepted",
-        )
-    )
-    res = await db.execute(query)
-    rows = res.all()
-    results = []
-    seen = set()
-    for friend_rel, user_obj in rows:
-        if user_obj.id not in seen:
-            seen.add(user_obj.id)
-            results.append(
-                FriendResponse(
-                    id=user_obj.id,
-                    username=user_obj.username,
-                    tag=user_obj.tag,
-                    avatar_url=user_obj.avatar_url,
-                    status=friend_rel.status,
-                    requested_at=friend_rel.requested_at,
-                )
-            )
-    return results
+    """Send a friend request to another user."""
+    return await send_friend_request(db, current_user.id, req.addressee_id)
 
 
-@router.post("/friends", response_model=FriendResponse, status_code=status.HTTP_201_CREATED)
-async def add_friend(
-    req: AddFriendRequest,
+@router.get("/friends/requests/incoming", response_model=list[FriendRequestResponse])
+async def list_incoming_requests(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Add a friend by user_id or username+tag."""
-    target_user = None
-    if req.friend_id:
-        target_user = await db.get(User, req.friend_id)
-    elif req.username and req.tag:
-        res = await db.execute(
-            select(User).where(User.username == req.username, User.tag == req.tag)
-        )
-        target_user = res.scalar_one_or_none()
-
-    if not target_user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    if target_user.id == current_user.id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot friend yourself")
-
-    # Check if existing relationship
-    existing = await db.execute(
-        select(Friend).where(
-            or_(
-                (Friend.user_id == current_user.id) & (Friend.friend_id == target_user.id),
-                (Friend.user_id == target_user.id) & (Friend.friend_id == current_user.id),
-            )
-        )
-    )
-    rel = existing.scalar_one_or_none()
-    if rel:
-        return FriendResponse(
-            id=target_user.id,
-            username=target_user.username,
-            tag=target_user.tag,
-            avatar_url=target_user.avatar_url,
-            status=rel.status,
-            requested_at=rel.requested_at,
-        )
-
-    new_rel = Friend(
-        user_id=current_user.id,
-        friend_id=target_user.id,
-        status="accepted",
-    )
-    db.add(new_rel)
-    await db.commit()
-    await db.refresh(new_rel)
-
-    return FriendResponse(
-        id=target_user.id,
-        username=target_user.username,
-        tag=target_user.tag,
-        avatar_url=target_user.avatar_url,
-        status=new_rel.status,
-        requested_at=new_rel.requested_at,
-    )
+    """List pending friend requests sent to the current user."""
+    return await get_incoming_requests(db, current_user.id)
 
 
-@router.delete("/friends/{friend_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_friend(
-    friend_id: str,
+@router.get("/friends/requests/outgoing", response_model=list[FriendRequestResponse])
+async def list_outgoing_requests(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Remove a friendship relationship."""
-    await db.execute(
-        delete(Friend).where(
-            or_(
-                (Friend.user_id == current_user.id) & (Friend.friend_id == friend_id),
-                (Friend.user_id == friend_id) & (Friend.friend_id == current_user.id),
-            )
-        )
-    )
-    await db.commit()
+    """List pending friend requests sent by the current user."""
+    return await get_outgoing_requests(db, current_user.id)
+
+
+@router.post("/friends/requests/{request_id}/accept", response_model=FriendRequestResponse)
+async def accept_request(
+    request_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Accept a pending friend request."""
+    return await accept_friend_request(db, request_id, current_user.id)
+
+
+@router.post("/friends/requests/{request_id}/decline", status_code=status.HTTP_204_NO_CONTENT)
+async def decline_request(
+    request_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Decline a pending friend request."""
+    await decline_friend_request(db, request_id, current_user.id)
     return None
 
 
-@router.get("/search", response_model=list[UserResponse])
-async def search_users(
-    tag: str,
+@router.delete("/friends/{friend_user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_friend(
+    friend_user_id: str,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    # tag format: "Ryan#3081" or "Ryan"
-    if "#" in tag:
-        uname, utag = tag.split("#", 1)
-        res = await db.execute(
-            select(User).where(User.username.ilike(f"%{uname}%"), User.tag == utag)
-        )
-    else:
-        res = await db.execute(
-            select(User).where(or_(User.username.ilike(f"%{tag}%"), User.tag == tag))
-        )
-    users = res.scalars().all()
-    return [UserResponse.model_validate(u) for u in users]
+    """Remove an accepted friendship."""
+    await unfriend(db, current_user.id, friend_user_id)
+    return None
 
 
+@router.get("/friends", response_model=list[FriendWithPresence])
+async def list_friends_with_presence_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """List accepted friends with online/offline presence (batched query)."""
+    return await list_friends_with_presence(db, current_user.id)
+
+
+@router.post("/presence/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+async def presence_heartbeat(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Update current user's last seen timestamp (called by frontend every ~25s when tab is visible)."""
+    await heartbeat(db, current_user.id)
+    return None

@@ -141,6 +141,51 @@ async def create_lobby(
     }
 
 
+from pydantic import BaseModel
+from app.core.inter_service import notify
+
+
+class LobbyInviteRequest(BaseModel):
+    user_ids: list[str] = []
+    user_id: str | None = None
+
+
+@router.post("/lobby/{code}/invite")
+async def invite_to_lobby(
+    code: str,
+    req: LobbyInviteRequest,
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    room = lobby_manager.get_room(code)
+    if not room:
+        raise HTTPException(status_code=404, detail="Lobby room not found")
+
+    target_ids = list(req.user_ids)
+    if req.user_id and req.user_id not in target_ids:
+        target_ids.append(req.user_id)
+
+    if not target_ids:
+        raise HTTPException(status_code=400, detail="No user IDs provided for invitation")
+
+    host_name = current_user.username if current_user else room.host_name
+    host_id = current_user.id if current_user else room.host_id
+
+    for uid in target_ids:
+        if uid != host_id:
+            await notify(
+                user_id=uid,
+                type="quiz_lobby_invite",
+                payload={
+                    "code": room.code,
+                    "topic": room.topic,
+                    "host_id": host_id,
+                    "host_name": host_name,
+                },
+            )
+
+    return {"status": "invitations_sent", "invited_count": len(target_ids)}
+
+
 @router.get("/lobby/{code}")
 async def get_lobby_info(code: str):
     room = lobby_manager.get_room(code)

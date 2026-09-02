@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
 from app.auth.schemas import UserRegisterRequest, UserLoginRequest
-from app.auth.utils import generate_unique_tag
+from app.auth.utils import generate_unique_tag, validate_username
 from app.core.security import (
     hash_password,
     verify_password,
@@ -19,6 +19,9 @@ from app.core.security import (
 
 
 async def register_user(req: UserRegisterRequest, db: AsyncSession) -> tuple[User, str, str]:
+    # Validate username
+    validate_username(req.username)
+    
     # Check email uniqueness
     res = await db.execute(select(User).where(User.email == req.email))
     if res.scalar_one_or_none():

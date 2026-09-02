@@ -18,10 +18,11 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useChat } from '../contexts/ChatContext';
+import NotificationDropdown from './NotificationDropdown';
 
 const headerIcons = [
   { icon: Filter, label: 'Filters' },
-  { icon: Bell, label: 'Notifications' },
   { icon: Calendar, label: 'Historical Calendar' },
 ];
 
@@ -30,6 +31,11 @@ export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+
+  // Chat sidebar — may not be available if not inside ChatProvider (e.g. landing page)
+  let chatContext = null;
+  try { chatContext = useChat(); } catch { /* not inside ChatProvider */ }
+  const totalUnread = chatContext?.totalUnreadCount || 0;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -129,7 +135,7 @@ export default function Navbar() {
           <Search className="h-4.5 w-4.5 text-histo-paper/85 hover:text-histo-gold transition-colors" />
         </button>
 
-        {/* Header Icons (Filters, Notifications, Calendar) */}
+        {/* Header Icons (Filters, Calendar) */}
         <div className="hidden xl:flex gap-2">
           {headerIcons.map(({ icon: Icon, label }) => (
             <div
@@ -145,17 +151,26 @@ export default function Navbar() {
           ))}
         </div>
 
-        {/* Chat Button */}
-        <Link
-          to="/feed"
-          className="hidden sm:flex h-10 w-10 items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300 group relative"
+        {/* Notifications Dropdown */}
+        <NotificationDropdown />
+
+        {/* Chat Button — toggles sidebar */}
+        <button
+          type="button"
+          onClick={() => chatContext?.openChat?.()}
+          className="hidden sm:flex h-10 w-10 items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300 group relative cursor-pointer bg-transparent"
           aria-label="Open chat"
         >
           <MessageSquare className="h-4.5 w-4.5 text-histo-paper/85 transition-colors duration-300 group-hover:text-histo-gold" />
+          {totalUnread > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-histo-gold text-histo-dark text-[9px] font-ui font-bold px-1 shadow-sm">
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          )}
           <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-y-0 group-hover:opacity-100 z-50">
-            Community Chat
+            Messages
           </span>
-        </Link>
+        </button>
 
         {/* Profile Area & Dropdown Menu */}
         <div className="relative border-l border-white/10 pl-3">

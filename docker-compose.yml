@@ -29,6 +29,7 @@ services:
       - PORT=8001
       - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
       - NOTES_SERVICE_URL=http://notes-service:8005
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8007
     ports:
       - "8001:8001"
     depends_on:
@@ -64,6 +65,7 @@ services:
       - PORT=8003
       - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
       - GROUPS_SERVICE_URL=http://groups-service:8004
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8007
     ports:
       - "8003:8003"
     depends_on:
@@ -81,6 +83,7 @@ services:
       - APP_MODULE=app.groups.main:app
       - PORT=8004
       - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8007
     ports:
       - "8004:8004"
     depends_on:
@@ -98,6 +101,7 @@ services:
       - APP_MODULE=app.ai_notes.main:app
       - PORT=8005
       - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8007
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
     ports:
@@ -118,8 +122,26 @@ services:
       - PORT=8006
       - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
       - NOTES_SERVICE_URL=http://notes-service:8005
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8007
     ports:
       - "8006:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── 7. Notification Microservice ─────────────────────────────
+  notification-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: histofacts-notification-service
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
+      - APP_MODULE=app.notification.main:app
+      - PORT=8007
+      - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
+    ports:
+      - "8007:8007"
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,6 +161,7 @@ services:
       - groups-service
       - notes-service
       - quiz-service
+      - notification-service
 
   # ── Frontend Web Application ─────────────────────────────────
   frontend:

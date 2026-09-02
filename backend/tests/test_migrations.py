@@ -49,6 +49,10 @@ def test_alembic_migrations():
             "histoin_wallets",
             "histoin_ledger",
             "token_packs",
+            "conversations",
+            "direct_participants",
+            "messages",
+            "conversation_reads",
             "alembic_version",
         }
 

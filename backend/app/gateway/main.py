@@ -47,11 +47,13 @@ SERVICE_ROUTES = [
     ("/api/auth", settings.auth_service_url),
     ("/api/events", settings.history_service_url),
     ("/api/social", settings.social_service_url),
+    ("/api/chat", settings.social_service_url),
     ("/api/groups", settings.groups_service_url),
     ("/api/notes", settings.notes_service_url),
     ("/api/wallet", settings.notes_service_url),
     ("/api/shop", settings.notes_service_url),
     ("/api/quiz", settings.quiz_service_url),
+    ("/api/notifications", settings.notification_service_url),
 ]
 
 
@@ -178,6 +180,7 @@ async def gateway_health(request: Request):
         "groups": f"{settings.groups_service_url}/health",
         "notes": f"{settings.notes_service_url}/health",
         "quiz": f"{settings.quiz_service_url}/health",
+        "notifications": f"{settings.notification_service_url}/health",
     }
 
     status_report = {}

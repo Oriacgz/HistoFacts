@@ -122,6 +122,9 @@ async def get_post_with_comments(post_id: str, db: AsyncSession) -> PostResponse
     )
 
 
+from app.core.inter_service import notify
+
+
 async def add_comment(post_id: str, req: CreateCommentRequest, user_id: str, db: AsyncSession) -> Comment:
     comment = Comment(
         post_id=post_id,
@@ -133,7 +136,45 @@ async def add_comment(post_id: str, req: CreateCommentRequest, user_id: str, db:
     db.add(comment)
     await db.commit()
     await db.refresh(comment)
+
+    # Fire-and-forget notification for comment reply or @mention
+    commenter = await db.get(User, user_id)
+    commenter_name = commenter.username if commenter else "Scholar"
+    content_snippet = (comment.content[:80] + "...") if len(comment.content) > 80 else comment.content
+
+    # 1. Reply to parent comment
+    if req.parent_comment_id:
+        parent = await db.get(Comment, req.parent_comment_id)
+        if parent and parent.user_id != user_id:
+            await notify(
+                user_id=parent.user_id,
+                type="comment_reply",
+                payload={
+                    "comment_id": comment.id,
+                    "post_id": post_id,
+                    "from_user_id": user_id,
+                    "from_user": commenter_name,
+                    "content_snippet": content_snippet,
+                },
+            )
+
+    # 2. Direct @mention
+    if req.mentioned_user_id and req.mentioned_user_id != user_id:
+        await notify(
+            user_id=req.mentioned_user_id,
+            type="comment_reply",
+            payload={
+                "comment_id": comment.id,
+                "post_id": post_id,
+                "from_user_id": user_id,
+                "from_user": commenter_name,
+                "content_snippet": content_snippet,
+                "is_mention": True,
+            },
+        )
+
     return comment
+
 
 
 async def toggle_post_like(post_id: str, user_id: str, db: AsyncSession) -> tuple[bool, int]:
