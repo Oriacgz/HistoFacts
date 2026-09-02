@@ -1,11 +1,12 @@
 """
-SQLAlchemy models for Auth and Identity module (users, friends).
+SQLAlchemy models for Auth and Identity module (users, friends, presence).
 """
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, JSON, Enum
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import UUID
 
 from app.core.database import Base
 
@@ -38,7 +39,19 @@ class User(Base):
 class Friend(Base):
     __tablename__ = "friends"
 
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
+    requester_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    addressee_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(Enum("pending", "accepted", name="friend_status"), nullable=False, default="pending")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("requester_id", "addressee_id", name="uq_requester_addressee"),
+    )
+
+
+class UserPresence(Base):
+    __tablename__ = "user_presence"
+
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    friend_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    status = Column(String, nullable=False, default="pending")  # pending, accepted, blocked
-    requested_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))

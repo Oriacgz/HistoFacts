@@ -34,3 +34,21 @@ async def call_notes_reward_quiz(user_id: str, amount: int = 20) -> bool:
     except Exception as e:
         logger.warning(f"Inter-service HTTP call to {url} failed: {e}. Falling back to in-process logic.")
         return False
+
+
+async def notify(user_id: str, type: str, payload: dict) -> None:
+    """Fire-and-forget. A notification-service outage must never break the action that triggered it."""
+    url = f"{settings.notification_service_url}/internal/notifications"
+    headers = {"X-Internal-Secret": settings.secret_key}
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post(
+                url,
+                json={"user_id": str(user_id), "type": type, "payload": payload},
+                headers=headers,
+            )
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        logger.warning(f"Notification service unreachable — skipped '{type}' for user {user_id}: {e}")
+    except Exception as e:
+        logger.warning(f"Unexpected error calling notification service for user {user_id}: {e}")
+

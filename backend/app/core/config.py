@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     groups_service_url: str = "http://127.0.0.1:8004"
     notes_service_url: str = "http://127.0.0.1:8005"
     quiz_service_url: str = "http://127.0.0.1:8006"
+    notification_service_url: str = "http://127.0.0.1:8007"
 
 
 # Singleton — import this everywhere

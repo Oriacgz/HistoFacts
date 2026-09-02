@@ -14,6 +14,8 @@ from app.quiz.router import router as quiz_router
 from app.social.router import router as social_router
 from app.groups.router import router as groups_router
 from app.ai_notes.router import router as notes_router
+from app.chat.router import router as chat_router
+from app.notification.router import router as notification_router
 from app.history.sync import seed_initial_events
 from app.ai_notes.wallet_service import seed_token_packs
 from app.quiz.service import seed_quiz_questions
@@ -57,6 +59,8 @@ app.include_router(quiz_router)
 app.include_router(social_router)
 app.include_router(groups_router)
 app.include_router(notes_router)
+app.include_router(chat_router)
+app.include_router(notification_router)
 
 
 @app.get("/health", tags=["System"])
