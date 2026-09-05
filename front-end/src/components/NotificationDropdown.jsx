@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useUnreadNotificationsCount } from '../hooks/queries/useUnreadNotificationsCount';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -16,7 +17,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  getUnreadCount,
   getNotifications,
   markNotificationRead,
   markAllNotificationsRead,
@@ -107,32 +107,14 @@ export default function NotificationDropdown() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const dropdownRef = useRef(null);
 
-  // 1. Poll unread count every 25s
-  const fetchCount = useCallback(async () => {
-    if (!user) {
-      setUnreadCount(0);
-      return;
-    }
-    try {
-      const data = await getUnreadCount();
-      setUnreadCount(data.unread_count || 0);
-    } catch {
-      // Ignored: silent background polling failure
-    }
-  }, [user]);
-
-  useEffect(() => {
-    fetchCount();
-    const interval = setInterval(fetchCount, 25000);
-    return () => clearInterval(interval);
-  }, [fetchCount]);
+  // 1. Poll unread count every 25s via React Query (replaces manual setInterval)
+  const { data: unreadCount = 0 } = useUnreadNotificationsCount();
 
   // 2. Fetch notifications when dropdown opens or filter changes
   const fetchList = useCallback(async (isLoadMore = false) => {

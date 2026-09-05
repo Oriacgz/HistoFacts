@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { FeatureErrorFallback } from './components/FeatureErrorFallback';
 
 // Code-split page components for optimized bundle performance
 const LandingPage = lazy(() => import('./pages/LandingPage'));
@@ -54,6 +56,27 @@ function LandingRoute({ children }) {
   return children;
 }
 
+/**
+ * FeatureBoundary — thin wrapper that renders an ErrorBoundary with the
+ * HistoFacts-themed fallback card for a named feature route.
+ */
+function FeatureBoundary({ featureName, children }) {
+  return (
+    <ErrorBoundary
+      featureName={featureName}
+      fallback={({ error, resetError }) => (
+        <FeatureErrorFallback
+          featureName={featureName}
+          error={error}
+          resetError={resetError}
+        />
+      )}
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
+
 export default function App() {
   return (
     <ToastProvider>
@@ -81,6 +104,8 @@ export default function App() {
             {/* 
               Protected routes inside MainLayout.
               MainLayout renders the persistent Navbar + <Outlet />.
+              Each feature route is wrapped in its own ErrorBoundary so a bug
+              in one feature never blanks or crashes the Navbar and other features.
             */}
             <Route
               element={
@@ -90,10 +115,38 @@ export default function App() {
               }
             >
               <Route path="/home" element={<DashboardPage />} />
-              <Route path="/quiz" element={<QuizPage />} />
-              <Route path="/feed" element={<FeedPage />} />
-              <Route path="/groups" element={<GroupsPage />} />
-              <Route path="/friends" element={<FriendsPage />} />
+              <Route
+                path="/quiz"
+                element={
+                  <FeatureBoundary featureName="Quiz & Battle Arena">
+                    <QuizPage />
+                  </FeatureBoundary>
+                }
+              />
+              <Route
+                path="/feed"
+                element={
+                  <FeatureBoundary featureName="Chronicle Community Feed">
+                    <FeedPage />
+                  </FeatureBoundary>
+                }
+              />
+              <Route
+                path="/groups"
+                element={
+                  <FeatureBoundary featureName="Study Groups">
+                    <GroupsPage />
+                  </FeatureBoundary>
+                }
+              />
+              <Route
+                path="/friends"
+                element={
+                  <FeatureBoundary featureName="Scholar Connections">
+                    <FriendsPage />
+                  </FeatureBoundary>
+                }
+              />
             </Route>
 
             {/* Notes has its own specialized layout/navbar */}
@@ -101,7 +154,9 @@ export default function App() {
               path="/notes"
               element={
                 <ProtectedRoute>
-                  <NotesPage />
+                  <FeatureBoundary featureName="AI Notes & Histoins">
+                    <NotesPage />
+                  </FeatureBoundary>
                 </ProtectedRoute>
               }
             />

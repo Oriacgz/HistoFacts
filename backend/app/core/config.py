@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_provider: str = "openai"
 
+    # ── Redis ─────────────────────────────────────────────────
+    redis_url: str = "redis://localhost:6379/0"
+
     # ── Microservices Discovery URLs ──────────────────────────
     auth_service_url: str = "http://127.0.0.1:8001"
     history_service_url: str = "http://127.0.0.1:8002"

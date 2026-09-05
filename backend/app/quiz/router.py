@@ -131,7 +131,7 @@ async def create_lobby(
     host_id = current_user.id if current_user else "guest-host"
     host_name = current_user.username if current_user else "Host"
     questions = await generate_personalized_quiz_service(req, db)
-    room = lobby_manager.create_room(
+    room = await lobby_manager.create_room_async(
         host_id=host_id,
         host_name=host_name,
         topic=req.topic or "History Trivia",

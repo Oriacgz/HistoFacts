@@ -6,11 +6,13 @@ Wallet and Token Economy Service:
 - Atomic shop purchases respecting PURCHASED_CEILING.
 """
 
+import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.correlation import get_request_id
 from app.ai_notes.models import (
     UserTokenWallet,
     TokenLedger,
@@ -19,6 +21,8 @@ from app.ai_notes.models import (
     TokenPack,
     PurchaseLog,
 )
+
+logger = logging.getLogger("histofacts.wallet")
 
 FREE_REFILL_CAP = 350_000
 DAILY_REFRESH = 50_000
@@ -169,6 +173,8 @@ async def deduct_generation_tokens(user_id: str, actual_tokens: int, db: AsyncSe
     )
     db.add(ledger)
     await db.flush()
+    req_id = get_request_id()
+    logger.info(f"[{req_id}] wallet debited: user={user_id} amount={deduction} balance_after={token_wallet.token_balance}")
     return token_wallet.token_balance
 
 
@@ -246,7 +252,12 @@ async def purchase_token_pack(
     # 3. Lock both wallets with with_for_update()
     token_wallet, histoin_wallet = await get_or_create_wallets(user_id, db)
 
+    req_id = get_request_id()
     if histoin_wallet.balance < pack.histoin_cost:
+        logger.warning(
+            f"[{req_id}] wallet purchase failed: user={user_id} pack={pack.name} "
+            f"insufficient histoins (cost={pack.histoin_cost}, balance={histoin_wallet.balance})"
+        )
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=f"Not enough Histoins. This pack costs {pack.histoin_cost} Histoins, but you have {histoin_wallet.balance}.",
@@ -293,4 +304,9 @@ async def purchase_token_pack(
         ))
 
     await db.flush()
+    logger.info(
+        f"[{req_id}] wallet purchase successful: user={user_id} pack={pack.name} "
+        f"cost={pack.histoin_cost} credited={credited} new_token_balance={token_wallet.token_balance} "
+        f"new_histoin_balance={histoin_wallet.balance}"
+    )
     return result

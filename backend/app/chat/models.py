@@ -42,7 +42,7 @@ class Message(Base):
     message_type = Column(String, nullable=False, default="text")
     content = Column(Text, nullable=False)
     shared_ref_id = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
     __table_args__ = (
         Index("ix_messages_conv_created", "conversation_id", "created_at"),

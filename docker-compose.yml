@@ -17,6 +17,20 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Redis (Lobby state & pub/sub caching) ───────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: histofacts-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   # ── 1. Auth & Identity Microservice ──────────────────────────
   auth-service:
     build:
@@ -118,6 +132,7 @@ services:
     container_name: histofacts-quiz-service
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/histofacts
+      - REDIS_URL=redis://redis:6379/0
       - APP_MODULE=app.quiz.main:app
       - PORT=8006
       - SECRET_KEY=${SECRET_KEY:-histofacts-production-secret-key-2026}
@@ -127,6 +142,8 @@ services:
       - "8006:8006"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # ── 7. Notification Microservice ─────────────────────────────
@@ -176,3 +193,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

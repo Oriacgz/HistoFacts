@@ -29,6 +29,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+from app.core.correlation import CorrelationIdMiddleware
+
+app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,

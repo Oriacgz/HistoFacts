@@ -5,7 +5,7 @@ import asyncio
 from sqlalchemy import text
 from app.core.database import engine
 
-HEAD_REVISION = "c3d4e5f6a7b8"
+HEAD_REVISION = "d4e5f6a7b8c9"
 
 
 async def main():

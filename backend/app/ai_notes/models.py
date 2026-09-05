@@ -56,7 +56,7 @@ class TokenLedger(Base):
     delta = Column(Integer, nullable=False)  # positive = credit, negative = debit
     reason = Column(String, nullable=False)  # "signup_bonus", "daily_refresh", "ai_generation", "purchase"
     balance_after = Column(Integer, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
 class HistoinWallet(Base):
@@ -74,7 +74,7 @@ class HistoinLedger(Base):
     delta = Column(Integer, nullable=False)  # positive = earned, negative = spent
     reason = Column(String, nullable=False)  # "quiz_completed", "daily_login", "purchase_spend"
     balance_after = Column(Integer, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
 class TokenPack(Base):

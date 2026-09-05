@@ -380,6 +380,9 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: CurrentUse
 # -------------------------------------------------------------
 # Real-time WebSocket Lobby Manager (Kahoot-style state machine)
 # -------------------------------------------------------------
+from app.quiz.lobby_state import lobby_state_manager
+
+
 class LobbyRoom:
     def __init__(self, code: str, host_id: str, host_name: str, topic: str, questions: list[dict]):
         self.code = code
@@ -394,13 +397,59 @@ class LobbyRoom:
         self.participants = {}  # user_id -> { "username": str, "tag": str, "score": int, "streak": int, "answers": dict, "ws": WebSocket }
         self.task = None
 
+    def to_dict(self) -> dict:
+        """Serializes lobby state to JSON-safe dictionary (excluding active WebSocket objects)."""
+        p_data = {}
+        for uid, p in self.participants.items():
+            p_data[uid] = {
+                "username": p.get("username", "Scholar"),
+                "tag": p.get("tag", "0001"),
+                "score": p.get("score", 0),
+                "streak": p.get("streak", 0),
+                "answers": p.get("answers", {}),
+                "role": p.get("role", "player"),
+            }
+        return {
+            "code": self.code,
+            "host_id": self.host_id,
+            "host_name": self.host_name,
+            "topic": self.topic,
+            "questions": self.questions,
+            "state": self.state,
+            "current_question_index": self.current_question_index,
+            "time_per_question": self.time_per_question,
+            "time_remaining": self.time_remaining,
+            "participants": p_data,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "LobbyRoom":
+        """Restores a LobbyRoom from serialized Redis state."""
+        room = cls(
+            code=data["code"],
+            host_id=data["host_id"],
+            host_name=data.get("host_name", "Host"),
+            topic=data.get("topic", "History"),
+            questions=data.get("questions", []),
+        )
+        room.state = data.get("state", "waiting_room")
+        room.current_question_index = data.get("current_question_index", 0)
+        room.time_per_question = data.get("time_per_question", 20)
+        room.time_remaining = data.get("time_remaining", 20)
+        room.participants = data.get("participants", {})
+        return room
+
+    async def sync_state(self) -> None:
+        """Persist current state snapshot to Redis / distributed state manager."""
+        await lobby_state_manager.save_lobby(self.code, self.to_dict())
+
     def get_participants_summary(self):
         return [
             {
                 "user_id": uid,
-                "username": p["username"],
+                "username": p.get("username", "Scholar"),
                 "tag": p.get("tag", "0001"),
-                "score": p["score"],
+                "score": p.get("score", 0),
                 "streak": p.get("streak", 0),
                 "answered_current": self.current_question_index in p.get("answers", {}),
             }
@@ -412,6 +461,12 @@ class LobbyRoom:
         return sorted_p[:5]
 
     async def broadcast(self, message: dict):
+        """Broadcast message to all lobby participants across all service replicas via Redis Pub/Sub."""
+        # 1. Synchronize latest state to Redis
+        await self.sync_state()
+        # 2. Publish to Redis Pub/Sub channel for cross-replica distribution
+        await lobby_state_manager.broadcast_to_lobby(self.code, message)
+        # 3. Deliver locally to active connections held directly in memory
         dead_connections = []
         for uid, p in self.participants.items():
             ws = p.get("ws")
@@ -436,8 +491,25 @@ class LobbyManager:
         self.rooms[code] = room
         return room
 
+    async def create_room_async(self, host_id: str, host_name: str, topic: str, questions: list[dict]) -> LobbyRoom:
+        room = self.create_room(host_id, host_name, topic, questions)
+        await room.sync_state()
+        return room
+
     def get_room(self, code: str) -> LobbyRoom | None:
         return self.rooms.get(code)
+
+    async def get_room_async(self, code: str) -> LobbyRoom | None:
+        """Get room from memory, or restore from Redis if created by another replica."""
+        if code in self.rooms:
+            return self.rooms[code]
+
+        data = await lobby_state_manager.get_lobby(code)
+        if data:
+            room = LobbyRoom.from_dict(data)
+            self.rooms[code] = room
+            return room
+        return None
 
 
 lobby_manager = LobbyManager()
