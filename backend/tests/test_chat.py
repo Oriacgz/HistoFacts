@@ -3,11 +3,28 @@ Comprehensive test suite for Personal & Group Chat module.
 """
 
 import pytest
+from datetime import datetime, timezone
 from httpx import AsyncClient
+from app.chat.models import UserSummaryCache
 
 
 @pytest.mark.asyncio
-async def test_direct_and_group_chat_flow(client: AsyncClient):
+async def test_direct_and_group_chat_flow(client: AsyncClient, db_session):
+    # Populate UserSummaryCache for all test users after they are created
+    async def add_user_to_cache(user_id: str, username: str, tag: str):
+        cache = UserSummaryCache(
+            user_id=user_id,
+            username=username,
+            tag=tag,
+            avatar_url=None,
+            bio=None,
+            is_banned=False,
+            synced_at=datetime.now(timezone.utc),
+        )
+        db_session.add(cache)
+        await db_session.commit()
+
+    # 1. Register User A, User B, and User C
     # 1. Register User A, User B, and User C
     u1_resp = await client.post(
         "/api/auth/register",
@@ -15,7 +32,9 @@ async def test_direct_and_group_chat_flow(client: AsyncClient):
     )
     t1 = u1_resp.json()["access_token"]
     u1_id = u1_resp.json()["user"]["id"]
+    u1_tag = u1_resp.json()["user"]["tag"]
     h1 = {"Authorization": f"Bearer {t1}"}
+    await add_user_to_cache(u1_id, "AliceScholar", u1_tag)
 
     u2_resp = await client.post(
         "/api/auth/register",
@@ -23,7 +42,9 @@ async def test_direct_and_group_chat_flow(client: AsyncClient):
     )
     t2 = u2_resp.json()["access_token"]
     u2_id = u2_resp.json()["user"]["id"]
+    u2_tag = u2_resp.json()["user"]["tag"]
     h2 = {"Authorization": f"Bearer {t2}"}
+    await add_user_to_cache(u2_id, "BobHistorian", u2_tag)
 
     u3_resp = await client.post(
         "/api/auth/register",
@@ -31,7 +52,9 @@ async def test_direct_and_group_chat_flow(client: AsyncClient):
     )
     t3 = u3_resp.json()["access_token"]
     u3_id = u3_resp.json()["user"]["id"]
+    u3_tag = u3_resp.json()["user"]["tag"]
     h3 = {"Authorization": f"Bearer {t3}"}
+    await add_user_to_cache(u3_id, "CharlieExplorer", u3_tag)
 
     # 2. Test Get-or-Create Direct Conversation (Idempotence & Canonical Ordering)
     create_d1 = await client.post(f"/api/chat/conversations/direct/{u2_id}", headers=h1)

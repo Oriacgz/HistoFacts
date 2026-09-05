@@ -17,6 +17,7 @@ from app.ai_notes.models import (
     HistoinWallet,
     HistoinLedger,
     TokenPack,
+    PurchaseLog,
 )
 
 FREE_REFILL_CAP = 350_000
@@ -174,11 +175,15 @@ async def deduct_generation_tokens(user_id: str, actual_tokens: int, db: AsyncSe
 async def reward_quiz_histoins(user_id: str, db: AsyncSession) -> int | None:
     """
     Reward +20 Histoins for quiz completion with correct answer (max 3/day).
+    Locks the user wallet before checking the daily limit to avoid race conditions.
     """
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Check how many quiz rewards already awarded today
+    # Lock wallet first so concurrent requests wait before evaluating cap
+    _, histoin_wallet = await get_or_create_wallets(user_id, db)
+
+    # Check how many quiz rewards already awarded today under lock
     res = await db.execute(
         select(func.count(HistoinLedger.id)).where(
             HistoinLedger.user_id == user_id,
@@ -190,7 +195,6 @@ async def reward_quiz_histoins(user_id: str, db: AsyncSession) -> int | None:
     if count >= 3:
         return None
 
-    _, histoin_wallet = await get_or_create_wallets(user_id, db)
     histoin_wallet.balance += 20
 
     ledger = HistoinLedger(
@@ -212,12 +216,26 @@ async def get_shop_packs(db: AsyncSession) -> list[TokenPack]:
     return res.scalars().all()
 
 
-async def purchase_token_pack(user_id: str, pack_id: str, db: AsyncSession) -> dict:
+async def purchase_token_pack(
+    user_id: str,
+    pack_id: str,
+    db: AsyncSession,
+    idempotency_key: str | None = None,
+) -> dict:
     """
     Atomically exchange Histoins for Tokens.
-    Locks both wallets with with_for_update.
+    - Idempotency check: returns previous result if key already processed
+    - Locks both wallets with with_for_update to prevent race conditions.
     """
-    # 1. Fetch pack
+    # 1. Idempotency check first
+    if idempotency_key:
+        existing = (await db.execute(
+            select(PurchaseLog).where(PurchaseLog.idempotency_key == idempotency_key)
+        )).scalar_one_or_none()
+        if existing:
+            return existing.result
+
+    # 2. Fetch pack
     res_p = await db.execute(select(TokenPack).where(TokenPack.id == pack_id, TokenPack.is_active == True))
     pack = res_p.scalar_one_or_none()
     if not pack:
@@ -225,7 +243,7 @@ async def purchase_token_pack(user_id: str, pack_id: str, db: AsyncSession) -> d
 
     now = datetime.now(timezone.utc)
 
-    # 2. Lock both wallets
+    # 3. Lock both wallets with with_for_update()
     token_wallet, histoin_wallet = await get_or_create_wallets(user_id, db)
 
     if histoin_wallet.balance < pack.histoin_cost:
@@ -234,7 +252,7 @@ async def purchase_token_pack(user_id: str, pack_id: str, db: AsyncSession) -> d
             detail=f"Not enough Histoins. This pack costs {pack.histoin_cost} Histoins, but you have {histoin_wallet.balance}.",
         )
 
-    # 3. Deduct Histoins
+    # 4. Deduct Histoins
     histoin_wallet.balance -= pack.histoin_cost
     h_ledger = HistoinLedger(
         user_id=user_id,
@@ -245,7 +263,7 @@ async def purchase_token_pack(user_id: str, pack_id: str, db: AsyncSession) -> d
     )
     db.add(h_ledger)
 
-    # 4. Credit Tokens respecting PURCHASED_CEILING
+    # 5. Credit Tokens respecting PURCHASED_CEILING
     new_balance = min(token_wallet.token_balance + pack.token_amount, PURCHASED_CEILING)
     credited = new_balance - token_wallet.token_balance
     token_wallet.token_balance = new_balance
@@ -259,11 +277,20 @@ async def purchase_token_pack(user_id: str, pack_id: str, db: AsyncSession) -> d
     )
     db.add(t_ledger)
 
-    await db.flush()
-
-    return {
+    result = {
         "token_balance": token_wallet.token_balance,
         "histoin_balance": histoin_wallet.balance,
         "tokens_credited": credited,
         "pack_name": pack.name,
     }
+
+    if idempotency_key:
+        db.add(PurchaseLog(
+            idempotency_key=idempotency_key,
+            user_id=user_id,
+            result=result,
+            created_at=now,
+        ))
+
+    await db.flush()
+    return result

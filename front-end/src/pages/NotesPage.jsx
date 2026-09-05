@@ -131,14 +131,16 @@ export default function NotesPage() {
       toast.error(`Insufficient Histoins! Need ${pack.histoin_cost} 🪙`);
       return;
     }
-    setConfirmPack(pack);
+    // Generate idempotency key once per purchase attempt
+    const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    setConfirmPack({ ...pack, idempotencyKey });
   };
 
   const confirmPurchase = async () => {
     if (!confirmPack) return;
     setIsPurchasing(true);
     try {
-      const res = await purchasePackApi(confirmPack.id);
+      const res = await purchasePackApi(confirmPack.id, confirmPack.idempotencyKey);
       setWallet((prev) => ({
         ...prev,
         token_balance: res.token_balance,

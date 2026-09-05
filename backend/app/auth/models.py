@@ -4,7 +4,7 @@ SQLAlchemy models for Auth and Identity module (users, friends, presence).
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, UniqueConstraint, JSON, Integer, Boolean
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, UniqueConstraint, JSON, Integer, Boolean, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 

@@ -5,10 +5,15 @@ Provides clean async DB operations and maps ORM models to domain entities.
 
 from typing import Optional, List, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete as sql_delete, func, and_
+from sqlalchemy import select, update, delete as sql_delete, func, and_, case
 
-from app.social.models import Post as PostModel, Comment as CommentModel, Like as LikeModel, Share as ShareModel
-from app.auth.models import User as UserModel
+from app.social.models import (
+    Post as PostModel,
+    Comment as CommentModel,
+    Like as LikeModel,
+    Share as ShareModel,
+    UserSummaryCache as UserModel,
+)
 from app.social.community_forum.domain.entities import (
     PostEntity,
     CommentEntity,
@@ -25,12 +30,12 @@ from app.social.community_forum.repositories.base import (
 
 def _to_author_entity(user: UserModel) -> AuthorEntity:
     return AuthorEntity(
-        id=user.id,
+        id=user.user_id,
         username=user.username,
         tag=user.tag,
         avatar_url=user.avatar_url,
-        bio=getattr(user, "bio", None),
-        is_banned=getattr(user, "is_banned", False),
+        bio=user.bio,
+        is_banned=user.is_banned,
     )
 
 
@@ -39,17 +44,13 @@ class SQLAlchemyUserRepository(IUserRepository):
         self._session = session
 
     async def get_author_by_id(self, user_id: str) -> Optional[AuthorEntity]:
-        res = await self._session.execute(select(UserModel).where(UserModel.id == user_id))
+        res = await self._session.execute(select(UserModel).where(UserModel.user_id == user_id))
         user = res.scalar_one_or_none()
         return _to_author_entity(user) if user else None
 
     async def increment_post_count(self, user_id: str, delta: int = 1) -> None:
-        await self._session.execute(
-            update(UserModel)
-            .where(UserModel.id == user_id)
-            .values(post_count=func.greatest(0, UserModel.post_count + delta))
-        )
-        await self._session.commit()
+        # No-op: post_count is not in UserSummaryCache; Auth service owns it
+        pass
 
 
 class SQLAlchemyPostRepository(IPostRepository):
@@ -76,8 +77,8 @@ class SQLAlchemyPostRepository(IPostRepository):
         post.id = model.id
         post.created_at = model.created_at
 
-        # Hydrate author
-        u_res = await self._session.execute(select(UserModel).where(UserModel.id == post.user_id))
+        # Hydrate author from local cache
+        u_res = await self._session.execute(select(UserModel).where(UserModel.user_id == post.user_id))
         user = u_res.scalar_one_or_none()
         if user:
             post.author = _to_author_entity(user)
@@ -92,8 +93,8 @@ class SQLAlchemyPostRepository(IPostRepository):
         if not model:
             return None
 
-        # Hydrate author
-        u_res = await self._session.execute(select(UserModel).where(UserModel.id == model.user_id))
+        # Hydrate author from local cache
+        u_res = await self._session.execute(select(UserModel).where(UserModel.user_id == model.user_id))
         user = u_res.scalar_one_or_none()
         author = _to_author_entity(user) if user else None
 
@@ -128,7 +129,6 @@ class SQLAlchemyPostRepository(IPostRepository):
         )
 
     async def delete(self, post_id: str) -> bool:
-        # Soft delete to preserve thread audit trails and maintain performance
         res = await self._session.execute(
             update(PostModel)
             .where(PostModel.id == post_id)
@@ -144,9 +144,9 @@ class SQLAlchemyPostRepository(IPostRepository):
         offset: int = 0,
         current_user_id: Optional[str] = None,
     ) -> List[PostEntity]:
+        # First get posts
         stmt = (
-            select(PostModel, UserModel)
-            .join(UserModel, PostModel.user_id == UserModel.id)
+            select(PostModel)
             .where(PostModel.is_deleted.is_(False))
         )
 
@@ -157,12 +157,22 @@ class SQLAlchemyPostRepository(IPostRepository):
 
         stmt = stmt.order_by(PostModel.created_at.desc()).limit(limit).offset(offset)
         res = await self._session.execute(stmt)
-        rows = res.all()
+        posts = res.scalars().all()
 
-        if not rows:
+        if not posts:
             return []
 
-        post_ids = [p.id for p, _ in rows]
+        post_ids = [p.id for p in posts]
+        user_ids = list({p.user_id for p in posts})
+
+        # Get authors from local cache
+        user_map = {}
+        if user_ids:
+            u_res = await self._session.execute(select(UserModel).where(UserModel.user_id.in_(user_ids)))
+            for u in u_res.scalars().all():
+                user_map[u.user_id] = u
+
+        # Get liked status
         user_liked_set = set()
         if current_user_id:
             liked_res = await self._session.execute(
@@ -175,7 +185,8 @@ class SQLAlchemyPostRepository(IPostRepository):
             user_liked_set = set(liked_res.scalars().all())
 
         entities = []
-        for post_model, user_model in rows:
+        for post_model in posts:
+            user_model = user_map.get(post_model.user_id)
             entities.append(
                 PostEntity(
                     id=post_model.id,
@@ -201,7 +212,7 @@ class SQLAlchemyPostRepository(IPostRepository):
         await self._session.execute(
             update(PostModel)
             .where(PostModel.id == post_id)
-            .values(like_count=func.greatest(0, PostModel.like_count + delta))
+            .values(like_count=case((PostModel.like_count + delta < 0, 0), else_=PostModel.like_count + delta))
         )
         await self._session.commit()
         res = await self._session.execute(select(PostModel.like_count).where(PostModel.id == post_id))
@@ -211,7 +222,7 @@ class SQLAlchemyPostRepository(IPostRepository):
         await self._session.execute(
             update(PostModel)
             .where(PostModel.id == post_id)
-            .values(comment_count=func.greatest(0, PostModel.comment_count + delta))
+            .values(comment_count=case((PostModel.comment_count + delta < 0, 0), else_=PostModel.comment_count + delta))
         )
         await self._session.commit()
         res = await self._session.execute(select(PostModel.comment_count).where(PostModel.id == post_id))
@@ -221,7 +232,7 @@ class SQLAlchemyPostRepository(IPostRepository):
         await self._session.execute(
             update(PostModel)
             .where(PostModel.id == post_id)
-            .values(share_count=func.greatest(0, PostModel.share_count + delta))
+            .values(share_count=case((PostModel.share_count + delta < 0, 0), else_=PostModel.share_count + delta))
         )
         await self._session.commit()
         res = await self._session.execute(select(PostModel.share_count).where(PostModel.id == post_id))
@@ -249,8 +260,8 @@ class SQLAlchemyCommentRepository(ICommentRepository):
         comment.id = model.id
         comment.created_at = model.created_at
 
-        # Hydrate author
-        u_res = await self._session.execute(select(UserModel).where(UserModel.id == comment.user_id))
+        # Hydrate author from local cache
+        u_res = await self._session.execute(select(UserModel).where(UserModel.user_id == comment.user_id))
         user = u_res.scalar_one_or_none()
         if user:
             comment.author = _to_author_entity(user)
@@ -265,7 +276,7 @@ class SQLAlchemyCommentRepository(ICommentRepository):
         if not model:
             return None
 
-        u_res = await self._session.execute(select(UserModel).where(UserModel.id == model.user_id))
+        u_res = await self._session.execute(select(UserModel).where(UserModel.user_id == model.user_id))
         user = u_res.scalar_one_or_none()
 
         return CommentEntity(
@@ -287,19 +298,27 @@ class SQLAlchemyCommentRepository(ICommentRepository):
         post_id: str,
         current_user_id: Optional[str] = None,
     ) -> List[CommentEntity]:
-        stmt = (
-            select(CommentModel, UserModel)
-            .join(UserModel, CommentModel.user_id == UserModel.id)
+        res = await self._session.execute(
+            select(CommentModel)
             .where(CommentModel.post_id == post_id, CommentModel.is_deleted.is_(False))
             .order_by(CommentModel.created_at.asc())
         )
-        res = await self._session.execute(stmt)
-        rows = res.all()
+        comments = res.scalars().all()
 
-        if not rows:
+        if not comments:
             return []
 
-        comment_ids = [c.id for c, _ in rows]
+        user_ids = list({c.user_id for c in comments})
+        comment_ids = [c.id for c in comments]
+
+        # Get authors from local cache
+        user_map = {}
+        if user_ids:
+            u_res = await self._session.execute(select(UserModel).where(UserModel.user_id.in_(user_ids)))
+            for u in u_res.scalars().all():
+                user_map[u.user_id] = u
+
+        # Get liked status
         user_liked_set = set()
         if current_user_id:
             liked_res = await self._session.execute(
@@ -311,11 +330,11 @@ class SQLAlchemyCommentRepository(ICommentRepository):
             )
             user_liked_set = set(liked_res.scalars().all())
 
-        # Map to flat dictionary and build tree
         entity_map: Dict[str, CommentEntity] = {}
         top_level: List[CommentEntity] = []
 
-        for c_model, u_model in rows:
+        for c_model in comments:
+            user_model = user_map.get(c_model.user_id)
             entity = CommentEntity(
                 id=c_model.id,
                 post_id=c_model.post_id,
@@ -325,7 +344,7 @@ class SQLAlchemyCommentRepository(ICommentRepository):
                 content=c_model.content,
                 like_count=c_model.like_count or 0,
                 is_deleted=c_model.is_deleted,
-                author=_to_author_entity(u_model) if u_model else None,
+                author=_to_author_entity(user_model) if user_model else None,
                 has_liked=c_model.id in user_liked_set,
                 created_at=c_model.created_at,
                 updated_at=c_model.updated_at,
@@ -333,7 +352,6 @@ class SQLAlchemyCommentRepository(ICommentRepository):
             )
             entity_map[c_model.id] = entity
 
-        # Assemble parent-child tree
         for entity in entity_map.values():
             if entity.parent_comment_id and entity.parent_comment_id in entity_map:
                 entity_map[entity.parent_comment_id].replies.append(entity)

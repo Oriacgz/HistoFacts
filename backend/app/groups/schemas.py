@@ -4,7 +4,18 @@ Pydantic schemas for Groups module.
 
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
-from app.auth.schemas import UserResponse
+
+
+class UserSummaryResponse(BaseModel):
+    """Minimal user data for display — mirrors UserSummaryCache."""
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: str
+    username: str
+    tag: str
+    avatar_url: str | None = None
+    bio: str | None = None
+    is_banned: bool = False
 
 
 class CreateGroupRequest(BaseModel):
@@ -23,7 +34,7 @@ class GroupMemberResponse(BaseModel):
     user_id: str
     role: str
     joined_at: datetime
-    user: UserResponse | None = None
+    user: UserSummaryResponse | None = None
 
 
 class GroupResponse(BaseModel):

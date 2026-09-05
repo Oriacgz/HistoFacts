@@ -4,7 +4,7 @@ SQLAlchemy models for AI Notes, Token Economy, Histoins, and Shop.
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Text, Boolean, DateTime, Integer, ForeignKey
+from sqlalchemy import Column, String, Text, Boolean, DateTime, Integer, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -85,3 +85,13 @@ class TokenPack(Base):
     token_amount = Column(Integer, nullable=False)
     histoin_cost = Column(Integer, nullable=False)
     is_active = Column(Boolean, default=True)
+
+
+class PurchaseLog(Base):
+    __tablename__ = "purchase_logs"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    idempotency_key = Column(String, unique=True, nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    result = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

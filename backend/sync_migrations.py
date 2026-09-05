@@ -5,7 +5,7 @@ import asyncio
 from sqlalchemy import text
 from app.core.database import engine
 
-HEAD_REVISION = "c7d8e9f0a1b2"
+HEAD_REVISION = "c3d4e5f6a7b8"
 
 
 async def main():
@@ -22,7 +22,7 @@ async def main():
         await conn.execute(text("DELETE FROM alembic_version;"))
         # Insert current head revision
         await conn.execute(text(f"INSERT INTO alembic_version (version_num) VALUES ('{HEAD_REVISION}');"))
-    
+
     print(">> Successfully synced alembic_version to current head!")
     await engine.dispose()
 

@@ -4,7 +4,7 @@ FastAPI router for Quiz module endpoints and WebSocket Lobby.
 
 import asyncio
 from app.core.security import decode_token
-from fastapi import APIRouter, Depends, Query, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, HTTPException, Request, status, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.quiz.models import QuizQuestion, QuizAttempt
@@ -29,8 +29,11 @@ from app.quiz.service import (
     lobby_manager,
 )
 from app.core.database import get_async_session
-from app.core.deps import get_optional_current_user
-from app.auth.models import User
+from app.core.deps import get_optional_current_user, CurrentUser
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/api/quiz", tags=["Quiz"])
 
@@ -45,7 +48,9 @@ async def get_questions(
 
 
 @router.post("/generate", response_model=list[QuizQuestionResponse])
+@limiter.limit("10/minute")
 async def generate_quiz(
+    request: Request,
     req: GenerateQuizRequest,
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -56,7 +61,7 @@ async def generate_quiz(
 @router.post("/attempt", response_model=QuizAttemptResponse, status_code=status.HTTP_201_CREATED)
 async def submit_attempt(
     req: QuizAttemptRequest,
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: CurrentUser | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     try:
@@ -76,7 +81,7 @@ async def submit_attempt(
 @router.post("/session", response_model=QuizSessionResponse, status_code=status.HTTP_201_CREATED)
 async def save_session_record(
     req: QuizSessionCreateRequest,
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: CurrentUser | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     user_id = current_user.id if current_user else "anonymous"
@@ -86,7 +91,7 @@ async def save_session_record(
 
 @router.get("/history", response_model=list[QuizSessionResponse])
 async def get_history(
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: CurrentUser | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     if not current_user:
@@ -98,7 +103,7 @@ async def get_history(
 @router.get("/history/{session_id}", response_model=QuizSessionResponse)
 async def get_history_detail(
     session_id: str,
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: CurrentUser | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     if not current_user:
@@ -111,7 +116,7 @@ async def get_history_detail(
 
 @router.get("/leaderboard", response_model=LeaderboardResponse)
 async def get_global_leaderboard(
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: CurrentUser | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     return await get_global_leaderboard_data(db=db, current_user=current_user)
@@ -120,7 +125,7 @@ async def get_global_leaderboard(
 @router.post("/lobby/create")
 async def create_lobby(
     req: GenerateQuizRequest,
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: CurrentUser | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     host_id = current_user.id if current_user else "guest-host"
@@ -154,7 +159,7 @@ class LobbyInviteRequest(BaseModel):
 async def invite_to_lobby(
     code: str,
     req: LobbyInviteRequest,
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: CurrentUser | None = Depends(get_optional_current_user),
 ):
     room = lobby_manager.get_room(code)
     if not room:

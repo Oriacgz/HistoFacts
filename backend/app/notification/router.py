@@ -6,9 +6,8 @@ Includes internal service-to-service creation and public user endpoints.
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import User
 from app.core.database import get_async_session
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, CurrentUser
 from app.notification.models import NOTIFICATION_TYPES
 from app.notification.schemas import (
     NotificationCreate,
@@ -58,7 +57,7 @@ async def get_user_notifications(
     unread_only: bool = Query(False, description="Filter only unread notifications"),
     limit: int = Query(20, ge=1, le=100, description="Max items to return"),
     before: str | None = Query(None, description="Cursor: notification ID to fetch items created before"),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Retrieve paginated notifications for the authenticated user."""
@@ -77,7 +76,7 @@ async def get_user_notifications(
     summary="Get unread notification count (Fast single-query)",
 )
 async def get_user_unread_count(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -94,7 +93,7 @@ async def get_user_unread_count(
 )
 async def mark_single_read(
     notification_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Mark a single notification as read."""
@@ -117,7 +116,7 @@ async def mark_single_read(
     summary="Mark all notifications as read",
 )
 async def mark_all_read(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Mark all unread notifications as read."""

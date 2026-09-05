@@ -10,6 +10,24 @@ from app.core.config import settings
 logger = logging.getLogger("histofacts.inter_service")
 
 
+async def call_auth_get_user_summary(user_id: str) -> dict | None:
+    """Fetch user summary from Auth service internal API."""
+    headers = {"X-Internal-Secret": settings.secret_key}
+    urls = [
+        f"{settings.auth_service_url}/api/auth/internal/users/{user_id}/summary",
+        f"{settings.auth_service_url}/internal/users/{user_id}/summary",
+    ]
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    return resp.json()
+        except Exception as e:
+            logger.warning(f"Inter-service HTTP call to {url} failed: {e}")
+    return None
+
+
 async def call_notes_init_wallet(user_id: str) -> bool:
     """Notify AI Notes Service to initialize a new user's wallet with signup bonus."""
     url = f"{settings.notes_service_url}/api/wallet/internal/init"

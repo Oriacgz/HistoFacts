@@ -8,10 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.core.database import engine, Base
-import app.auth.models  # noqa: F401
-import app.history.models  # noqa: F401
-import app.groups.models  # noqa: F401
+from app.core.database import Base
 import app.social.models  # noqa: F401
 from app.social.router import router as social_router
 from app.chat.router import router as chat_router
@@ -19,8 +16,6 @@ from app.chat.router import router as chat_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     yield
 
 

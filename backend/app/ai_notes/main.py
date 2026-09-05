@@ -6,17 +6,21 @@ Handles curriculum note generation, handwritten notes conversion, token quotas, 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
-from app.core.database import engine, Base, async_session_factory
+from app.core.database import async_session_factory
 from app.ai_notes.router import router as notes_router
 from app.ai_notes.wallet_service import seed_token_packs
 
 
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     async with async_session_factory() as session:
         await seed_token_packs(session)
     yield
@@ -30,6 +34,9 @@ app = FastAPI(
     docs_url="/docs",
     openapi_url="/openapi.json",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

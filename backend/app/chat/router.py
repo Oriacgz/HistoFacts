@@ -16,15 +16,14 @@ from app.chat.service import (
     mark_as_read,
 )
 from app.core.database import get_async_session
-from app.core.deps import get_current_user
-from app.auth.models import User
+from app.core.deps import get_current_user, CurrentUser
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
 
 @router.get("/conversations", response_model=list[ConversationResponse])
 async def list_conversations(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """List all conversations for the current user, sorted by most recent activity."""
@@ -36,7 +35,7 @@ async def list_messages(
     conversation_id: str,
     before: str | None = Query(None, description="Message ID cursor for pagination"),
     limit: int = Query(30, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Paginated message history, newest-first. Pass `before` for scroll-up loading."""
@@ -47,7 +46,7 @@ async def list_messages(
 async def poll_new_messages(
     conversation_id: str,
     after: str | None = Query(None, description="Message ID to fetch messages after"),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Poll for new messages since the given message ID — used for live updates."""
@@ -58,7 +57,7 @@ async def poll_new_messages(
 async def create_message(
     conversation_id: str,
     payload: SendMessageRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Send a message in a conversation."""
@@ -71,7 +70,7 @@ async def create_message(
 @router.post("/conversations/direct/{friend_user_id}", response_model=ConversationResponse)
 async def get_or_create_direct(
     friend_user_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get or create a direct conversation with a friend."""
@@ -83,7 +82,7 @@ async def get_or_create_direct(
 @router.post("/conversations/group/{group_id}", response_model=ConversationResponse)
 async def get_or_create_group(
     group_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get or create a group conversation."""
@@ -93,7 +92,7 @@ async def get_or_create_group(
 @router.post("/conversations/{conversation_id}/read", status_code=status.HTTP_200_OK)
 async def mark_conversation_read(
     conversation_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Mark conversation as read up to the latest message."""

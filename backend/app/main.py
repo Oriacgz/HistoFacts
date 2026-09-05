@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.core.database import engine, Base, async_session_factory
+from app.core.database import async_session_factory
 from app.auth.router import router as auth_router
 from app.history.router import router as history_router
 from app.quiz.router import router as quiz_router
@@ -23,10 +23,6 @@ from app.quiz.service import seed_quiz_questions
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure tables exist and seed initial data
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     async with async_session_factory() as session:
         await seed_token_packs(session)
         await seed_initial_events(session)

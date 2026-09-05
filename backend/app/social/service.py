@@ -2,13 +2,67 @@
 Social service handling posts feed, threaded comments, and like counts.
 """
 
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.social.models import Post, Comment, Like
+from app.social.models import Post, Comment, Like, UserSummaryCache
 from app.social.schemas import CreatePostRequest, CreateCommentRequest, PostResponse, CommentResponse
-from app.auth.models import User
-from app.auth.schemas import UserResponse
+from app.core.inter_service import notify
+from app.core.database import get_async_session
+
+
+async def _get_user_summary(user_id: str, db: AsyncSession) -> UserSummaryCache | None:
+    """Get user summary from local cache or fetch from Auth service."""
+    cached = await db.get(UserSummaryCache, user_id)
+    if cached:
+        synced_at = cached.synced_at
+        if synced_at.tzinfo is None:
+            synced_at = synced_at.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - synced_at) < timedelta(hours=1):
+            return cached
+
+    # Fetch from Auth service internal API
+    try:
+        from app.core.inter_service import call_auth_get_user_summary
+        data = await call_auth_get_user_summary(user_id)
+        if data:
+            summary = UserSummaryCache(
+                user_id=data["user_id"],
+                username=data["username"],
+                tag=data["tag"],
+                avatar_url=data.get("avatar_url"),
+                bio=data.get("bio"),
+                is_banned=data.get("is_banned", False),
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    # In-process DB fallback
+    try:
+        from app.auth.models import User
+        u = await db.get(User, user_id)
+        if u:
+            summary = UserSummaryCache(
+                user_id=u.id,
+                username=u.username,
+                tag=u.tag,
+                avatar_url=u.avatar_url,
+                bio=u.bio,
+                is_banned=u.is_banned,
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    return cached
 
 
 async def create_post(req: CreatePostRequest, user_id: str, db: AsyncSession) -> Post:
@@ -25,7 +79,6 @@ async def create_post(req: CreatePostRequest, user_id: str, db: AsyncSession) ->
 
 
 async def get_public_feed(db: AsyncSession, limit: int = 20) -> list[PostResponse]:
-    # Query posts where group_id is null (public feed)
     res = await db.execute(
         select(Post).where(Post.group_id.is_(None)).order_by(Post.created_at.desc()).limit(limit)
     )
@@ -33,11 +86,8 @@ async def get_public_feed(db: AsyncSession, limit: int = 20) -> list[PostRespons
 
     out = []
     for p in posts:
-        # Load author
-        u_res = await db.execute(select(User).where(User.id == p.user_id))
-        author = u_res.scalar_one_or_none()
+        author = await _get_user_summary(p.user_id, db)
 
-        # Count comments
         c_count_res = await db.execute(
             select(func.count()).select_from(Comment).where(Comment.post_id == p.id)
         )
@@ -47,7 +97,7 @@ async def get_public_feed(db: AsyncSession, limit: int = 20) -> list[PostRespons
             PostResponse(
                 id=p.id,
                 user_id=p.user_id,
-                author=UserResponse.model_validate(author) if author else None,
+                author=author,
                 group_id=p.group_id,
                 event_id=p.event_id,
                 content=p.content,
@@ -61,19 +111,17 @@ async def get_public_feed(db: AsyncSession, limit: int = 20) -> list[PostRespons
 
 
 async def build_comment_tree(comments: list[Comment], db: AsyncSession) -> list[CommentResponse]:
-    # Map comments by ID and group by parent_comment_id
     comment_map: dict[str, CommentResponse] = {}
     root_comments: list[CommentResponse] = []
 
     for c in comments:
-        u_res = await db.execute(select(User).where(User.id == c.user_id))
-        author = u_res.scalar_one_or_none()
+        author = await _get_user_summary(c.user_id, db)
 
         c_resp = CommentResponse(
             id=c.id,
             post_id=c.post_id,
             user_id=c.user_id,
-            author=UserResponse.model_validate(author) if author else None,
+            author=author,
             parent_comment_id=c.parent_comment_id,
             mentioned_user_id=c.mentioned_user_id,
             content=c.content,
@@ -99,8 +147,7 @@ async def get_post_with_comments(post_id: str, db: AsyncSession) -> PostResponse
     if not post:
         return None
 
-    u_res = await db.execute(select(User).where(User.id == post.user_id))
-    author = u_res.scalar_one_or_none()
+    author = await _get_user_summary(post.user_id, db)
 
     c_res = await db.execute(
         select(Comment).where(Comment.post_id == post_id).order_by(Comment.created_at.asc())
@@ -111,7 +158,7 @@ async def get_post_with_comments(post_id: str, db: AsyncSession) -> PostResponse
     return PostResponse(
         id=post.id,
         user_id=post.user_id,
-        author=UserResponse.model_validate(author) if author else None,
+        author=author,
         group_id=post.group_id,
         event_id=post.event_id,
         content=post.content,
@@ -120,9 +167,6 @@ async def get_post_with_comments(post_id: str, db: AsyncSession) -> PostResponse
         comment_count=len(comments),
         comments=tree,
     )
-
-
-from app.core.inter_service import notify
 
 
 async def add_comment(post_id: str, req: CreateCommentRequest, user_id: str, db: AsyncSession) -> Comment:
@@ -137,12 +181,10 @@ async def add_comment(post_id: str, req: CreateCommentRequest, user_id: str, db:
     await db.commit()
     await db.refresh(comment)
 
-    # Fire-and-forget notification for comment reply or @mention
-    commenter = await db.get(User, user_id)
+    commenter = await _get_user_summary(user_id, db)
     commenter_name = commenter.username if commenter else "Scholar"
     content_snippet = (comment.content[:80] + "...") if len(comment.content) > 80 else comment.content
 
-    # 1. Reply to parent comment
     if req.parent_comment_id:
         parent = await db.get(Comment, req.parent_comment_id)
         if parent and parent.user_id != user_id:
@@ -158,7 +200,6 @@ async def add_comment(post_id: str, req: CreateCommentRequest, user_id: str, db:
                 },
             )
 
-    # 2. Direct @mention
     if req.mentioned_user_id and req.mentioned_user_id != user_id:
         await notify(
             user_id=req.mentioned_user_id,
@@ -176,7 +217,6 @@ async def add_comment(post_id: str, req: CreateCommentRequest, user_id: str, db:
     return comment
 
 
-
 async def toggle_post_like(post_id: str, user_id: str, db: AsyncSession) -> tuple[bool, int]:
     p_res = await db.execute(select(Post).where(Post.id == post_id))
     post = p_res.scalar_one_or_none()
@@ -184,7 +224,7 @@ async def toggle_post_like(post_id: str, user_id: str, db: AsyncSession) -> tupl
         raise ValueError("Post not found")
 
     res = await db.execute(
-        select(Like).where(Like.post_id == post_id, Like.user_id == user_id)
+        select(Like).where(Like.target_type == "post", Like.target_id == post_id, Like.user_id == user_id)
     )
     like = res.scalar_one_or_none()
 
@@ -193,7 +233,7 @@ async def toggle_post_like(post_id: str, user_id: str, db: AsyncSession) -> tupl
         post.like_count = max(0, (post.like_count or 0) - 1)
         liked = False
     else:
-        new_like = Like(user_id=user_id, post_id=post_id)
+        new_like = Like(user_id=user_id, target_type="post", target_id=post_id)
         db.add(new_like)
         post.like_count = (post.like_count or 0) + 1
         liked = True

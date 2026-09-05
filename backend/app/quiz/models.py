@@ -4,7 +4,7 @@ SQLAlchemy models for Quiz module (quiz_questions, quiz_attempts, quiz_sessions)
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Text, Integer, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy import Boolean, Column, String, Text, Integer, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -21,9 +21,9 @@ class QuizQuestion(Base):
     event_id = Column(String, nullable=True, index=True)
     topic = Column(String, nullable=False, index=True)
     question = Column(Text, nullable=False)
-    options = Column(JSON, nullable=False)  # JSON array of strings e.g. ["A", "B", "C", "D"]
-    correct_answer = Column(Integer, nullable=False)  # Index 0..3
-    difficulty = Column(String, default="medium")  # easy, medium, hard
+    options = Column(JSON, nullable=False)
+    correct_answer = Column(Integer, nullable=False)
+    difficulty = Column(String, default="medium")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -44,14 +44,27 @@ class QuizSessionRecord(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     user_id = Column(String, nullable=False, index=True)
-    quiz_type = Column(String, nullable=False, index=True)  # "personalized", "lobby", "global"
+    quiz_type = Column(String, nullable=False, index=True)
     topic = Column(String, nullable=False)
-    difficulty = Column(String, default="medium")  # "easy", "medium", "hard", "standard"
+    difficulty = Column(String, default="medium")
     score = Column(Integer, nullable=False, default=0)
     max_score = Column(Integer, nullable=False, default=20)
     correct_count = Column(Integer, nullable=False, default=0)
     wrong_count = Column(Integer, nullable=False, default=0)
     total_time_seconds = Column(Integer, default=0)
     rank = Column(Integer, nullable=True)
-    details = Column(JSON, nullable=True)  # detailed question breakdown for history review
+    details = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class UserSummaryCache(Base):
+    """Read-only local cache of user display data — populated from Auth service API."""
+    __tablename__ = "quiz_user_summary_cache"
+
+    user_id = Column(String, primary_key=True)
+    username = Column(String, nullable=False)
+    tag = Column(String, nullable=False)
+    avatar_url = Column(String, nullable=True)
+    bio = Column(Text, nullable=True)
+    is_banned = Column(Boolean, default=False, nullable=False)
+    synced_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

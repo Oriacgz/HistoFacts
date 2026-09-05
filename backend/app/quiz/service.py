@@ -6,11 +6,10 @@ lobby room state machine, leaderboard rankings, and history records.
 import json
 import uuid
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord
-from app.auth.models import User
+from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord, UserSummaryCache
 from app.quiz.schemas import (
     QuizAttemptRequest,
     GenerateQuizRequest,
@@ -18,6 +17,8 @@ from app.quiz.schemas import (
     LeaderboardResponse,
     LeaderboardEntry,
 )
+from app.core.deps import CurrentUser
+from app.core.inter_service import call_auth_get_user_summary
 
 SEED_QUESTIONS = [
     {
@@ -253,16 +254,66 @@ async def get_quiz_session_detail(
     return res.scalar_one_or_none()
 
 
-async def get_global_leaderboard_data(db: AsyncSession, current_user: User | None = None) -> LeaderboardResponse:
+async def _get_user_summary(user_id: str, db: AsyncSession) -> UserSummaryCache | None:
+    """Get user summary from local cache or fetch from Auth service."""
+    cached = await db.get(UserSummaryCache, user_id)
+    if cached:
+        synced_at = cached.synced_at
+        if synced_at.tzinfo is None:
+            synced_at = synced_at.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - synced_at) < timedelta(hours=1):
+            return cached
+
+    try:
+        data = await call_auth_get_user_summary(user_id)
+        if data:
+            summary = UserSummaryCache(
+                user_id=data["user_id"],
+                username=data["username"],
+                tag=data["tag"],
+                avatar_url=data.get("avatar_url"),
+                bio=data.get("bio"),
+                is_banned=data.get("is_banned", False),
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    # In-process DB fallback
+    try:
+        from app.auth.models import User
+        u = await db.get(User, user_id)
+        if u:
+            summary = UserSummaryCache(
+                user_id=u.id,
+                username=u.username,
+                tag=u.tag,
+                avatar_url=u.avatar_url,
+                bio=u.bio,
+                is_banned=u.is_banned,
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    return cached
+
+
+async def get_global_leaderboard_data(db: AsyncSession, current_user: CurrentUser | None = None) -> LeaderboardResponse:
+    from app.core.deps import CurrentUser
     now = datetime.now(timezone.utc)
     month_name = now.strftime("%B %Y")
     
-    # Calculate days remaining until next month
     import calendar
     days_in_month = calendar.monthrange(now.year, now.month)[1]
     days_remaining = max(1, days_in_month - now.day)
 
-    # Aggregate quiz sessions by user_id
     query = (
         select(
             QuizSessionRecord.user_id,
@@ -282,19 +333,18 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: User | Non
     user_rank = None
     rank = 1
 
-    # Fetch user details for the aggregated user_ids
     user_ids = [row.user_id for row in rows]
     user_map = {}
     if user_ids:
-        users_query = select(User).where(User.id.in_(user_ids))
-        users_result = await db.execute(users_query)
-        user_map = {u.id: u for u in users_result.scalars().all()}
+        u_res = await db.execute(select(UserSummaryCache).where(UserSummaryCache.user_id.in_(user_ids)))
+        for u in u_res.scalars().all():
+            user_map[u.user_id] = u
 
     for row in rows:
         u_id = row.user_id
         db_user = user_map.get(u_id)
         username = db_user.username if db_user else f"Scholar_{str(u_id)[:6]}"
-        tag = getattr(db_user, "tag", "0001") if db_user else "0001"
+        tag = db_user.tag if db_user else "0001"
         total_score = int(row.total_score or 0)
         quizzes_taken = int(row.quizzes_taken or 0)
         total_correct = int(row.total_correct or 0)

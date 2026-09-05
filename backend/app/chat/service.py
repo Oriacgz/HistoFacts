@@ -2,24 +2,78 @@
 Business logic for Chat — conversations, messages, unread tracking.
 """
 
-from datetime import datetime, timezone
-from sqlalchemy import select, func, and_, or_, case
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import select, func, and_, or_, case, UniqueConstraint
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.models import Conversation, DirectParticipant, Message, ConversationRead
+from app.chat.models import (
+    Conversation, DirectParticipant, Message, ConversationRead, UserSummaryCache
+)
 from app.chat.schemas import (
     ConversationResponse,
     MessageResponse,
     ParticipantInfo,
     SendMessageRequest,
 )
-from app.auth.models import User
 from app.groups.models import Group, GroupMember
+from app.core.inter_service import call_auth_get_user_summary
 
 
 def _canonical_pair(a: str, b: str) -> tuple[str, str]:
     """Return (smaller, larger) UUID strings so direct conversations are unique."""
     return (a, b) if a < b else (b, a)
+
+
+async def _get_user_summary(user_id: str, db: AsyncSession) -> UserSummaryCache | None:
+    """Get user summary from local cache or fetch from Auth service with DB fallback."""
+    cached = await db.get(UserSummaryCache, user_id)
+    if cached:
+        synced_at = cached.synced_at
+        if synced_at.tzinfo is None:
+            synced_at = synced_at.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - synced_at) < timedelta(hours=1):
+            return cached
+
+    # 1. Try inter-service HTTP call to Auth service
+    try:
+        data = await call_auth_get_user_summary(user_id)
+        if data:
+            summary = UserSummaryCache(
+                user_id=data["user_id"],
+                username=data["username"],
+                tag=data["tag"],
+                avatar_url=data.get("avatar_url"),
+                bio=data.get("bio"),
+                is_banned=data.get("is_banned", False),
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    # 2. In-process DB fallback (shared DB in development)
+    try:
+        from app.auth.models import User
+        u = await db.get(User, user_id)
+        if u:
+            summary = UserSummaryCache(
+                user_id=u.id,
+                username=u.username,
+                tag=u.tag,
+                avatar_url=u.avatar_url,
+                bio=u.bio,
+                is_banned=u.is_banned,
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    return cached
 
 
 async def get_or_create_direct_conversation(
@@ -29,26 +83,32 @@ async def get_or_create_direct_conversation(
     u1, u2 = _canonical_pair(user_id, friend_id)
 
     # Find existing conversation where both users are participants
+    # Check if a direct conversation already exists for this pair
+    p1 = select(DirectParticipant.conversation_id).where(DirectParticipant.user_id == u1)
+    p2 = select(DirectParticipant.conversation_id).where(DirectParticipant.user_id == u2)
     stmt = (
-        select(DirectParticipant.conversation_id)
-        .where(DirectParticipant.user_id.in_([u1, u2]))
-        .group_by(DirectParticipant.conversation_id)
-        .having(func.count(DirectParticipant.user_id) == 2)
+        select(Conversation.id)
+        .where(
+            Conversation.type == "direct",
+            Conversation.id.in_(p1),
+            Conversation.id.in_(p2),
+        )
+        .limit(1)
     )
-    existing = await db.execute(stmt)
-    row = existing.scalar_one_or_none()
+    res = await db.execute(stmt)
+    conv_id = res.scalar_one_or_none()
 
-    if row:
-        conv_id = row
-    else:
-        conv = Conversation(type="direct")
-        db.add(conv)
-        await db.flush()
-        conv_id = conv.id
+    if conv_id:
+        return await _build_conversation_response(conv_id, user_id, db)
 
-        db.add(DirectParticipant(conversation_id=conv_id, user_id=u1))
-        db.add(DirectParticipant(conversation_id=conv_id, user_id=u2))
-        await db.commit()
+    conv = Conversation(type="direct")
+    db.add(conv)
+    await db.flush()
+    conv_id = conv.id
+
+    db.add(DirectParticipant(conversation_id=conv_id, user_id=u1))
+    db.add(DirectParticipant(conversation_id=conv_id, user_id=u2))
+    await db.commit()
 
     return await _build_conversation_response(conv_id, user_id, db)
 
@@ -76,7 +136,6 @@ async def get_or_create_group_conversation(
 async def get_user_conversations(user_id: str, db: AsyncSession) -> list[ConversationResponse]:
     """List all conversations the user participates in, sorted by most recent activity."""
 
-    # Direct conversations via direct_participants
     direct_q = select(Conversation.id).join(
         DirectParticipant, DirectParticipant.conversation_id == Conversation.id
     ).where(
@@ -84,7 +143,6 @@ async def get_user_conversations(user_id: str, db: AsyncSession) -> list[Convers
         DirectParticipant.user_id == user_id,
     )
 
-    # Group conversations via group_members
     group_q = select(Conversation.id).join(
         GroupMember,
         and_(
@@ -103,7 +161,6 @@ async def get_user_conversations(user_id: str, db: AsyncSession) -> list[Convers
     for cid in conv_ids:
         conversations.append(await _build_conversation_response(cid, user_id, db))
 
-    # Sort by last_message.created_at descending, conversations with no messages last
     conversations.sort(
         key=lambda c: c.last_message.created_at if c.last_message else c.created_at,
         reverse=True,
@@ -118,14 +175,12 @@ async def get_messages(
     before_message_id: str | None = None,
     limit: int = 30,
 ) -> list[MessageResponse]:
-    """Paginated message history, newest-first."""
     if not await _is_participant(conversation_id, user_id, db):
         return []
 
     query = select(Message).where(Message.conversation_id == conversation_id)
 
     if before_message_id:
-        # Get the created_at of the cursor message
         cursor_res = await db.execute(
             select(Message.created_at).where(Message.id == before_message_id)
         )
@@ -146,7 +201,6 @@ async def get_new_messages(
     after_message_id: str | None,
     db: AsyncSession,
 ) -> list[MessageResponse]:
-    """Return only messages newer than the given message ID — for polling."""
     if not await _is_participant(conversation_id, user_id, db):
         return []
 
@@ -169,17 +223,16 @@ async def get_new_messages(
 
 async def send_message(
     conversation_id: str,
-    user_id: str,
+    sender_id: str,
     payload: SendMessageRequest,
     db: AsyncSession,
 ) -> MessageResponse | None:
-    """Create a message in a conversation."""
-    if not await _is_participant(conversation_id, user_id, db):
+    if not await _is_participant(conversation_id, sender_id, db):
         return None
 
     msg = Message(
         conversation_id=conversation_id,
-        sender_id=user_id,
+        sender_id=sender_id,
         message_type=payload.message_type,
         content=payload.content,
         shared_ref_id=payload.shared_ref_id,
@@ -187,11 +240,10 @@ async def send_message(
     db.add(msg)
     await db.flush()
 
-    # Automatically advance sender's own read cursor to the sent message
     read_res = await db.execute(
         select(ConversationRead).where(
             ConversationRead.conversation_id == conversation_id,
-            ConversationRead.user_id == user_id,
+            ConversationRead.user_id == sender_id,
         )
     )
     read_row = read_res.scalar_one_or_none()
@@ -201,7 +253,7 @@ async def send_message(
     else:
         db.add(ConversationRead(
             conversation_id=conversation_id,
-            user_id=user_id,
+            user_id=sender_id,
             last_read_message_id=msg.id,
             updated_at=datetime.now(timezone.utc),
         ))
@@ -211,39 +263,35 @@ async def send_message(
     return await _to_message_response(msg, db)
 
 
-async def mark_as_read(conversation_id: str, user_id: str, db: AsyncSession) -> bool:
-    """Update the user's read cursor to the latest message in the conversation."""
+async def mark_as_read(
+    conversation_id: str,
+    user_id: str,
+    db: AsyncSession,
+) -> bool:
     if not await _is_participant(conversation_id, user_id, db):
         return False
 
-    # Get the latest message
-    latest_res = await db.execute(
-        select(Message.id)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.desc())
-        .limit(1)
+    last_msg_res = await db.execute(
+        select(Message.id).where(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.desc()).limit(1)
     )
-    latest_msg_id = latest_res.scalar_one_or_none()
+    last_msg_id = last_msg_res.scalar_one_or_none()
 
-    result = await db.execute(
-        select(ConversationRead).where(
-            ConversationRead.conversation_id == conversation_id,
-            ConversationRead.user_id == user_id,
-        )
+    if not last_msg_id:
+        return True
+
+    from sqlalchemy.dialects.postgresql import insert
+    stmt = insert(ConversationRead).values(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        last_read_message_id=last_msg_id,
+        updated_at=datetime.now(timezone.utc),
     )
-    read_row = result.scalar_one_or_none()
-
-    if read_row:
-        read_row.last_read_message_id = latest_msg_id
-        read_row.updated_at = datetime.now(timezone.utc)
-    else:
-        db.add(ConversationRead(
-            conversation_id=conversation_id,
-            user_id=user_id,
-            last_read_message_id=latest_msg_id,
-            updated_at=datetime.now(timezone.utc),
-        ))
-
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["conversation_id", "user_id"],
+        set_={"last_read_message_id": last_msg_id, "updated_at": datetime.now(timezone.utc)},
+    )
+    await db.execute(stmt)
     await db.commit()
     return True
 
@@ -252,7 +300,6 @@ async def mark_as_read(conversation_id: str, user_id: str, db: AsyncSession) -> 
 
 
 async def _is_participant(conversation_id: str, user_id: str, db: AsyncSession) -> bool:
-    """Check if user is a participant of the conversation."""
     conv_res = await db.execute(
         select(Conversation).where(Conversation.id == conversation_id)
     )
@@ -279,9 +326,7 @@ async def _is_participant(conversation_id: str, user_id: str, db: AsyncSession) 
 
 
 async def _to_message_response(msg: Message, db: AsyncSession) -> MessageResponse:
-    """Convert a Message ORM object to a MessageResponse."""
-    user_res = await db.execute(select(User).where(User.id == msg.sender_id))
-    sender = user_res.scalar_one_or_none()
+    sender = await _get_user_summary(msg.sender_id, db)
 
     return MessageResponse(
         id=msg.id,
@@ -297,7 +342,6 @@ async def _to_message_response(msg: Message, db: AsyncSession) -> MessageRespons
 
 
 async def _get_unread_count(conversation_id: str, user_id: str, db: AsyncSession) -> int:
-    """Count messages after the user's last read cursor (excluding messages sent by the user)."""
     read_res = await db.execute(
         select(ConversationRead).where(
             ConversationRead.conversation_id == conversation_id,
@@ -312,7 +356,6 @@ async def _get_unread_count(conversation_id: str, user_id: str, db: AsyncSession
     )
 
     if read_row and read_row.last_read_message_id:
-        # Get the timestamp of the last read message
         cursor_res = await db.execute(
             select(Message.created_at).where(Message.id == read_row.last_read_message_id)
         )
@@ -327,13 +370,11 @@ async def _get_unread_count(conversation_id: str, user_id: str, db: AsyncSession
 async def _build_conversation_response(
     conversation_id: str, user_id: str, db: AsyncSession
 ) -> ConversationResponse:
-    """Build a full ConversationResponse for a given conversation."""
     conv_res = await db.execute(
         select(Conversation).where(Conversation.id == conversation_id)
     )
     conv = conv_res.scalar_one()
 
-    # Last message
     last_msg_res = await db.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
@@ -343,10 +384,8 @@ async def _build_conversation_response(
     last_msg = last_msg_res.scalar_one_or_none()
     last_message = await _to_message_response(last_msg, db) if last_msg else None
 
-    # Unread count
     unread = await _get_unread_count(conversation_id, user_id, db)
 
-    # Participants / group info
     participants = []
     group_name = None
 
@@ -356,12 +395,18 @@ async def _build_conversation_response(
                 DirectParticipant.conversation_id == conversation_id
             )
         )
-        for (uid,) in dp_res.all():
-            u_res = await db.execute(select(User).where(User.id == uid))
-            u = u_res.scalar_one_or_none()
+        uids = [uid for (uid,) in dp_res.all()]
+        user_map = {}
+        if uids:
+            u_res = await db.execute(select(UserSummaryCache).where(UserSummaryCache.user_id.in_(uids)))
+            for u in u_res.scalars().all():
+                user_map[u.user_id] = u
+
+        for uid in uids:
+            u = user_map.get(uid) or await _get_user_summary(uid, db)
             if u:
                 participants.append(ParticipantInfo(
-                    id=u.id, username=u.username, tag=u.tag, avatar_url=u.avatar_url
+                    id=u.user_id, username=u.username, tag=u.tag, avatar_url=u.avatar_url
                 ))
     else:
         if conv.group_id:

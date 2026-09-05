@@ -3,7 +3,7 @@ FastAPI router for AI Notes, Token Wallet, Shop, and Handwritten Notes endpoints
 """
 
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,8 +32,11 @@ from app.ai_notes.wallet_service import (
     PURCHASED_CEILING,
 )
 from app.core.database import get_async_session
-from app.core.deps import get_current_user
-from app.auth.models import User
+from app.core.deps import get_current_user, CurrentUser
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(tags=["AI Notes & Token Economy"])
 
@@ -41,9 +44,11 @@ router = APIRouter(tags=["AI Notes & Token Economy"])
 # ── AI Notes Generation & Management ─────────────────────────────
 
 @router.post("/api/notes/generate", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 async def generate_note(
+    request: Request,
     req: GenerateNoteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     note = await create_note_for_user(req, current_user.id, db)
@@ -53,7 +58,7 @@ async def generate_note(
 @router.post("/api/notes/{note_id}/handwritten", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
 async def restyle_handwritten_note(
     note_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Restyle an existing note into student handwritten lecture style."""
@@ -64,7 +69,7 @@ async def restyle_handwritten_note(
 @router.get("/api/notes", response_model=list[NoteResponse])
 @router.get("/api/notes/me", response_model=list[NoteResponse], include_in_schema=False)
 async def list_notes(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     notes = await get_user_notes(current_user.id, db)
@@ -75,7 +80,7 @@ async def list_notes(
 async def edit_note(
     note_id: str,
     req: UpdateNoteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     note = await update_note(note_id, req, current_user.id, db)
@@ -87,7 +92,7 @@ async def edit_note(
 @router.delete("/api/notes/{note_id}", status_code=status.HTTP_200_OK)
 async def delete_note(
     note_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     deleted = await delete_user_note(note_id, current_user.id, db)
@@ -100,7 +105,7 @@ async def delete_note(
 async def share_note(
     note_id: str,
     group_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     shared = await share_note_to_group(note_id, group_id, current_user.id, db)
@@ -113,7 +118,7 @@ async def share_note(
 
 @router.get("/api/wallet/me", response_model=WalletResponse)
 async def get_my_wallet(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -150,14 +155,15 @@ async def list_shop_packs(
 @router.post("/api/shop/purchase/{pack_id}", response_model=PurchaseResponse)
 async def purchase_pack(
     pack_id: str,
-    current_user: User = Depends(get_current_user),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
     Purchase a token pack using Histoins virtual currency.
-    Performs atomic exchange with row-level locks.
+    Performs atomic exchange with row-level locks and idempotency protection.
     """
-    result = await purchase_token_pack(current_user.id, pack_id, db)
+    result = await purchase_token_pack(current_user.id, pack_id, db, idempotency_key=idempotency_key)
     return PurchaseResponse(**result)
 
 
