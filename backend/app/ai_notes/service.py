@@ -19,6 +19,9 @@ from app.ai_notes.wallet_service import (
 )
 
 
+from app.core.inter_service import notify
+
+
 async def create_note_for_user(req: GenerateNoteRequest, user_id: str, db: AsyncSession) -> Note:
     # 1. Pre-flight token estimation check
     prompt_tokens = calculate_approx_tokens(req.topic) + calculate_approx_tokens(req.attachment_text or "")
@@ -53,6 +56,19 @@ async def create_note_for_user(req: GenerateNoteRequest, user_id: str, db: Async
     db.add(note)
     await db.commit()
     await db.refresh(note)
+
+    # Fire-and-forget notification
+    await notify(
+        user_id=user_id,
+        type="note_ready",
+        payload={
+            "note_id": note.id,
+            "title": note.title,
+            "curriculum": note.curriculum_tag,
+            "style": note.style,
+        },
+    )
+
     return note
 
 
@@ -93,6 +109,19 @@ async def create_handwritten_note_for_user(note_id: str, user_id: str, db: Async
     db.add(new_note)
     await db.commit()
     await db.refresh(new_note)
+
+    # Fire-and-forget notification
+    await notify(
+        user_id=user_id,
+        type="note_ready",
+        payload={
+            "note_id": new_note.id,
+            "title": new_note.title,
+            "curriculum": new_note.curriculum_tag,
+            "style": new_note.style,
+        },
+    )
+
     return new_note
 
 

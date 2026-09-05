@@ -101,29 +101,59 @@ async def test_friends_flow(client: AsyncClient):
         json={"username": "BobScholar", "email": "bob@example.com", "password": "Password123!"},
     )
     assert resp_b.status_code == 201
+    token_b = resp_b.json()["access_token"]
     user_b = resp_b.json()["user"]
+    headers_b = {"Authorization": f"Bearer {token_b}"}
 
-    # 3. Add Friend (User A adds User B)
+    # 3. User A sends friend request to User B
     add_resp = await client.post(
-        "/api/auth/friends",
-        json={"friend_id": user_b["id"]},
+        "/api/auth/friends/request",
+        json={"addressee_id": user_b["id"]},
         headers=headers_a,
     )
     assert add_resp.status_code == 201
-    assert add_resp.json()["username"] == "BobScholar"
+    request_data = add_resp.json()
+    assert request_data["addressee_id"] == user_b["id"]
+    assert request_data["status"] == "pending"
+    request_id = request_data["id"]
 
-    # 4. List Friends for User A
+    # 4. User B sees incoming request
+    incoming_resp = await client.get("/api/auth/friends/requests/incoming", headers=headers_b)
+    assert incoming_resp.status_code == 200
+    incoming = incoming_resp.json()
+    assert len(incoming) == 1
+    assert incoming[0]["id"] == request_id
+
+    # 5. User B accepts the request
+    accept_resp = await client.post(
+        f"/api/auth/friends/requests/{request_id}/accept",
+        headers=headers_b,
+    )
+    assert accept_resp.status_code == 200
+    assert accept_resp.json()["status"] == "accepted"
+
+    # 6. List Friends for User A (with presence)
     list_resp = await client.get("/api/auth/friends", headers=headers_a)
     assert list_resp.status_code == 200
     friends = list_resp.json()
     assert len(friends) == 1
     assert friends[0]["id"] == user_b["id"]
+    assert friends[0]["username"] == "BobScholar"
+    assert "is_online" in friends[0]
+    assert "last_seen_at" in friends[0]
 
-    # 5. Remove Friend
+    # 7. List Friends for User B
+    list_resp_b = await client.get("/api/auth/friends", headers=headers_b)
+    assert list_resp_b.status_code == 200
+    friends_b = list_resp_b.json()
+    assert len(friends_b) == 1
+    assert friends_b[0]["id"] == user_a["id"]
+
+    # 8. Remove Friend (User A unfriends User B)
     del_resp = await client.delete(f"/api/auth/friends/{user_b['id']}", headers=headers_a)
     assert del_resp.status_code == 204
 
-    # 6. Verify empty list
+    # 9. Verify empty list
     list_resp2 = await client.get("/api/auth/friends", headers=headers_a)
     assert list_resp2.status_code == 200
     assert len(list_resp2.json()) == 0

@@ -22,6 +22,7 @@ import app.quiz.models  # noqa: F401
 import app.social.models  # noqa: F401
 import app.groups.models  # noqa: F401
 import app.ai_notes.models  # noqa: F401
+import app.chat.models  # noqa: F401
 
 config = context.config
 

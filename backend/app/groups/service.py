@@ -9,9 +9,19 @@ from app.groups.models import Group, GroupMember
 from app.groups.schemas import CreateGroupRequest, GroupResponse, GroupMemberResponse
 from app.auth.models import User
 from app.auth.schemas import UserResponse
+from app.core.inter_service import notify
 
 
 async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSession) -> GroupResponse:
+    # Filter unique member IDs excluding creator
+    unique_member_ids = list(dict.fromkeys(m for m in (req.member_ids or []) if m and m != creator_id))
+    total_count = len(unique_member_ids) + 1
+
+    if total_count < 3:
+        raise ValueError("At least 3 members (creator + 2 invited members) are required to create a group.")
+    if total_count > 50:
+        raise ValueError("A group cannot exceed 50 members.")
+
     group = Group(
         name=req.name,
         description=req.description,
@@ -21,24 +31,56 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
     await db.flush()
 
     # Creator is admin member
-    member = GroupMember(
+    admin_member = GroupMember(
         group_id=group.id,
         user_id=creator_id,
         role="admin",
     )
-    db.add(member)
+    db.add(admin_member)
+
+    # Add initial invited members
+    for uid in unique_member_ids:
+        db.add(GroupMember(
+            group_id=group.id,
+            user_id=uid,
+            role="member",
+        ))
+
     await db.commit()
 
-    u_res = await db.execute(select(User).where(User.id == creator_id))
-    creator = u_res.scalar_one_or_none()
+    # Fire-and-forget notification for invited members
+    creator_res = await db.execute(select(User).where(User.id == creator_id))
+    creator = creator_res.scalar_one_or_none()
+    creator_name = creator.username if creator else "Scholar"
 
-    m_resp = GroupMemberResponse(
-        group_id=group.id,
-        user_id=creator_id,
-        role="admin",
-        joined_at=member.joined_at,
-        user=UserResponse.model_validate(creator) if creator else None,
-    )
+    for uid in unique_member_ids:
+        await notify(
+            user_id=uid,
+            type="group_invite",
+            payload={
+                "group_id": group.id,
+                "group_name": group.name,
+                "from_user_id": creator_id,
+                "from_user": creator_name,
+            },
+        )
+
+    # Build response members
+    members_resp = []
+    all_uids = [creator_id] + unique_member_ids
+    for uid in all_uids:
+        u_res = await db.execute(select(User).where(User.id == uid))
+        u = u_res.scalar_one_or_none()
+        m_role = "admin" if uid == creator_id else "member"
+        members_resp.append(
+            GroupMemberResponse(
+                group_id=group.id,
+                user_id=uid,
+                role=m_role,
+                joined_at=group.created_at,
+                user=UserResponse.model_validate(u) if u else None,
+            )
+        )
 
     return GroupResponse(
         id=group.id,
@@ -46,8 +88,8 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
         description=group.description,
         created_by=group.created_by,
         created_at=group.created_at,
-        member_count=1,
-        members=[m_resp],
+        member_count=total_count,
+        members=members_resp,
     )
 
 
@@ -79,14 +121,22 @@ async def get_user_groups(user_id: str, db: AsyncSession) -> list[GroupResponse]
     return out
 
 
-async def add_group_member(group_id: str, user_id: str, role: str, db: AsyncSession) -> bool:
+async def add_group_member(group_id: str, user_id: str, role: str, db: AsyncSession) -> tuple[bool, str]:
     res = await db.execute(
         select(GroupMember).where(GroupMember.group_id == group_id, GroupMember.user_id == user_id)
     )
     if res.scalar_one_or_none():
-        return False
+        return False, "Already a member of this group"
+
+    # Check capacity (maximum 50 members)
+    count_res = await db.execute(
+        select(func.count()).select_from(GroupMember).where(GroupMember.group_id == group_id)
+    )
+    current_count = count_res.scalar() or 0
+    if current_count >= 50:
+        return False, "Group has reached maximum capacity of 50 members"
 
     member = GroupMember(group_id=group_id, user_id=user_id, role=role)
     db.add(member)
     await db.commit()
-    return True
+    return True, "Joined successfully"

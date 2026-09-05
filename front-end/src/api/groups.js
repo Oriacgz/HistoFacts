@@ -1,9 +1,9 @@
 import { apiFetch } from './client';
 
-export async function createGroupApi(name, description = '') {
+export async function createGroupApi(name, description = '', memberIds = []) {
   return apiFetch('/api/groups', {
     method: 'POST',
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ name, description, member_ids: memberIds }),
   });
 }
 

@@ -1,6 +1,6 @@
 """
-Social Discussion Microservice (Port 8003).
-Handles public Chronicle posts, threaded nested comments, and like counter.
+Notification Microservice (Port 8007).
+Handles user notifications, unread counts, and inter-service dispatch.
 """
 
 from contextlib import asynccontextmanager
@@ -9,12 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
-import app.auth.models  # noqa: F401
-import app.history.models  # noqa: F401
-import app.groups.models  # noqa: F401
-import app.social.models  # noqa: F401
-from app.social.router import router as social_router
-from app.chat.router import router as chat_router
+from app.notification.router import router as notification_router
 
 
 @asynccontextmanager
@@ -25,8 +20,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="HistoFacts — Social Discussion Microservice",
-    description="Microservice 3: Public feed, discussions, nested threaded comments, and likes.",
+    title="HistoFacts — Notification Microservice",
+    description="Microservice 7: Real-time user notifications, badge unread polling, and inter-service notifications.",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -41,15 +36,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(social_router)
-app.include_router(chat_router)
+app.include_router(notification_router)
 
 
 @app.get("/health", tags=["System"])
 async def health_check():
-    return {"status": "ok", "service": "social-service", "port": 8003}
+    return {"status": "ok", "service": "notification-service", "port": 8007}
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.social.main:app", host="0.0.0.0", port=8003, reload=True)
+    uvicorn.run("app.notification.main:app", host="0.0.0.0", port=8007, reload=True)
