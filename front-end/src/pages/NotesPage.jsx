@@ -404,7 +404,7 @@ export default function NotesPage() {
 
   return (
     <div
-      className="min-h-screen bg-histo-paper text-histo-ink font-body histo-paper-texture flex overflow-hidden"
+      className="h-screen bg-histo-paper text-histo-ink font-body histo-paper-texture flex flex-col overflow-hidden"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -452,36 +452,39 @@ export default function NotesPage() {
         isPurchasing={isPurchasing}
       />
 
-      {/* Left Sidebar: Notes Library */}
-      <NotesSidebar
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        notes={notes}
-        activeNoteId={activeNoteId}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        onNewChat={handleNewChat}
-        onSelectNote={handleSelectSavedNote}
-        onDeleteNote={handleDeleteNote}
+      {/* Persistent Full-Width Top Header Bar */}
+      <NotesHeader
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        wallet={wallet}
+        onOpenShop={handleOpenShop}
+        user={user}
+        profileMenuOpen={profileMenuOpen}
+        onToggleProfileMenu={() => setProfileMenuOpen(!profileMenuOpen)}
+        onCloseProfileMenu={() => setProfileMenuOpen(false)}
+        logout={logout}
       />
 
-      {/* Main Single Canvas Workspace */}
-      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        {/* Top Header Bar */}
-        <NotesHeader
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          wallet={wallet}
-          onOpenShop={handleOpenShop}
-          user={user}
-          profileMenuOpen={profileMenuOpen}
-          onToggleProfileMenu={() => setProfileMenuOpen(!profileMenuOpen)}
-          onCloseProfileMenu={() => setProfileMenuOpen(false)}
-          logout={logout}
+      {/* Content Area Below Header */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Left Sidebar: Notes Library */}
+        <NotesSidebar
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          notes={notes}
+          activeNoteId={activeNoteId}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onNewChat={handleNewChat}
+          onSelectNote={handleSelectSavedNote}
+          onDeleteNote={handleDeleteNote}
         />
 
-        {/* Central Canvas Stream */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6">
+        {/* Main Single Canvas Workspace */}
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+          {/* Central Canvas Stream */}
+          <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6">
+
           {/* Welcome Screen (when no messages yet) */}
           {messages.length === 0 && !isGenerating && (
             <WelcomeCanvas
@@ -644,6 +647,7 @@ export default function NotesPage() {
           onOpenShop={handleOpenShop}
         />
       </main>
+      </div>
     </div>
   );
-}
+}
