@@ -3,7 +3,7 @@ Business logic for Chat — conversations, messages, unread tracking.
 """
 
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func, and_, or_, case, UniqueConstraint
+from sqlalchemy import select, update, func, and_, or_, case, UniqueConstraint
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import (
@@ -108,6 +108,8 @@ async def get_or_create_direct_conversation(
 
     db.add(DirectParticipant(conversation_id=conv_id, user_id=u1))
     db.add(DirectParticipant(conversation_id=conv_id, user_id=u2))
+    db.add(ConversationRead(conversation_id=conv_id, user_id=u1, unread_count=0))
+    db.add(ConversationRead(conversation_id=conv_id, user_id=u2, unread_count=0))
     await db.commit()
 
     return await _build_conversation_response(conv_id, user_id, db)
@@ -249,14 +251,65 @@ async def send_message(
     read_row = read_res.scalar_one_or_none()
     if read_row:
         read_row.last_read_message_id = msg.id
+        read_row.unread_count = 0
         read_row.updated_at = datetime.now(timezone.utc)
     else:
         db.add(ConversationRead(
             conversation_id=conversation_id,
             user_id=sender_id,
             last_read_message_id=msg.id,
+            unread_count=0,
             updated_at=datetime.now(timezone.utc),
         ))
+
+    # Ensure other participants have a ConversationRead entry initialized
+    conv_res = await db.execute(select(Conversation).where(Conversation.id == conversation_id))
+    conv = conv_res.scalar_one_or_none()
+    if conv:
+        if conv.type == "direct":
+            p_res = await db.execute(
+                select(DirectParticipant.user_id).where(
+                    DirectParticipant.conversation_id == conversation_id,
+                    DirectParticipant.user_id != sender_id,
+                )
+            )
+            other_uids = [r[0] for r in p_res.all()]
+        else:
+            p_res = await db.execute(
+                select(GroupMember.user_id).where(
+                    GroupMember.group_id == conv.group_id,
+                    GroupMember.user_id != sender_id,
+                )
+            )
+            other_uids = [r[0] for r in p_res.all()]
+
+        if other_uids:
+            existing_reads_res = await db.execute(
+                select(ConversationRead.user_id).where(
+                    ConversationRead.conversation_id == conversation_id,
+                    ConversationRead.user_id.in_(other_uids),
+                )
+            )
+            existing_uids = set(existing_reads_res.scalars().all())
+            for uid in other_uids:
+                if uid not in existing_uids:
+                    db.add(ConversationRead(
+                        conversation_id=conversation_id,
+                        user_id=uid,
+                        unread_count=0,
+                        updated_at=datetime.now(timezone.utc),
+                    ))
+            await db.flush()
+
+    # On new message insert — increment for every participant except the sender:
+    await db.execute(
+        update(ConversationRead)
+        .where(
+            ConversationRead.conversation_id == msg.conversation_id,
+            ConversationRead.user_id != msg.sender_id,
+        )
+        .values(unread_count=ConversationRead.unread_count + 1)
+    )
 
     await db.commit()
 
@@ -280,18 +333,36 @@ async def mark_as_read(
     if not last_msg_id:
         return True
 
-    from sqlalchemy.dialects.postgresql import insert
-    stmt = insert(ConversationRead).values(
-        conversation_id=conversation_id,
-        user_id=user_id,
-        last_read_message_id=last_msg_id,
-        updated_at=datetime.now(timezone.utc),
+    read_res = await db.execute(
+        select(ConversationRead).where(
+            ConversationRead.conversation_id == conversation_id,
+            ConversationRead.user_id == user_id,
+        )
     )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["conversation_id", "user_id"],
-        set_={"last_read_message_id": last_msg_id, "updated_at": datetime.now(timezone.utc)},
-    )
-    await db.execute(stmt)
+    read_row = read_res.scalar_one_or_none()
+    if read_row:
+        # On mark-read — reset to zero, no recount needed:
+        await db.execute(
+            update(ConversationRead)
+            .where(
+                ConversationRead.conversation_id == conversation_id,
+                ConversationRead.user_id == user_id,
+            )
+            .values(
+                unread_count=0,
+                last_read_message_id=last_msg_id,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+    else:
+        db.add(ConversationRead(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            last_read_message_id=last_msg_id,
+            unread_count=0,
+            updated_at=datetime.now(timezone.utc),
+        ))
+
     await db.commit()
     return True
 
@@ -342,29 +413,15 @@ async def _to_message_response(msg: Message, db: AsyncSession) -> MessageRespons
 
 
 async def _get_unread_count(conversation_id: str, user_id: str, db: AsyncSession) -> int:
+    """Read unread_count directly off ConversationRead — zero subqueries on messages."""
     read_res = await db.execute(
-        select(ConversationRead).where(
+        select(ConversationRead.unread_count).where(
             ConversationRead.conversation_id == conversation_id,
             ConversationRead.user_id == user_id,
         )
     )
-    read_row = read_res.scalar_one_or_none()
-
-    query = select(func.count()).select_from(Message).where(
-        Message.conversation_id == conversation_id,
-        Message.sender_id != user_id,
-    )
-
-    if read_row and read_row.last_read_message_id:
-        cursor_res = await db.execute(
-            select(Message.created_at).where(Message.id == read_row.last_read_message_id)
-        )
-        cursor_ts = cursor_res.scalar_one_or_none()
-        if cursor_ts:
-            query = query.where(Message.created_at > cursor_ts)
-
-    result = await db.execute(query)
-    return result.scalar() or 0
+    val = read_res.scalar_one_or_none()
+    return val if val is not None else 0
 
 
 async def _build_conversation_response(

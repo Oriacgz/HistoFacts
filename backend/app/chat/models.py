@@ -4,7 +4,7 @@ SQLAlchemy models for Chat module (conversations, participants, messages, read r
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, String, Text, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import Boolean, Column, String, Text, Integer, DateTime, ForeignKey, Index, UniqueConstraint
 from app.core.database import Base
 
 
@@ -55,6 +55,7 @@ class ConversationRead(Base):
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(String, primary_key=True)
     last_read_message_id = Column(String, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    unread_count = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

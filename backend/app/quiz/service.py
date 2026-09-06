@@ -7,7 +7,7 @@ import json
 import uuid
 import asyncio
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord, UserSummaryCache
 from app.quiz.schemas import (
@@ -305,10 +305,62 @@ async def _get_user_summary(user_id: str, db: AsyncSession) -> UserSummaryCache 
     return cached
 
 
-async def get_global_leaderboard_data(db: AsyncSession, current_user: CurrentUser | None = None) -> LeaderboardResponse:
+async def get_global_leaderboard(
+    db: AsyncSession,
+    month_start: datetime | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """
+    SQL-aggregated and ranked global leaderboard.
+    All aggregation and ranking is performed in SQL via func.sum() and func.rank().over().
+    Zero Python-side .sum() or .sort().
+    """
+    if month_start is None:
+        now = datetime.now(timezone.utc)
+        month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+
+    stmt = (
+        select(
+            QuizSessionRecord.user_id,
+            func.sum(QuizSessionRecord.score).label("total_score"),
+            func.rank().over(order_by=func.sum(QuizSessionRecord.score).desc()).label("rank"),
+        )
+        .where(
+            QuizSessionRecord.created_at >= month_start,
+        )
+        .group_by(QuizSessionRecord.user_id)
+        .order_by(text("total_score DESC"))
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).all()
+
+    user_ids = [r.user_id for r in rows]
+    authors = {}
+    if user_ids:
+        authors = {
+            a.user_id: a
+            for a in (
+                await db.execute(
+                    select(UserSummaryCache).where(UserSummaryCache.user_id.in_(user_ids))
+                )
+            ).scalars().all()
+        }
+
+    return [
+        {"rank": int(r.rank), "score": int(r.total_score or 0), "user": authors.get(r.user_id)}
+        for r in rows
+    ]
+
+
+async def get_global_leaderboard_data(
+    db: AsyncSession,
+    current_user: CurrentUser | None = None,
+    limit: int = 50,
+) -> LeaderboardResponse:
     from app.core.deps import CurrentUser
     now = datetime.now(timezone.utc)
     month_name = now.strftime("%B %Y")
+    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
     
     import calendar
     days_in_month = calendar.monthrange(now.year, now.month)[1]
@@ -321,17 +373,18 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: CurrentUse
             func.count(QuizSessionRecord.id).label("quizzes_taken"),
             func.sum(QuizSessionRecord.correct_count).label("total_correct"),
             func.sum(QuizSessionRecord.correct_count + QuizSessionRecord.wrong_count).label("total_questions"),
+            func.rank().over(order_by=func.sum(QuizSessionRecord.score).desc()).label("rank"),
         )
+        .where(QuizSessionRecord.created_at >= month_start)
         .group_by(QuizSessionRecord.user_id)
-        .order_by(func.sum(QuizSessionRecord.score).desc())
-        .limit(50)
+        .order_by(text("total_score DESC"))
+        .limit(limit)
     )
     result = await db.execute(query)
     rows = result.all()
 
     entries = []
     user_rank = None
-    rank = 1
 
     user_ids = [row.user_id for row in rows]
     user_map = {}
@@ -350,14 +403,15 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: CurrentUse
         total_correct = int(row.total_correct or 0)
         total_questions = int(row.total_questions or 0)
         accuracy = round((total_correct / total_questions) * 100.0, 1) if total_questions > 0 else 0.0
+        row_rank = int(row.rank)
 
         is_me = False
         if current_user and (str(u_id) == str(current_user.id) or (db_user and db_user.username.lower() == current_user.username.lower())):
             is_me = True
-            user_rank = rank
+            user_rank = row_rank
 
         entries.append(LeaderboardEntry(
-            rank=rank,
+            rank=row_rank,
             user_id=str(u_id),
             username=username,
             tag=tag,
@@ -366,7 +420,6 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: CurrentUse
             quizzes_taken=quizzes_taken,
             is_current_user=is_me,
         ))
-        rank += 1
 
     return LeaderboardResponse(
         month_name=month_name,
@@ -375,6 +428,7 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: CurrentUse
         current_user_rank=user_rank,
         leaderboard=entries,
     )
+
 
 
 # -------------------------------------------------------------

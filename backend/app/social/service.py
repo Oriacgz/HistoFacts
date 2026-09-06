@@ -78,36 +78,66 @@ async def create_post(req: CreatePostRequest, user_id: str, db: AsyncSession) ->
     return post
 
 
-async def get_public_feed(db: AsyncSession, limit: int = 20) -> list[PostResponse]:
-    res = await db.execute(
-        select(Post).where(Post.group_id.is_(None)).order_by(Post.created_at.desc()).limit(limit)
-    )
+async def get_public_feed(
+    db: AsyncSession,
+    limit: int = 20,
+    offset: int = 0,
+    category: str | None = None,
+    sort: str = "newest",
+) -> list[PostResponse]:
+    """
+    Fetch public feed posts in batch.
+    Issues exactly 2 queries regardless of page size:
+      1. Posts query with pagination/filtering
+      2. Batched author lookup via UserSummaryCache
+    """
+    query = select(Post).where(Post.group_id.is_(None))
+    if category:
+        query = query.where(Post.event_id == category)
+
+    if sort == "popular":
+        query = query.order_by(Post.like_count.desc(), Post.created_at.desc())
+    else:
+        query = query.order_by(Post.created_at.desc())
+
+    res = await db.execute(query.limit(limit).offset(offset))
     posts = res.scalars().all()
+
+    if not posts:
+        return []
+
+    # Batch author lookup into 1 query
+    author_ids = {p.user_id for p in posts}
+    authors = {}
+    if author_ids:
+        authors = {
+            a.user_id: a
+            for a in (
+                await db.execute(
+                    select(UserSummaryCache).where(UserSummaryCache.user_id.in_(author_ids))
+                )
+            ).scalars().all()
+        }
 
     out = []
     for p in posts:
-        author = await _get_user_summary(p.user_id, db)
-
-        c_count_res = await db.execute(
-            select(func.count()).select_from(Comment).where(Comment.post_id == p.id)
-        )
-        c_count = c_count_res.scalar() or 0
-
+        cached_author = authors.get(p.user_id)
         out.append(
             PostResponse(
                 id=p.id,
                 user_id=p.user_id,
-                author=author,
+                author=cached_author,
                 group_id=p.group_id,
                 event_id=p.event_id,
                 content=p.content,
                 like_count=p.like_count or 0,
                 created_at=p.created_at,
-                comment_count=c_count,
+                comment_count=p.comment_count or 0,
             )
         )
 
     return out
+
 
 
 async def build_comment_tree(comments: list[Comment], db: AsyncSession) -> list[CommentResponse]:
