@@ -40,9 +40,8 @@ export default function Navbar() {
   const location = useLocation();
   const toast = useToast();
 
-  // Chat sidebar — may not be available if not inside ChatProvider (e.g. landing page)
-  let chatContext = null;
-  try { chatContext = useChat(); } catch { /* not inside ChatProvider */ }
+  // Chat sidebar — null if not inside ChatProvider (e.g. landing page)
+  const chatContext = useChat();
   const totalUnread = chatContext?.totalUnreadCount || 0;
 
   const [searchQuery, setSearchQuery] = useState('');

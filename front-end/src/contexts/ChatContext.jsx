@@ -38,6 +38,18 @@ export function ChatProvider({ children }) {
     setActiveConversation(null);
   }, []);
 
+  const toggleSidebar = useCallback(() => {
+    setIsChatOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        refetchConversations();
+      } else {
+        setActiveConversation(null);
+      }
+      return next;
+    });
+  }, [refetchConversations]);
+
   const openDirectChat = useCallback(async (friendUserId) => {
     try {
       const conv = await getOrCreateDirectApi(friendUserId);
@@ -79,6 +91,9 @@ export function ChatProvider({ children }) {
     <ChatContext.Provider
       value={{
         isChatOpen,
+        isOpen: isChatOpen,
+        toggleSidebar,
+        toggleChat: toggleSidebar,
         openChat,
         closeChat,
         conversations,
@@ -98,8 +113,5 @@ export function ChatProvider({ children }) {
 
 export function useChat() {
   const context = useContext(ChatContext);
-  if (!context) {
-    throw new Error('useChat must be used within a ChatProvider');
-  }
   return context;
 }
