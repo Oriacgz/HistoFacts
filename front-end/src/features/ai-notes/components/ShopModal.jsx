@@ -8,6 +8,59 @@ import {
   X,
 } from 'lucide-react';
 
+function StatChip({ icon, label, value, accent }) {
+  return (
+    <div className={`flex-1 rounded-xl border p-3 ${accent === "amber" ? "border-amber-200 bg-amber-50" : "border-blue-200 bg-blue-50"}`}>
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="mt-1 flex items-center gap-1.5">
+        {icon}
+        <span className="text-xl font-bold text-slate-800">{value}</span>
+      </div>
+    </div>
+  );
+}
+
+function PackCard({ pack, featured, onClick, disabled }) {
+  return (
+    <div
+      className={`relative flex flex-col rounded-2xl border p-5 transition-all duration-150 hover:shadow-lg hover:-translate-y-0.5
+        ${featured
+          ? "border-amber-300 ring-1 ring-amber-300 bg-amber-50/40"
+          : "border-gray-200 bg-white"}`}
+    >
+      {featured && (
+        <span className="absolute -top-3 left-4 rounded-full bg-amber-400 px-3 py-0.5 text-xs font-semibold text-white shadow-sm">
+          Best Value
+        </span>
+      )}
+      <h3 className="text-base font-semibold text-slate-800">{pack.name}</h3>
+      <p className="mt-1 text-2xl font-bold text-blue-600">+{pack.token_amount.toLocaleString()}</p>
+      <p className="mb-4 text-xs text-slate-500">tokens</p>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={`mt-auto flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 py-2.5 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed`}
+      >
+        <Coins className="h-4 w-4" />
+        {pack.histoin_cost}
+      </button>
+    </div>
+  );
+}
+
+function EarnHistoinsDisclosure() {
+  return (
+    <details className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+      <summary className="cursor-pointer font-medium text-slate-600">How to earn Histoins</summary>
+      <ul className="mt-2 list-disc space-y-1 pl-4">
+        <li>Daily login: +10 Histoins on first activity each day</li>
+        <li>History quizzes: +20 Histoins per quiz (max 3/day)</li>
+      </ul>
+    </details>
+  );
+}
+
 export default function ShopModal({
   isOpen,
   onClose,
@@ -36,9 +89,9 @@ export default function ShopModal({
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 20 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white border border-histo-dark/15 rounded-2xl shadow-deep max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-white border border-histo-dark/15 rounded-2xl shadow-deep max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]"
             >
-              {/* Shop Header */}
+              {/* Shop Header - UNCHANGED */}
               <div className="p-5 bg-gradient-to-r from-histo-dark to-histo-medium text-white flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div className="h-9 w-9 rounded-xl bg-histo-gold/20 flex items-center justify-center text-histo-gold">
@@ -58,87 +111,49 @@ export default function ShopModal({
                 </button>
               </div>
 
-              {/* Wallet Balances Banner */}
-              <div className="p-4 bg-histo-cream/50 border-b border-histo-dark/10 flex items-center justify-around text-center">
-                <div>
-                  <span className="font-ui text-[11px] font-semibold text-histo-ink/60 uppercase block">Your Histoins</span>
-                  <div className="flex items-center justify-center gap-1.5 mt-0.5">
-                    <Coins className="h-4 w-4 text-amber-500" />
-                    <span className="font-display text-lg font-bold text-histo-dark">{wallet.histoin_balance.toLocaleString()} 🪙</span>
-                  </div>
-                </div>
-                <div className="h-8 w-[1px] bg-histo-dark/15" />
-                <div>
-                  <span className="font-ui text-[11px] font-semibold text-histo-ink/60 uppercase block">Current Tokens</span>
-                  <div className="flex items-center justify-center gap-1.5 mt-0.5">
-                    <Zap className="h-4 w-4 text-histo-copper" />
-                    <span className="font-display text-lg font-bold text-histo-dark">{wallet.token_balance.toLocaleString()} ⚡</span>
-                  </div>
-                </div>
+              {/* Stats Bar — two distinct chips */}
+              <div className="p-4 bg-white border-b border-histo-dark/10 flex gap-3">
+                <StatChip
+                  icon={<Coins className="h-5 w-5 text-amber-500" />}
+                  label="Your Histoins"
+                  value={wallet.histoin_balance.toLocaleString()}
+                  accent="amber"
+                />
+                <StatChip
+                  icon={<Zap className="h-5 w-5 text-blue-500" />}
+                  label="Current Tokens"
+                  value={wallet.token_balance.toLocaleString()}
+                  accent="blue"
+                />
               </div>
 
-              {/* Token Packs List */}
-              <div className="p-5 overflow-y-auto space-y-3">
-                <span className="font-ui text-xs font-bold text-histo-ink/50 uppercase tracking-wider block mb-1">
-                  Available Token Packs
-                </span>
-
-                {shopPacks.map((pack) => {
-                  const canAfford = wallet.histoin_balance >= pack.histoin_cost;
-                  return (
-                    <div
-                      key={pack.id}
-                      className="p-4 rounded-xl border border-histo-dark/15 bg-white hover:border-histo-copper transition-all shadow-xs flex items-center justify-between gap-3"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-display text-sm font-bold text-histo-dark">{pack.name}</h4>
-                          {pack.token_amount >= 350000 && (
-                            <span className="text-[10px] font-ui font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">
-                              Best Value
-                            </span>
-                          )}
-                        </div>
-                        <p className="font-ui text-xs text-histo-copper font-semibold mt-0.5">
-                          +{pack.token_amount.toLocaleString()} Tokens
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => onBuyPack(pack)}
+              {/* Pack Grid */}
+              <div className="p-5 overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {shopPacks.map((pack) => {
+                    const canAfford = wallet.histoin_balance >= pack.histoin_cost;
+                    const featured = pack.token_amount >= 350000; // Mega Pack = best value
+                    return (
+                      <PackCard
+                        key={pack.id}
+                        pack={pack}
+                        featured={featured}
+                        onClick={() => canAfford && onBuyPack(pack)}
                         disabled={!canAfford}
-                        className={`px-4 py-2 rounded-lg font-ui text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
-                          canAfford
-                            ? 'bg-histo-copper text-white hover:bg-histo-dark active:scale-95'
-                            : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
-                        }`}
-                      >
-                        <Coins className="h-3.5 w-3.5" />
-                        <span>{pack.histoin_cost} 🪙</span>
-                      </button>
-                    </div>
-                  );
-                })}
-
-                {/* Info on how to earn Histoins */}
-                <div className="p-3.5 bg-blue-50/70 border border-blue-200/60 rounded-xl text-blue-900 mt-4 text-xs font-ui space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold">
-                    <HelpCircle className="h-4 w-4 text-blue-600 shrink-0" />
-                    <span>How to Earn Histoins:</span>
-                  </div>
-                  <p className="text-blue-800/80 leading-relaxed pl-5.5">
-                    • <strong>Daily Login:</strong> +10 Histoins every day on first activity.<br />
-                    • <strong>History Quizzes:</strong> +20 Histoins for completing quizzes (max 3/day).
-                  </p>
+                      />
+                    );
+                  })}
                 </div>
+
+                {/* How to Earn Histoins — collapsed by default */}
+                <EarnHistoinsDisclosure />
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Purchase Confirmation Dialog */}
+      {/* Purchase Confirmation Dialog - UNCHANGED functionality, updated colors */}
       <AnimatePresence>
         {confirmPack && (
           <motion.div
@@ -174,7 +189,7 @@ export default function ShopModal({
                   type="button"
                   onClick={onConfirmPurchase}
                   disabled={isPurchasing}
-                  className="flex-1 py-2 rounded-lg bg-histo-copper text-white text-xs font-ui font-bold hover:bg-histo-dark transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="flex-1 py-2 rounded-lg bg-amber-500 text-white text-xs font-ui font-bold hover:bg-amber-600 transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   {isPurchasing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Confirm'}
                 </button>

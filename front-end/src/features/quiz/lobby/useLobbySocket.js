@@ -24,6 +24,8 @@ export function useLobbySocket({ code, user, role = 'player' }) {
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const isUnmountedRef = useRef(false);
+  /** Tracks consecutive failed connections for backoff calculation. */
+  const attemptRef = useRef(0);
 
   const getWsUrl = useCallback(() => {
     const loc = window.location;
@@ -52,6 +54,8 @@ export function useLobbySocket({ code, user, role = 'player' }) {
     ws.onopen = () => {
       setIsConnected(true);
       setIsReconnecting(false);
+      // Reset backoff counter on successful connection
+      attemptRef.current = 0;
 
       // Authenticate / Join room on connect or reconnect
       const token = localStorage.getItem('access_token');
@@ -137,10 +141,13 @@ export function useLobbySocket({ code, user, role = 'player' }) {
       setIsConnected(false);
       if (!isUnmountedRef.current) {
         setIsReconnecting(true);
-        // Resilient silent reconnect after 1.5s
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s … capped at 30s, with ±300ms jitter
+        const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30_000);
+        const jitter = Math.random() * 600 - 300; // ±300ms
+        attemptRef.current += 1;
         reconnectTimeoutRef.current = setTimeout(() => {
           connect();
-        }, 1500);
+        }, delay + jitter);
       }
     };
 

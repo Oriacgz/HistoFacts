@@ -9,7 +9,11 @@ import {
   ArrowLeft,
   ShoppingBag,
   LogOut,
+  Settings,
+  Users,
+  MessageSquare,
 } from 'lucide-react';
+import UserAvatar from '../../../components/UserAvatar';
 
 export default function NotesHeader({
   sidebarOpen,
@@ -51,50 +55,48 @@ export default function NotesHeader({
 
         <div className="hidden md:flex items-center gap-2 truncate">
           <span className="font-display text-sm font-bold text-histo-paper truncate">
-            AI Notes Assistant
-          </span>
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-histo-gold/20 text-histo-gold border border-histo-gold/30 rounded-full text-[10px] font-ui uppercase tracking-wider font-bold shrink-0">
-            <Sparkles className="h-3 w-3" />
-            GPT-4o
+            AI Notes
           </span>
         </div>
       </div>
 
       {/* Center: Desktop Navigation Bar */}
-      <nav className="hidden lg:flex items-center gap-6">
-        {[
-          { label: 'Home', path: '/home' },
-          { label: 'Quiz', path: '/quiz' },
-          { label: 'AI Notes', path: '/notes' },
-          { label: 'Feed', path: '/feed' },
-          { label: 'Groups', path: '/groups' },
-          { label: 'Friends', path: '/friends' },
-        ].map((item) => {
-          const isActive = item.label === 'AI Notes';
-          return (
-            <Link
-              key={item.label}
-              to={item.path}
-              className={`relative px-3 py-2 text-sm font-ui tracking-wider uppercase transition-colors duration-200 ${
-                isActive ? 'text-histo-gold font-bold' : 'text-histo-paper/80 hover:text-histo-gold'
-              }`}
-            >
-              {isActive && (
-                <motion.span
-                  layoutId="notes-nav-underline"
-                  className="absolute left-0 right-0 -bottom-1 h-0.5 bg-histo-gold"
-                  transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                />
-              )}
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
+      <div className="flex-1 flex justify-center">
+        <nav className="hidden lg:flex items-center gap-6">
+          {[
+            { label: 'Home', path: '/home' },
+            { label: 'Quiz', path: '/quiz' },
+            { label: 'AI Notes', path: '/notes' },
+            { label: 'Feed', path: '/feed' },
+            { label: 'Groups', path: '/groups' },
+            { label: 'Friends', path: '/friends' },
+          ].map((item) => {
+            const isActive = item.label === 'AI Notes';
+            return (
+              <Link
+                key={item.label}
+                to={item.path}
+                className={`relative px-3 py-2 text-sm font-ui tracking-wider uppercase transition-colors duration-200 ${
+                  isActive ? 'text-histo-gold font-bold' : 'text-histo-paper/80 hover:text-histo-gold'
+                }`}
+              >
+                {isActive && (
+                  <motion.span
+                    layoutId="notes-nav-underline"
+                    className="absolute left-0 right-0 -bottom-1 h-0.5 bg-histo-gold"
+                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                  />
+                )}
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
 
       {/* Right: Currency Badges, Shop Button & Scholar Profile */}
       <div className="flex items-center gap-3 shrink-0">
-        {/* Histoin & Token Balance Shop Pill */}
+        {/* Histoin Wallet Shop Trigger */}
         <button
           type="button"
           onClick={onOpenShop}
@@ -116,15 +118,17 @@ export default function NotesHeader({
               onClick={onToggleProfileMenu}
               className="flex items-center gap-2.5 cursor-pointer bg-transparent border-none outline-none group text-left"
             >
-              <div className="h-10 w-10 rounded-full bg-histo-gold/20 border border-histo-gold/50 group-hover:border-histo-gold flex items-center justify-center text-histo-gold font-display font-bold text-sm shadow-soft transition-colors">
-                {user.username ? user.username[0].toUpperCase() : 'U'}
-              </div>
+              <UserAvatar
+                user={user}
+                size="md"
+                className="group-hover:ring-2 group-hover:ring-histo-gold transition-all"
+              />
               <div className="hidden xl:flex flex-col">
                 <span className="text-sm font-ui font-semibold text-white group-hover:text-histo-gold transition-colors truncate max-w-[110px]">
-                  {user.username}
+                  {user.tag ? `${user.username}#${user.tag}` : user.username}
                 </span>
                 <span className="text-[11px] font-ui text-histo-gold/80 font-medium tracking-wide">
-                  Scholar #{user.tag || '0000'}
+                  Scholar Account
                 </span>
               </div>
             </button>
@@ -138,7 +142,8 @@ export default function NotesHeader({
             <div className="absolute right-0 top-full mt-2 w-60 bg-histo-dark text-white border border-histo-gold/30 rounded-[4px] shadow-deep p-2 z-50 animate-fade-in">
               <div className="px-3 py-2 border-b border-white/10 mb-1">
                 <p className="font-display text-sm font-bold text-histo-paper">{user.username}</p>
-                <p className="font-ui text-[10px] text-histo-gold/80 font-mono">#{user.tag}</p>
+                <p className="font-ui text-xs text-histo-gold/80 font-mono">#{user.tag}</p>
+                <p className="font-ui text-[10px] text-white/50 truncate mt-0.5">{user.email}</p>
               </div>
               <Link
                 to="/home"
@@ -156,17 +161,30 @@ export default function NotesHeader({
                 <Sparkles className="h-4.5 w-4.5 text-histo-gold/80" />
                 <span>Quizzes & Lobbies</span>
               </Link>
-              <button
-                type="button"
-                onClick={() => {
-                  onCloseProfileMenu();
-                  onOpenShop();
-                }}
-                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 cursor-pointer"
+              <Link
+                to="/friends"
+                onClick={onCloseProfileMenu}
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
               >
-                <ShoppingBag className="h-4.5 w-4.5 text-histo-gold/80" />
-                <span>Token Shop</span>
-              </button>
+                <Users className="h-4.5 w-4.5 text-histo-gold/80" />
+                <span>Friends & Scholars</span>
+              </Link>
+              <Link
+                to="/feed"
+                onClick={onCloseProfileMenu}
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+              >
+                <MessageSquare className="h-4.5 w-4.5 text-histo-gold/80" />
+                <span>Community Feed</span>
+              </Link>
+              <Link
+                to="/settings"
+                onClick={onCloseProfileMenu}
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+              >
+                <Settings className="h-4.5 w-4.5 text-histo-gold/80" />
+                <span>Profile & Settings</span>
+              </Link>
               <div className="h-[1px] bg-white/10 my-1" />
               <button
                 type="button"

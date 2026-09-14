@@ -12,6 +12,7 @@ import websockets
 import logging
 
 from app.core.config import settings
+from app.core.correlation import CorrelationIdMiddleware, get_request_id
 
 logger = logging.getLogger("histofacts.gateway")
 
@@ -34,6 +35,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -138,6 +140,9 @@ async def proxy_gateway(request: Request, path: str):
     headers = dict(request.headers)
     # Remove host header so destination service receives proper host
     headers.pop("host", None)
+    req_id = getattr(request.state, "request_id", None) or get_request_id()
+    if req_id:
+        headers["X-Request-ID"] = req_id
 
     try:
         client: httpx.AsyncClient = request.app.state.client

@@ -11,13 +11,13 @@ export default function ConversationListItem({ conversation, currentUserId, onCl
     : null;
 
   const displayName = isDirect
-    ? otherUser
-      ? `${otherUser.username}#${otherUser.tag}`
-      : 'Unknown User'
+    ? (otherUser?.username
+        ? `${otherUser.username}${otherUser.tag ? '#' + otherUser.tag : ''}`
+        : 'Scholar')
     : conversation.group_name || 'Group Chat';
 
   const avatarLetter = isDirect
-    ? otherUser?.username?.[0]?.toUpperCase() || '?'
+    ? otherUser?.username?.[0]?.toUpperCase() || 'S'
     : conversation.group_name?.[0]?.toUpperCase() || 'G';
 
   const lastMsg = conversation.last_message;

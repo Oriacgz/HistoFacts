@@ -6,11 +6,10 @@ lobby room state machine, leaderboard rankings, and history records.
 import json
 import uuid
 import asyncio
-from datetime import datetime, timezone
-from sqlalchemy import select, desc, func
+from datetime import datetime, timezone, timedelta
+from sqlalchemy import select, desc, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord
-from app.auth.models import User
+from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord, UserSummaryCache
 from app.quiz.schemas import (
     QuizAttemptRequest,
     GenerateQuizRequest,
@@ -18,6 +17,8 @@ from app.quiz.schemas import (
     LeaderboardResponse,
     LeaderboardEntry,
 )
+from app.core.deps import CurrentUser
+from app.core.inter_service import call_auth_get_user_summary
 
 SEED_QUESTIONS = [
     {
@@ -253,16 +254,118 @@ async def get_quiz_session_detail(
     return res.scalar_one_or_none()
 
 
-async def get_global_leaderboard_data(db: AsyncSession, current_user: User | None = None) -> LeaderboardResponse:
+async def _get_user_summary(user_id: str, db: AsyncSession) -> UserSummaryCache | None:
+    """Get user summary from local cache or fetch from Auth service."""
+    cached = await db.get(UserSummaryCache, user_id)
+    if cached:
+        synced_at = cached.synced_at
+        if synced_at.tzinfo is None:
+            synced_at = synced_at.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - synced_at) < timedelta(hours=1):
+            return cached
+
+    try:
+        data = await call_auth_get_user_summary(user_id)
+        if data:
+            summary = UserSummaryCache(
+                user_id=data["user_id"],
+                username=data["username"],
+                tag=data["tag"],
+                avatar_url=data.get("avatar_url"),
+                bio=data.get("bio"),
+                is_banned=data.get("is_banned", False),
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    # In-process DB fallback
+    try:
+        from app.auth.models import User
+        u = await db.get(User, user_id)
+        if u:
+            summary = UserSummaryCache(
+                user_id=u.id,
+                username=u.username,
+                tag=u.tag,
+                avatar_url=u.avatar_url,
+                bio=u.bio,
+                is_banned=u.is_banned,
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    return cached
+
+
+async def get_global_leaderboard(
+    db: AsyncSession,
+    month_start: datetime | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """
+    SQL-aggregated and ranked global leaderboard.
+    All aggregation and ranking is performed in SQL via func.sum() and func.rank().over().
+    Zero Python-side .sum() or .sort().
+    """
+    if month_start is None:
+        now = datetime.now(timezone.utc)
+        month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+
+    stmt = (
+        select(
+            QuizSessionRecord.user_id,
+            func.sum(QuizSessionRecord.score).label("total_score"),
+            func.rank().over(order_by=func.sum(QuizSessionRecord.score).desc()).label("rank"),
+        )
+        .where(
+            QuizSessionRecord.created_at >= month_start,
+        )
+        .group_by(QuizSessionRecord.user_id)
+        .order_by(text("total_score DESC"))
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).all()
+
+    user_ids = [r.user_id for r in rows]
+    authors = {}
+    if user_ids:
+        authors = {
+            a.user_id: a
+            for a in (
+                await db.execute(
+                    select(UserSummaryCache).where(UserSummaryCache.user_id.in_(user_ids))
+                )
+            ).scalars().all()
+        }
+
+    return [
+        {"rank": int(r.rank), "score": int(r.total_score or 0), "user": authors.get(r.user_id)}
+        for r in rows
+    ]
+
+
+async def get_global_leaderboard_data(
+    db: AsyncSession,
+    current_user: CurrentUser | None = None,
+    limit: int = 50,
+) -> LeaderboardResponse:
+    from app.core.deps import CurrentUser
     now = datetime.now(timezone.utc)
     month_name = now.strftime("%B %Y")
+    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
     
-    # Calculate days remaining until next month
     import calendar
     days_in_month = calendar.monthrange(now.year, now.month)[1]
     days_remaining = max(1, days_in_month - now.day)
 
-    # Aggregate quiz sessions by user_id
     query = (
         select(
             QuizSessionRecord.user_id,
@@ -270,44 +373,45 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: User | Non
             func.count(QuizSessionRecord.id).label("quizzes_taken"),
             func.sum(QuizSessionRecord.correct_count).label("total_correct"),
             func.sum(QuizSessionRecord.correct_count + QuizSessionRecord.wrong_count).label("total_questions"),
+            func.rank().over(order_by=func.sum(QuizSessionRecord.score).desc()).label("rank"),
         )
+        .where(QuizSessionRecord.created_at >= month_start)
         .group_by(QuizSessionRecord.user_id)
-        .order_by(func.sum(QuizSessionRecord.score).desc())
-        .limit(50)
+        .order_by(text("total_score DESC"))
+        .limit(limit)
     )
     result = await db.execute(query)
     rows = result.all()
 
     entries = []
     user_rank = None
-    rank = 1
 
-    # Fetch user details for the aggregated user_ids
     user_ids = [row.user_id for row in rows]
     user_map = {}
     if user_ids:
-        users_query = select(User).where(User.id.in_(user_ids))
-        users_result = await db.execute(users_query)
-        user_map = {u.id: u for u in users_result.scalars().all()}
+        u_res = await db.execute(select(UserSummaryCache).where(UserSummaryCache.user_id.in_(user_ids)))
+        for u in u_res.scalars().all():
+            user_map[u.user_id] = u
 
     for row in rows:
         u_id = row.user_id
         db_user = user_map.get(u_id)
         username = db_user.username if db_user else f"Scholar_{str(u_id)[:6]}"
-        tag = getattr(db_user, "tag", "0001") if db_user else "0001"
+        tag = db_user.tag if db_user else "0001"
         total_score = int(row.total_score or 0)
         quizzes_taken = int(row.quizzes_taken or 0)
         total_correct = int(row.total_correct or 0)
         total_questions = int(row.total_questions or 0)
         accuracy = round((total_correct / total_questions) * 100.0, 1) if total_questions > 0 else 0.0
+        row_rank = int(row.rank)
 
         is_me = False
         if current_user and (str(u_id) == str(current_user.id) or (db_user and db_user.username.lower() == current_user.username.lower())):
             is_me = True
-            user_rank = rank
+            user_rank = row_rank
 
         entries.append(LeaderboardEntry(
-            rank=rank,
+            rank=row_rank,
             user_id=str(u_id),
             username=username,
             tag=tag,
@@ -316,7 +420,6 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: User | Non
             quizzes_taken=quizzes_taken,
             is_current_user=is_me,
         ))
-        rank += 1
 
     return LeaderboardResponse(
         month_name=month_name,
@@ -327,9 +430,13 @@ async def get_global_leaderboard_data(db: AsyncSession, current_user: User | Non
     )
 
 
+
 # -------------------------------------------------------------
 # Real-time WebSocket Lobby Manager (Kahoot-style state machine)
 # -------------------------------------------------------------
+from app.quiz.lobby_state import lobby_state_manager
+
+
 class LobbyRoom:
     def __init__(self, code: str, host_id: str, host_name: str, topic: str, questions: list[dict]):
         self.code = code
@@ -344,13 +451,59 @@ class LobbyRoom:
         self.participants = {}  # user_id -> { "username": str, "tag": str, "score": int, "streak": int, "answers": dict, "ws": WebSocket }
         self.task = None
 
+    def to_dict(self) -> dict:
+        """Serializes lobby state to JSON-safe dictionary (excluding active WebSocket objects)."""
+        p_data = {}
+        for uid, p in self.participants.items():
+            p_data[uid] = {
+                "username": p.get("username", "Scholar"),
+                "tag": p.get("tag", "0001"),
+                "score": p.get("score", 0),
+                "streak": p.get("streak", 0),
+                "answers": p.get("answers", {}),
+                "role": p.get("role", "player"),
+            }
+        return {
+            "code": self.code,
+            "host_id": self.host_id,
+            "host_name": self.host_name,
+            "topic": self.topic,
+            "questions": self.questions,
+            "state": self.state,
+            "current_question_index": self.current_question_index,
+            "time_per_question": self.time_per_question,
+            "time_remaining": self.time_remaining,
+            "participants": p_data,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "LobbyRoom":
+        """Restores a LobbyRoom from serialized Redis state."""
+        room = cls(
+            code=data["code"],
+            host_id=data["host_id"],
+            host_name=data.get("host_name", "Host"),
+            topic=data.get("topic", "History"),
+            questions=data.get("questions", []),
+        )
+        room.state = data.get("state", "waiting_room")
+        room.current_question_index = data.get("current_question_index", 0)
+        room.time_per_question = data.get("time_per_question", 20)
+        room.time_remaining = data.get("time_remaining", 20)
+        room.participants = data.get("participants", {})
+        return room
+
+    async def sync_state(self) -> None:
+        """Persist current state snapshot to Redis / distributed state manager."""
+        await lobby_state_manager.save_lobby(self.code, self.to_dict())
+
     def get_participants_summary(self):
         return [
             {
                 "user_id": uid,
-                "username": p["username"],
+                "username": p.get("username", "Scholar"),
                 "tag": p.get("tag", "0001"),
-                "score": p["score"],
+                "score": p.get("score", 0),
                 "streak": p.get("streak", 0),
                 "answered_current": self.current_question_index in p.get("answers", {}),
             }
@@ -362,6 +515,12 @@ class LobbyRoom:
         return sorted_p[:5]
 
     async def broadcast(self, message: dict):
+        """Broadcast message to all lobby participants across all service replicas via Redis Pub/Sub."""
+        # 1. Synchronize latest state to Redis
+        await self.sync_state()
+        # 2. Publish to Redis Pub/Sub channel for cross-replica distribution
+        await lobby_state_manager.broadcast_to_lobby(self.code, message)
+        # 3. Deliver locally to active connections held directly in memory
         dead_connections = []
         for uid, p in self.participants.items():
             ws = p.get("ws")
@@ -386,8 +545,25 @@ class LobbyManager:
         self.rooms[code] = room
         return room
 
+    async def create_room_async(self, host_id: str, host_name: str, topic: str, questions: list[dict]) -> LobbyRoom:
+        room = self.create_room(host_id, host_name, topic, questions)
+        await room.sync_state()
+        return room
+
     def get_room(self, code: str) -> LobbyRoom | None:
         return self.rooms.get(code)
+
+    async def get_room_async(self, code: str) -> LobbyRoom | None:
+        """Get room from memory, or restore from Redis if created by another replica."""
+        if code in self.rooms:
+            return self.rooms[code]
+
+        data = await lobby_state_manager.get_lobby(code)
+        if data:
+            room = LobbyRoom.from_dict(data)
+            self.rooms[code] = room
+            return room
+        return None
 
 
 lobby_manager = LobbyManager()

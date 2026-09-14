@@ -69,9 +69,17 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
 
     python_exe = sys.executable
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
     print("=" * 70)
     print(">> Starting HistoFacts Microservices Architecture (8 Processes)")
     print("=" * 70)
+
+    print("  [+] Applying database migrations...")
+    subprocess.run(
+        [python_exe, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
+        cwd=backend_dir,
+        check=True,
+    )
 
     for name, app_module, port in SERVICES:
         cmd = [
@@ -92,7 +100,7 @@ def main():
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
+            cwd=backend_dir,
         )
         processes.append((name, proc))
 

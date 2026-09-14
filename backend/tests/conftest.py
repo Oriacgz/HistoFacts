@@ -12,8 +12,12 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_async_session
 from app.main import app
+from app.auth.router import limiter
 from app.ai_notes.wallet_service import seed_token_packs
 from app.history.sync import seed_initial_events
+
+# Disable slowapi rate limiting during tests
+limiter.enabled = False
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
