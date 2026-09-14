@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, Heart, Trash2, CornerDownRight, Send } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import UserAvatar from '../../components/UserAvatar';
 
 export default function CommentItem({
   comment,
@@ -50,13 +51,7 @@ export default function CommentItem({
         {/* Comment Header */}
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-histo-dark text-white flex items-center justify-center font-display text-xs font-bold shadow-inner">
-              {comment.author?.avatar_url ? (
-                <img src={comment.author.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
-              ) : (
-                comment.author?.username?.[0]?.toUpperCase() || '?'
-              )}
-            </div>
+            <UserAvatar user={comment.author} size="xs" />
             <span className="font-ui font-semibold text-xs text-histo-dark">
               {comment.author?.username || 'Scholar'}
               {comment.author?.tag && (

@@ -8,8 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
-from app.core.deps import get_current_user, get_optional_current_user
-from app.auth.models import User
+from app.core.deps import get_current_user, get_optional_current_user, CurrentUser
 from app.social.community_forum.datatransferobjects.schemas import (
     CreatePostDTO,
     PostResponseDTO,
@@ -52,10 +51,29 @@ def get_forum_service(db: AsyncSession = Depends(get_async_session)) -> ForumSer
     )
 
 
-@router.post("/", response_model=PostResponseDTO, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=PostResponseDTO, status_code=status.HTTP_201_CREATED)
 async def create_post(
     dto: CreatePostDTO,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
+    service: ForumService = Depends(get_forum_service),
+):
+    try:
+        entity = await service.create_post(
+            user_id=current_user.id,
+            content=dto.content,
+            title=dto.title,
+            group_id=dto.group_id,
+            event_id=dto.event_id,
+        )
+        return entity
+    except UserBannedError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+
+@router.post("/", response_model=PostResponseDTO, status_code=status.HTTP_201_CREATED, include_in_schema=False)
+async def create_post_trailing(
+    dto: CreatePostDTO,
+    current_user: CurrentUser = Depends(get_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
     try:
@@ -76,7 +94,7 @@ async def get_feed(
     group_id: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    current_user: Optional[User] = Depends(get_optional_current_user),
+    current_user: Optional[CurrentUser] = Depends(get_optional_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
     current_user_id = current_user.id if current_user else None
@@ -91,7 +109,7 @@ async def get_feed(
 @router.get("/{post_id}", response_model=PostResponseDTO)
 async def get_post_detail(
     post_id: str,
-    current_user: Optional[User] = Depends(get_optional_current_user),
+    current_user: Optional[CurrentUser] = Depends(get_optional_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
     try:
@@ -104,7 +122,7 @@ async def get_post_detail(
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
     post_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
     try:
@@ -119,7 +137,7 @@ async def delete_post(
 async def add_comment(
     post_id: str,
     dto: CreateCommentDTO,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
     try:
@@ -145,7 +163,7 @@ async def add_comment(
 async def delete_comment(
     post_id: str,
     comment_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
     try:
@@ -159,7 +177,7 @@ async def delete_comment(
 @router.post("/{post_id}/like", response_model=LikeToggleResponseDTO)
 async def toggle_post_like(
     post_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
     try:
@@ -173,7 +191,7 @@ async def toggle_post_like(
 async def share_post(
     post_id: str,
     dto: SharePostDTO,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
     try:

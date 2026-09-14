@@ -5,10 +5,12 @@ Main FastAPI application entry point.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from app.core.config import settings
-from app.core.database import engine, Base, async_session_factory
-from app.auth.router import router as auth_router
+from app.core.database import async_session_factory
+from app.auth.router import router as auth_router, users_router
 from app.history.router import router as history_router
 from app.quiz.router import router as quiz_router
 from app.social.router import router as social_router
@@ -23,10 +25,6 @@ from app.quiz.service import seed_quiz_questions
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure tables exist and seed initial data
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     async with async_session_factory() as session:
         await seed_token_packs(session)
         await seed_initial_events(session)
@@ -54,6 +52,7 @@ app.add_middleware(
 
 # Mount module routers
 app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(history_router)
 app.include_router(quiz_router)
 app.include_router(social_router)
@@ -66,3 +65,9 @@ app.include_router(notification_router)
 @app.get("/health", tags=["System"])
 async def health_check():
     return {"status": "ok", "app": "HistoFacts Backend"}
+
+
+# Serve uploaded files (avatars, etc.) — mounted last so routes take priority
+uploads_path = Path("uploads")
+uploads_path.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")

@@ -76,8 +76,10 @@ export async function getShopPacksApi() {
   return apiFetch('/api/shop/packs');
 }
 
-export async function purchasePackApi(packId) {
-  return apiFetch(`/api/shop/purchase/${packId}`, {
-    method: 'POST',
-  });
+export async function purchasePackApi(packId, idempotencyKey = null) {
+  const options = { method: 'POST' };
+  if (idempotencyKey) {
+    options.headers = { 'Idempotency-Key': idempotencyKey };
+  }
+  return apiFetch(`/api/shop/purchase/${packId}`, options);
 }

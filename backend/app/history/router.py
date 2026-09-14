@@ -11,8 +11,7 @@ from app.history.models import HistoricalEvent, Bookmark
 from app.history.schemas import HistoricalEventResponse, BookmarkResponse
 from app.history.sync import seed_initial_events, sync_wikimedia_events_for_date
 from app.core.database import get_async_session
-from app.core.deps import get_current_user
-from app.auth.models import User
+from app.core.deps import get_current_user, CurrentUser
 
 router = APIRouter(prefix="/api/events", tags=["History"])
 
@@ -82,7 +81,7 @@ async def search_events(
 @router.post("/bookmarks/{event_id}", response_model=BookmarkResponse, status_code=status.HTTP_201_CREATED)
 async def add_bookmark(
     event_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     # Verify event exists
@@ -118,7 +117,7 @@ async def add_bookmark(
 @router.delete("/bookmarks/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_bookmark(
     event_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     res = await db.execute(
@@ -138,7 +137,7 @@ async def remove_bookmark(
 
 @router.get("/bookmarks/me", response_model=list[BookmarkResponse])
 async def get_my_bookmarks(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     query = (

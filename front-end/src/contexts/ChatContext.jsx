@@ -1,56 +1,54 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from './AuthContext';
-import { getConversationsApi, getOrCreateDirectApi, getOrCreateGroupChatApi, markAsReadApi } from '../api/chat';
+import { useConversations } from '../hooks/queries/useConversations';
+import { getOrCreateDirectApi, getOrCreateGroupChatApi, markAsReadApi } from '../api/chat';
 
 const ChatContext = createContext(null);
 
 export function ChatProvider({ children }) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
-  const [totalUnreadCount, setTotalUnreadCount] = useState(0);
-  const pollRef = useRef(null);
 
+  // React Query handles polling with adaptive rate (5s open / 15s background)
+  const {
+    data: conversations = [],
+    refetch: refetchConversations,
+  } = useConversations({
+    isOpen: isChatOpen,
+    hasActiveConversation: !!activeConversation,
+  });
+
+  const totalUnreadCount = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+
+  /** Manually trigger a conversations refresh (e.g. after sending a message). */
   const fetchConversations = useCallback(async () => {
-    if (!user) return;
-    try {
-      const data = await getConversationsApi();
-      setConversations(data || []);
-      const total = (data || []).reduce((sum, c) => sum + (c.unread_count || 0), 0);
-      setTotalUnreadCount(total);
-    } catch {
-      /* silent fail for polling */
-    }
-  }, [user]);
-
-  // Poll conversations every 5s when sidebar is open on list view
-  useEffect(() => {
-    if (!user) return;
-    // Initial fetch
-    fetchConversations();
-
-    if (isChatOpen && !activeConversation) {
-      pollRef.current = setInterval(fetchConversations, 5000);
-      return () => clearInterval(pollRef.current);
-    }
-  }, [user, isChatOpen, activeConversation, fetchConversations]);
-
-  // Also poll when sidebar is closed, but slower (for badge updates)
-  useEffect(() => {
-    if (!user || isChatOpen) return;
-    const badgePoll = setInterval(fetchConversations, 15000);
-    return () => clearInterval(badgePoll);
-  }, [user, isChatOpen, fetchConversations]);
+    await queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+  }, [queryClient]);
 
   const openChat = useCallback(() => {
     setIsChatOpen(true);
-    fetchConversations();
-  }, [fetchConversations]);
+    refetchConversations();
+  }, [refetchConversations]);
+
   const closeChat = useCallback(() => {
     setIsChatOpen(false);
     setActiveConversation(null);
   }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setIsChatOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        refetchConversations();
+      } else {
+        setActiveConversation(null);
+      }
+      return next;
+    });
+  }, [refetchConversations]);
 
   const openDirectChat = useCallback(async (friendUserId) => {
     try {
@@ -93,6 +91,9 @@ export function ChatProvider({ children }) {
     <ChatContext.Provider
       value={{
         isChatOpen,
+        isOpen: isChatOpen,
+        toggleSidebar,
+        toggleChat: toggleSidebar,
         openChat,
         closeChat,
         conversations,
@@ -112,8 +113,5 @@ export function ChatProvider({ children }) {
 
 export function useChat() {
   const context = useContext(ChatContext);
-  if (!context) {
-    throw new Error('useChat must be used within a ChatProvider');
-  }
   return context;
 }

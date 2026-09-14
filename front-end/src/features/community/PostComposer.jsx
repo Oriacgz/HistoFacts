@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PenTool, Send, Sparkles, Hash } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import UserAvatar from '../../components/UserAvatar';
 
 export default function PostComposer({ onPostCreated, disabled = false }) {
   const { user } = useAuth();
@@ -41,13 +42,7 @@ export default function PostComposer({ onPostCreated, disabled = false }) {
       {/* Header */}
       <div className="flex items-center justify-between pb-3 mb-3 border-b border-histo-dark/10">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-histo-paper border border-histo-copper/30 flex items-center justify-center font-display font-bold text-histo-dark text-sm shadow-inner">
-            {user?.avatar_url ? (
-              <img src={user.avatar_url} alt={user.username} className="w-full h-full rounded-full object-cover" />
-            ) : (
-              user?.username?.[0]?.toUpperCase() || '?'
-            )}
-          </div>
+          <UserAvatar user={user} size="sm" />
           <div>
             <h3 className="font-ui font-semibold text-sm text-histo-dark">
               {user ? user.username : 'Guest Scholar'}

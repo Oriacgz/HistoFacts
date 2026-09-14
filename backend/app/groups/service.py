@@ -2,18 +2,68 @@
 Business logic for Group creation, membership, and member queries.
 """
 
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.groups.models import Group, GroupMember
+from app.groups.models import Group, GroupMember, UserSummaryCache
 from app.groups.schemas import CreateGroupRequest, GroupResponse, GroupMemberResponse
-from app.auth.models import User
-from app.auth.schemas import UserResponse
 from app.core.inter_service import notify
 
 
+async def _get_user_summary(user_id: str, db: AsyncSession) -> UserSummaryCache | None:
+    """Get user summary from local cache or fetch from Auth service."""
+    cached = await db.get(UserSummaryCache, user_id)
+    if cached:
+        synced_at = cached.synced_at
+        if synced_at.tzinfo is None:
+            synced_at = synced_at.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - synced_at) < timedelta(hours=1):
+            return cached
+
+    try:
+        from app.core.inter_service import call_auth_get_user_summary
+        data = await call_auth_get_user_summary(user_id)
+        if data:
+            summary = UserSummaryCache(
+                user_id=data["user_id"],
+                username=data["username"],
+                tag=data["tag"],
+                avatar_url=data.get("avatar_url"),
+                bio=data.get("bio"),
+                is_banned=data.get("is_banned", False),
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    # In-process DB fallback
+    try:
+        from app.auth.models import User
+        u = await db.get(User, user_id)
+        if u:
+            summary = UserSummaryCache(
+                user_id=u.id,
+                username=u.username,
+                tag=u.tag,
+                avatar_url=u.avatar_url,
+                bio=u.bio,
+                is_banned=u.is_banned,
+                synced_at=datetime.now(timezone.utc),
+            )
+            await db.merge(summary)
+            await db.commit()
+            return summary
+    except Exception:
+        pass
+
+    return cached
+
+
 async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSession) -> GroupResponse:
-    # Filter unique member IDs excluding creator
     unique_member_ids = list(dict.fromkeys(m for m in (req.member_ids or []) if m and m != creator_id))
     total_count = len(unique_member_ids) + 1
 
@@ -30,7 +80,6 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
     db.add(group)
     await db.flush()
 
-    # Creator is admin member
     admin_member = GroupMember(
         group_id=group.id,
         user_id=creator_id,
@@ -38,7 +87,6 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
     )
     db.add(admin_member)
 
-    # Add initial invited members
     for uid in unique_member_ids:
         db.add(GroupMember(
             group_id=group.id,
@@ -48,9 +96,7 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
 
     await db.commit()
 
-    # Fire-and-forget notification for invited members
-    creator_res = await db.execute(select(User).where(User.id == creator_id))
-    creator = creator_res.scalar_one_or_none()
+    creator = await _get_user_summary(creator_id, db)
     creator_name = creator.username if creator else "Scholar"
 
     for uid in unique_member_ids:
@@ -65,12 +111,10 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
             },
         )
 
-    # Build response members
     members_resp = []
     all_uids = [creator_id] + unique_member_ids
     for uid in all_uids:
-        u_res = await db.execute(select(User).where(User.id == uid))
-        u = u_res.scalar_one_or_none()
+        u = await _get_user_summary(uid, db)
         m_role = "admin" if uid == creator_id else "member"
         members_resp.append(
             GroupMemberResponse(
@@ -78,7 +122,7 @@ async def create_group(req: CreateGroupRequest, creator_id: str, db: AsyncSessio
                 user_id=uid,
                 role=m_role,
                 joined_at=group.created_at,
-                user=UserResponse.model_validate(u) if u else None,
+                user=u,
             )
         )
 
@@ -128,7 +172,6 @@ async def add_group_member(group_id: str, user_id: str, role: str, db: AsyncSess
     if res.scalar_one_or_none():
         return False, "Already a member of this group"
 
-    # Check capacity (maximum 50 members)
     count_res = await db.execute(
         select(func.count()).select_from(GroupMember).where(GroupMember.group_id == group_id)
     )
