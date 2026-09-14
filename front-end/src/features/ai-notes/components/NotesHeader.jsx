@@ -9,7 +9,11 @@ import {
   ArrowLeft,
   ShoppingBag,
   LogOut,
+  Settings,
+  Users,
+  MessageSquare,
 } from 'lucide-react';
+import UserAvatar from '../../../components/UserAvatar';
 
 export default function NotesHeader({
   sidebarOpen,
@@ -114,19 +118,17 @@ export default function NotesHeader({
               onClick={onToggleProfileMenu}
               className="flex items-center gap-2.5 cursor-pointer bg-transparent border-none outline-none group text-left"
             >
-              <div className="h-10 w-10 rounded-full bg-histo-gold/20 border border-histo-gold/50 group-hover:border-histo-gold flex items-center justify-center text-histo-gold font-display font-bold text-sm shadow-soft transition-colors overflow-hidden">
-                {user.avatar_url ? (
-                  <img src={getAvatarSrc(user.avatar_url)} alt={user.username} className="h-full w-full object-cover" />
-                ) : (
-                  user.username ? user.username[0].toUpperCase() : 'U'
-                )}
-              </div>
+              <UserAvatar
+                user={user}
+                size="md"
+                className="group-hover:ring-2 group-hover:ring-histo-gold transition-all"
+              />
               <div className="hidden xl:flex flex-col">
                 <span className="text-sm font-ui font-semibold text-white group-hover:text-histo-gold transition-colors truncate max-w-[110px]">
-                  {user.username}
+                  {user.tag ? `${user.username}#${user.tag}` : user.username}
                 </span>
                 <span className="text-[11px] font-ui text-histo-gold/80 font-medium tracking-wide">
-                  Scholar #{user.tag || '0000'}
+                  Scholar Account
                 </span>
               </div>
             </button>
@@ -140,7 +142,8 @@ export default function NotesHeader({
             <div className="absolute right-0 top-full mt-2 w-60 bg-histo-dark text-white border border-histo-gold/30 rounded-[4px] shadow-deep p-2 z-50 animate-fade-in">
               <div className="px-3 py-2 border-b border-white/10 mb-1">
                 <p className="font-display text-sm font-bold text-histo-paper">{user.username}</p>
-                <p className="font-ui text-[10px] text-histo-gold/80 font-mono">#{user.tag}</p>
+                <p className="font-ui text-xs text-histo-gold/80 font-mono">#{user.tag}</p>
+                <p className="font-ui text-[10px] text-white/50 truncate mt-0.5">{user.email}</p>
               </div>
               <Link
                 to="/home"
@@ -157,6 +160,22 @@ export default function NotesHeader({
               >
                 <Sparkles className="h-4.5 w-4.5 text-histo-gold/80" />
                 <span>Quizzes & Lobbies</span>
+              </Link>
+              <Link
+                to="/friends"
+                onClick={onCloseProfileMenu}
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+              >
+                <Users className="h-4.5 w-4.5 text-histo-gold/80" />
+                <span>Friends & Scholars</span>
+              </Link>
+              <Link
+                to="/feed"
+                onClick={onCloseProfileMenu}
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+              >
+                <MessageSquare className="h-4.5 w-4.5 text-histo-gold/80" />
+                <span>Community Feed</span>
               </Link>
               <Link
                 to="/settings"
