@@ -65,3 +65,32 @@ def decode_token(token: str) -> dict | None:
         return payload
     except JWTError:
         return None
+
+
+def create_verification_token(user_id: str, new_email: str, expires_in: timedelta = timedelta(hours=24)) -> str:
+    """Create a signed token for email confirmation."""
+    expire = datetime.now(timezone.utc) + expires_in
+    payload = {
+        "sub": str(user_id),
+        "new_email": str(new_email).strip().lower(),
+        "type": "email_verification",
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def verify_and_decode_token(token: str) -> tuple[str, str]:
+    """
+    Verify and decode an email verification token.
+    Raises ValueError if invalid, expired, or wrong type.
+    Returns (user_id, new_email).
+    """
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "email_verification":
+        raise ValueError("Invalid or expired verification token")
+    user_id = payload.get("sub")
+    new_email = payload.get("new_email")
+    if not user_id or not new_email:
+        raise ValueError("Malformed verification token")
+    return user_id, new_email
+

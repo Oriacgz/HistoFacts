@@ -2,7 +2,9 @@
 FastAPI router for Auth & Identity endpoints.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+import io
+from PIL import Image
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,8 +19,20 @@ from app.auth.schemas import (
     FriendRequestResponse,
     FriendWithPresence,
     SearchUserResponse,
+    ProfileUpdate,
+    AvatarResponse,
+    PasswordChange,
+    EmailChangeRequest,
 )
-from app.auth.service import register_user, authenticate_user, refresh_user_tokens
+from app.auth.service import (
+    register_user,
+    authenticate_user,
+    refresh_user_tokens,
+    update_profile,
+    change_password,
+    request_email_change,
+    confirm_email_change,
+)
 from app.auth.friend_service import (
     search_users,
     send_friend_request,
@@ -30,12 +44,20 @@ from app.auth.friend_service import (
     list_friends_with_presence,
     heartbeat,
 )
+from app.core.file_storage import (
+    validate_image_content,
+    store_file,
+    delete_stored_file,
+)
 from app.core.database import get_async_session
 from app.core.deps import get_current_user, verify_internal_service_secret, CurrentUser
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 limiter = Limiter(key_func=get_remote_address)
+
+MAX_AVATAR_BYTES = 5 * 1024 * 1024
+MAX_DIMENSION = 512
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
@@ -204,3 +226,83 @@ async def presence_heartbeat(
     """Update current user's last seen timestamp (called by frontend every ~25s when tab is visible)."""
     await heartbeat(db, current_user.id)
     return None
+
+
+# ── Profile Management Endpoints ─────────────────────────────────────────────
+
+@router.post("/users/me/avatar", response_model=AvatarResponse)
+@router.post("/me/avatar", response_model=AvatarResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user_db),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Upload and process a new user avatar with content validation and resizing."""
+    raw = await file.read()
+    if len(raw) > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="Image too large (max 5MB)")
+    validate_image_content(raw)
+
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.thumbnail((MAX_DIMENSION, MAX_DIMENSION))
+        processed = io.BytesIO()
+        img.save(processed, format="WEBP", quality=85)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not process image")
+
+    if user.avatar_url:
+        delete_stored_file(user.avatar_url)
+
+    new_url = store_file(processed.getvalue(), prefix=f"avatars/{user.id}", extension="webp")
+    user.avatar_url = new_url
+    await db.commit()
+    await db.refresh(user)
+    return AvatarResponse(avatar_url=new_url)
+
+
+@router.patch("/users/me", response_model=UserResponse)
+@router.patch("/me", response_model=UserResponse)
+async def update_profile_endpoint(
+    payload: ProfileUpdate,
+    user: User = Depends(get_current_user_db),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Update user profile attributes (bio, country, pronouns, timezone, username, show_online_status)."""
+    updated = await update_profile(db, user, payload)
+    return UserResponse.model_validate(updated)
+
+
+@router.post("/users/me/change-password")
+@router.post("/me/change-password")
+async def change_password_endpoint(
+    payload: PasswordChange,
+    user: User = Depends(get_current_user_db),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Change current password after verifying old password."""
+    await change_password(db, user, payload)
+    return {"message": "Password updated successfully"}
+
+
+@router.post("/users/me/change-email")
+@router.post("/me/change-email")
+async def request_email_change_endpoint(
+    payload: EmailChangeRequest,
+    user: User = Depends(get_current_user_db),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Request email change link sent to the new email address."""
+    token = await request_email_change(user, payload, db)
+    return {"message": "Confirmation link sent to your new email address", "token": token}
+
+
+@router.get("/users/me/change-email/confirm")
+@router.get("/me/change-email/confirm")
+async def confirm_email_change_endpoint(
+    token: str = Query(..., description="Verification token from link"),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Confirm email change using token."""
+    new_email = await confirm_email_change(token, db)
+    return {"status": "success", "message": "Email updated successfully", "email": new_email}

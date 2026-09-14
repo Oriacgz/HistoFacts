@@ -15,6 +15,7 @@ const FeedPage = lazy(() => import('./pages/FeedPage'));
 const GroupsPage = lazy(() => import('./pages/GroupsPage'));
 const FriendsPage = lazy(() => import('./pages/FriendsPage'));
 const NotesPage = lazy(() => import('./pages/NotesPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
 function PageLoader() {
   return (
@@ -144,6 +145,14 @@ export default function App() {
                 element={
                   <FeatureBoundary featureName="Scholar Connections">
                     <FriendsPage />
+                  </FeatureBoundary>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <FeatureBoundary featureName="Profile Settings">
+                    <SettingsPage />
                   </FeatureBoundary>
                 }
               />

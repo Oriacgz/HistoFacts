@@ -261,10 +261,22 @@ async def list_friends_with_presence(db: AsyncSession, user_id: str) -> list[Fri
     now = datetime.now(timezone.utc)
     result = []
     for f in friends:
+        if not getattr(f, "show_online_status", True):
+            result.append(FriendWithPresence(
+                id=f.id,
+                username=f.username,
+                tag=f.tag,
+                avatar_url=f.avatar_url,
+                is_online=False,
+                last_seen_at=None,
+            ))
+            continue
+
         last_seen = presence_map.get(f.id)
         is_online = False
         if last_seen:
-            delta = (now - last_seen).total_seconds()
+            last_seen_aware = last_seen.replace(tzinfo=timezone.utc) if last_seen.tzinfo is None else last_seen
+            delta = (now - last_seen_aware).total_seconds()
             is_online = delta < ONLINE_THRESHOLD_SECONDS
         
         result.append(FriendWithPresence(

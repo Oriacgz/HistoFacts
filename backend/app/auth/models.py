@@ -4,7 +4,7 @@ SQLAlchemy models for Auth and Identity module (users, friends, presence).
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, UniqueConstraint, JSON, Integer, Boolean, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, UniqueConstraint, JSON, Integer, Boolean, Enum, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -24,10 +24,14 @@ class User(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
     avatar_url = Column(String, nullable=True)
-    bio = Column(Text, nullable=True)                          # <-- NEW
-    post_count = Column(Integer, default=0, nullable=False)    # <-- NEW
-    is_banned = Column(Boolean, default=False, nullable=False) # <-- NEW
-    banned_at = Column(DateTime(timezone=True), nullable=True) # <-- NEW
+    bio = Column(Text, nullable=True)
+    post_count = Column(Integer, default=0, nullable=False)
+    is_banned = Column(Boolean, default=False, nullable=False)
+    banned_at = Column(DateTime(timezone=True), nullable=True)
+    country_code = Column(String(2), nullable=True)                          # ISO 3166-1 alpha-2
+    pronouns = Column(String(20), nullable=True)
+    timezone = Column(String(50), nullable=False, default="UTC")             # IANA name
+    show_online_status = Column(Boolean, nullable=False, default=True)
     preferences = Column(JSON, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

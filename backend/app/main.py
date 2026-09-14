@@ -5,6 +5,8 @@ Main FastAPI application entry point.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import async_session_factory
@@ -62,3 +64,9 @@ app.include_router(notification_router)
 @app.get("/health", tags=["System"])
 async def health_check():
     return {"status": "ok", "app": "HistoFacts Backend"}
+
+
+# Serve uploaded files (avatars, etc.) — mounted last so routes take priority
+uploads_path = Path("uploads")
+uploads_path.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")

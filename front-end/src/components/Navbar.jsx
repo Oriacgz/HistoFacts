@@ -26,6 +26,13 @@ const headerIcons = [
   { icon: Calendar, label: 'Historical Calendar' },
 ];
 
+const getAvatarSrc = (url) => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  return `${baseUrl}${url}`;
+};
+
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -49,6 +56,7 @@ export default function Navbar() {
     if (p.startsWith('/feed')) return 'Feed';
     if (p.startsWith('/groups')) return 'Groups';
     if (p.startsWith('/friends')) return 'Friends';
+    if (p.startsWith('/settings')) return 'Settings';
     return 'Home';
   };
 
@@ -106,82 +114,92 @@ export default function Navbar() {
         })}
       </nav>
 
-      {/* Right side: Search + Icons + Chat + Profile + Mobile Toggle */}
-      <div className="flex items-center gap-2 md:gap-3 shrink-0">
-        {/* Desktop Search */}
-        <form
-          onSubmit={handleSearchSubmit}
-          className="hidden lg:flex w-full max-w-[190px] focus-within:max-w-[260px] items-center border border-white/20 bg-white/5 px-3 py-2 transition-all duration-300 rounded-[2px]"
-        >
+      {/* Search Input & Action Icons */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Search Bar */}
+        <form onSubmit={handleSearchSubmit} className="relative hidden md:block">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search facts..."
-            className="w-full bg-transparent text-sm text-histo-paper outline-none placeholder:text-white/40 font-ui"
+            className="w-44 lg:w-56 bg-white/5 hover:bg-white/10 focus:bg-white/10 border border-white/20 focus:border-histo-gold/60 px-3.5 py-1.5 rounded-[2px] text-histo-paper placeholder:text-white/40 font-ui text-sm outline-none transition-all duration-300"
           />
-          <button type="submit" className="ml-1 cursor-pointer border-none bg-transparent p-0">
-            <Search className="h-4 w-4 text-histo-paper/60 hover:text-histo-gold transition-colors" />
+          <button
+            type="submit"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-histo-paper/60 hover:text-histo-gold transition-colors cursor-pointer"
+            aria-label="Search"
+          >
+            <Search className="h-4 w-4" />
           </button>
         </form>
 
-        {/* Mobile Search Button */}
+        {/* Mobile Search Icon Toggle */}
         <button
           type="button"
-          className="lg:hidden flex h-10 w-10 items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300 shrink-0"
+          className="md:hidden flex h-10 w-10 items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300"
           onClick={() => setMobileSearchOpen(!mobileSearchOpen)}
-          aria-label="Search"
+          aria-label="Toggle Search"
         >
-          <Search className="h-4.5 w-4.5 text-histo-paper/85 hover:text-histo-gold transition-colors" />
+          <Search className="h-4.5 w-4.5 text-histo-paper" />
         </button>
 
-        {/* Header Icons (Filters, Calendar) */}
-        <div className="hidden xl:flex gap-2">
-          {headerIcons.map(({ icon: Icon, label }) => (
-            <div
-              key={label}
-              onClick={() => toast.info(`${label} panel`)}
-              className="group relative flex h-10 w-10 cursor-pointer items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300"
+        {/* Notifications & Action Icons */}
+        <div className="flex items-center gap-1 sm:gap-2">
+          {user && <NotificationDropdown />}
+
+          {/* Chat Sidebar Toggle Button */}
+          {chatContext && (
+            <button
+              type="button"
+              onClick={chatContext.toggleSidebar}
+              className={`relative flex h-10 w-10 items-center justify-center border rounded-full transition-colors duration-300 cursor-pointer ${
+                chatContext.isOpen
+                  ? 'border-histo-gold bg-histo-gold/20 text-histo-gold'
+                  : 'border-white/10 hover:border-histo-gold text-histo-paper'
+              }`}
+              aria-label="Scholar Chat"
+              title="Scholar Chat"
             >
-              <Icon className="h-4.5 w-4.5 text-histo-paper/85 transition-colors duration-300 group-hover:text-histo-gold" />
-              <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-y-0 group-hover:opacity-100 z-50">
-                {label}
-              </span>
-            </div>
-          ))}
+              <MessageSquare className="h-4.5 w-4.5" />
+              {totalUnread > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-histo-gold text-[10px] font-bold text-histo-dark font-ui leading-none shadow-xs">
+                  {totalUnread > 99 ? '99+' : totalUnread}
+                </span>
+              )}
+            </button>
+          )}
+
+          {headerIcons.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={index}
+                type="button"
+                className="hidden sm:flex h-10 w-10 items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300 group cursor-pointer"
+                aria-label={item.label}
+                title={item.label}
+              >
+                <Icon className="h-4.5 w-4.5 text-histo-paper group-hover:text-histo-gold transition-colors duration-300" />
+              </button>
+            );
+          })}
         </div>
 
-        {/* Notifications Dropdown */}
-        <NotificationDropdown />
-
-        {/* Chat Button — toggles sidebar */}
-        <button
-          type="button"
-          onClick={() => chatContext?.openChat?.()}
-          className="hidden sm:flex h-10 w-10 items-center justify-center border border-white/10 hover:border-histo-gold rounded-full transition-colors duration-300 group relative cursor-pointer bg-transparent"
-          aria-label="Open chat"
-        >
-          <MessageSquare className="h-4.5 w-4.5 text-histo-paper/85 transition-colors duration-300 group-hover:text-histo-gold" />
-          {totalUnread > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-histo-gold text-histo-dark text-[9px] font-ui font-bold px-1 shadow-sm">
-              {totalUnread > 99 ? '99+' : totalUnread}
-            </span>
-          )}
-          <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 translate-y-[-10px] whitespace-nowrap rounded-[2px] bg-histo-dark px-3 py-2 text-xs font-medium text-white opacity-0 shadow-medium transition duration-300 group-hover:translate-y-0 group-hover:opacity-100 z-50">
-            Messages
-          </span>
-        </button>
-
-        {/* Profile Area & Dropdown Menu */}
-        <div className="relative border-l border-white/10 pl-3">
+        {/* User Profile Pill / Login */}
+        <div className="relative border-l border-white/15 pl-2 sm:pl-3">
           {user ? (
             <button
               type="button"
               onClick={() => setProfileMenuOpen(!profileMenuOpen)}
               className="flex items-center gap-2.5 group cursor-pointer bg-transparent border-none outline-none text-left"
             >
-              <div className="h-10 w-10 rounded-full bg-histo-gold/20 border border-histo-gold/50 group-hover:border-histo-gold flex items-center justify-center text-histo-gold font-display font-bold text-base transition-colors duration-300 shadow-soft">
-                {user.username ? user.username[0].toUpperCase() : 'U'}
+              <div className="h-10 w-10 rounded-full bg-histo-gold/20 border border-histo-gold/50 group-hover:border-histo-gold flex items-center justify-center text-histo-gold font-display font-bold text-base transition-colors duration-300 shadow-soft overflow-hidden">
+                {user.avatar_url ? (
+                  <img src={getAvatarSrc(user.avatar_url)} alt={user.username} className="h-full w-full object-cover" />
+                ) : (
+                  user.username ? user.username[0].toUpperCase() : 'U'
+                )}
               </div>
               <div className="hidden sm:flex flex-col">
                 <span className="text-sm font-ui font-semibold tracking-wide text-white group-hover:text-histo-gold transition-colors duration-200">
@@ -246,6 +264,15 @@ export default function Navbar() {
                 >
                   <MessageSquare className="h-4.5 w-4.5 text-histo-gold/80" />
                   <span>Community Feed</span>
+                </Link>
+
+                <Link
+                  to="/settings"
+                  onClick={() => setProfileMenuOpen(false)}
+                  className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5 block"
+                >
+                  <Settings className="h-4.5 w-4.5 text-histo-gold/80" />
+                  <span>Profile & Settings</span>
                 </Link>
 
                 <div className="h-[1px] bg-white/10 my-1" />
@@ -329,6 +356,16 @@ export default function Navbar() {
                   <Sparkles className="h-4.5 w-4.5 text-histo-gold/80" />
                   <span>AI Notes</span>
                 </Link>
+                {user && (
+                  <Link
+                    to="/settings"
+                    className="flex items-center gap-2 text-sm font-ui text-histo-paper hover:text-histo-gold transition-colors py-2"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <Settings className="h-4.5 w-4.5 text-histo-gold/80" />
+                    <span>Profile & Settings</span>
+                  </Link>
+                )}
                 {user && (
                   <button
                     type="button"

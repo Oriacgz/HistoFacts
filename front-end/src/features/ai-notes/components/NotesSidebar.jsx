@@ -138,46 +138,49 @@ export default function NotesSidebar({
   );
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          {/* Desktop in-flow animated sidebar (smoothly animates width with 0 gap) */}
-          <motion.aside
-            key="notes-sidebar-desktop"
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 288, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
-            className="hidden lg:flex h-full flex-col shrink-0 bg-white border-r border-histo-dark/10 shadow-sm overflow-hidden z-20"
-          >
-            {sidebarContent}
-          </motion.aside>
+    <>
+      {/* Desktop in-flow sidebar: always rendered, width animates 0↔288.
+          Keeping it in the DOM avoids the remount reflow that caused the
+          post-close gap. overflow-hidden clips the fixed-width inner content. */}
+      <motion.aside
+        animate={{ width: isOpen ? 288 : 0 }}
+        transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
+        style={{ width: isOpen ? 288 : 0 }}
+        className="hidden lg:flex h-full flex-col shrink-0 bg-white border-r border-histo-dark/10 shadow-sm overflow-hidden z-20"
+        aria-hidden={!isOpen}
+      >
+        {sidebarContent}
+      </motion.aside>
 
-          {/* Mobile slide-over drawer */}
-          <motion.aside
-            key="notes-sidebar-mobile"
-            initial={{ x: -288 }}
-            animate={{ x: 0 }}
-            exit={{ x: -288 }}
-            transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
-            className="lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-2xl flex flex-col"
-          >
-            {sidebarContent}
-          </motion.aside>
+      {/* Mobile slide-over drawer + backdrop — fixed-position, safe to
+          mount/unmount since it doesn't affect the layout flow */}
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <motion.aside
+              key="notes-sidebar-mobile"
+              initial={{ x: -288 }}
+              animate={{ x: 0 }}
+              exit={{ x: -288 }}
+              transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
+              className="lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-2xl flex flex-col"
+            >
+              {sidebarContent}
+            </motion.aside>
 
-          {/* Mobile Backdrop */}
-          <motion.div
-            key="notes-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
-            onClick={onClose}
-          />
-        </>
-      )}
-    </AnimatePresence>
+            <motion.div
+              key="notes-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
+              onClick={onClose}
+            />
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
