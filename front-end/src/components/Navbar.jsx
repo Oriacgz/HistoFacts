@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useChat } from '../contexts/ChatContext';
 import NotificationDropdown from './NotificationDropdown';
+import UserAvatar from './UserAvatar';
 
 const headerIcons = [
   { icon: Filter, label: 'Filters' },
@@ -194,13 +195,7 @@ export default function Navbar() {
               onClick={() => setProfileMenuOpen(!profileMenuOpen)}
               className="flex items-center gap-2.5 group cursor-pointer bg-transparent border-none outline-none text-left"
             >
-              <div className="h-10 w-10 rounded-full bg-histo-gold/20 border border-histo-gold/50 group-hover:border-histo-gold flex items-center justify-center text-histo-gold font-display font-bold text-base transition-colors duration-300 shadow-soft overflow-hidden">
-                {user.avatar_url ? (
-                  <img src={getAvatarSrc(user.avatar_url)} alt={user.username} className="h-full w-full object-cover" />
-                ) : (
-                  user.username ? user.username[0].toUpperCase() : 'U'
-                )}
-              </div>
+              <UserAvatar user={user} size="md" className="group-hover:ring-2 group-hover:ring-histo-gold transition-all" />
               <div className="hidden sm:flex flex-col">
                 <span className="text-sm font-ui font-semibold tracking-wide text-white group-hover:text-histo-gold transition-colors duration-200">
                   {user.tag ? `${user.username}#${user.tag}` : user.username}

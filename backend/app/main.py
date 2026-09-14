@@ -10,7 +10,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import async_session_factory
-from app.auth.router import router as auth_router
+from app.auth.router import router as auth_router, users_router
 from app.history.router import router as history_router
 from app.quiz.router import router as quiz_router
 from app.social.router import router as social_router
@@ -52,6 +52,7 @@ app.add_middleware(
 
 # Mount module routers
 app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(history_router)
 app.include_router(quiz_router)
 app.include_router(social_router)

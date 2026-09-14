@@ -3,12 +3,13 @@ FastAPI router for Notification Microservice endpoints.
 Includes internal service-to-service creation and public user endpoints.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
-from app.core.deps import get_current_user, CurrentUser
-from app.notification.models import NOTIFICATION_TYPES
+from app.core.deps import get_current_user, CurrentUser, verify_internal_service_secret
+from app.notification.models import Notification, NOTIFICATION_TYPES
 from app.notification.schemas import (
     NotificationCreate,
     NotificationResponse,
@@ -29,7 +30,6 @@ router = APIRouter(tags=["Notifications"])
 # ── Internal Endpoint (Service-to-Service Only) ───────────────
 @router.post(
     "/internal/notifications",
-    response_model=NotificationResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create notification (Internal service-to-service only)",
 )
@@ -44,7 +44,50 @@ async def create_internal_notification(
             detail=f"Invalid notification type '{payload.type}'. Must be one of {NOTIFICATION_TYPES}",
         )
     notification = await create_notification_record(payload, db)
-    return notification
+    if notification is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return NotificationResponse.model_validate(notification)
+
+
+@router.post(
+    "/internal/users/{user_id}/purge",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_internal_service_secret)],
+)
+async def purge_user_notifications(
+    user_id: str,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Internal purge: delete all notification records for the user."""
+    await db.execute(delete(Notification).where(Notification.user_id == user_id))
+    await db.commit()
+    return {"status": "purged", "service": "notification"}
+
+
+@router.get(
+    "/internal/users/{user_id}/export",
+    dependencies=[Depends(verify_internal_service_secret)],
+)
+async def export_user_notifications(
+    user_id: str,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Internal export: fetch all notifications for user data export."""
+    res = await db.execute(select(Notification).where(Notification.user_id == user_id))
+    rows = res.scalars().all()
+    return {
+        "notifications": [
+            {
+                "id": n.id,
+                "type": n.type,
+                "payload": n.payload,
+                "is_read": n.is_read,
+                "created_at": str(n.created_at),
+            }
+            for n in rows
+        ]
+    }
+
 
 
 # ── Public Endpoints (Via Gateway) ────────────────────────────

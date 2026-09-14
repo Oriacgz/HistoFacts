@@ -5,6 +5,7 @@ FastAPI router for AI Notes, Token Wallet, Shop, and Handwritten Notes endpoints
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_notes.schemas import (
@@ -200,4 +201,47 @@ async def internal_reward_quiz(
     from app.ai_notes.wallet_service import reward_quiz_histoins
     rewarded = await reward_quiz_histoins(req.user_id, db)
     return {"status": "rewarded" if rewarded else "cap_reached", "user_id": req.user_id}
+
+
+@router.post(
+    "/internal/users/{user_id}/purge",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_internal_service_secret)],
+)
+async def purge_user_ai_notes(
+    user_id: str,
+    db: AsyncSession = Depends(get_async_session),
+):
+    from app.ai_notes.models import Note, UserTokenWallet, HistoinWallet, TokenLedger, HistoinLedger, PurchaseLog
+    await db.execute(delete(Note).where(Note.user_id == user_id))
+    await db.execute(delete(UserTokenWallet).where(UserTokenWallet.user_id == user_id))
+    await db.execute(delete(HistoinWallet).where(HistoinWallet.user_id == user_id))
+    await db.execute(delete(TokenLedger).where(TokenLedger.user_id == user_id))
+    await db.execute(delete(HistoinLedger).where(HistoinLedger.user_id == user_id))
+    await db.execute(delete(PurchaseLog).where(PurchaseLog.user_id == user_id))
+    await db.commit()
+    return {"status": "purged", "service": "ai_notes"}
+
+
+@router.get(
+    "/internal/users/{user_id}/export",
+    dependencies=[Depends(verify_internal_service_secret)],
+)
+async def export_user_ai_notes(
+    user_id: str,
+    db: AsyncSession = Depends(get_async_session),
+):
+    from app.ai_notes.models import Note, UserTokenWallet, HistoinWallet
+    notes_res = await db.execute(select(Note).where(Note.user_id == user_id))
+    token_wallet = await db.get(UserTokenWallet, user_id)
+    histoin_wallet = await db.get(HistoinWallet, user_id)
+    return {
+        "notes": [
+            {"id": n.id, "title": n.title, "content": n.content, "created_at": str(n.created_at)}
+            for n in notes_res.scalars().all()
+        ],
+        "token_balance": token_wallet.token_balance if token_wallet else 0,
+        "histoin_balance": histoin_wallet.balance if histoin_wallet else 0,
+    }
+
 

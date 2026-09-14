@@ -8,7 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
 from app.auth.models import User, Friend, UserPresence
-from app.auth.schemas import FriendRequestResponse, FriendWithPresence, SearchUserResponse, UserResponse
+from app.auth.schemas import (
+    FriendRequestResponse,
+    FriendWithPresence,
+    SearchUserResponse,
+    UserResponse,
+    BlockedUserResponse,
+)
 from app.core.inter_service import notify
 
 
@@ -28,12 +34,25 @@ async def _expire_stale_requests(db: AsyncSession) -> None:
     await db.flush()
 
 
-async def search_users(query: str, db: AsyncSession) -> list[SearchUserResponse]:
-    """Search users by partial name or exact Name#Tag."""
+async def search_users(query: str, db: AsyncSession, current_user_id: str | None = None) -> list[SearchUserResponse]:
+    """Search users by partial name or exact Name#Tag, excluding blocked users."""
     query = query.strip()
     if not query:
         return []
 
+    # Get set of blocked user IDs for current user (both directions)
+    blocked_ids = set()
+    if current_user_id:
+        blocked_res = await db.execute(
+            select(Friend).where(
+                Friend.status == "blocked",
+                or_(Friend.requester_id == current_user_id, Friend.addressee_id == current_user_id),
+            )
+        )
+        for rel in blocked_res.scalars().all():
+            blocked_ids.add(rel.addressee_id if rel.requester_id == current_user_id else rel.requester_id)
+
+    users: list[User] = []
     if "#" in query:
         name, tag = query.rsplit("#", 1)
         name = name.strip()
@@ -46,31 +65,37 @@ async def search_users(query: str, db: AsyncSession) -> list[SearchUserResponse]
                 )
             )
             user = res.scalar_one_or_none()
-            return [SearchUserResponse.model_validate(user)] if user else []
+            if user and user.id not in blocked_ids:
+                return [SearchUserResponse.model_validate(user)]
+            return []
         elif tag:
             # Query like "#9926"
             res = await db.execute(
                 select(User).where(User.tag == tag).limit(10)
             )
-            users = res.scalars().all()
-            return [SearchUserResponse.model_validate(u) for u in users]
-    
-    res = await db.execute(
-        select(User).where(
-            or_(
-                User.username.ilike(f"%{query}%"),
-                User.tag == query,
-            )
-        ).limit(10)
-    )
-    users = res.scalars().all()
-    return [SearchUserResponse.model_validate(u) for u in users]
+            users = list(res.scalars().all())
+    else:
+        res = await db.execute(
+            select(User).where(
+                or_(
+                    User.username.ilike(f"%{query}%"),
+                    User.tag == query,
+                )
+            ).limit(10)
+        )
+        users = list(res.scalars().all())
+
+    return [
+        SearchUserResponse.model_validate(u)
+        for u in users
+        if u.id not in blocked_ids and (current_user_id is None or u.id != current_user_id)
+    ]
 
 
 async def send_friend_request(
     db: AsyncSession, requester_id: str, addressee_id: str
 ) -> FriendRequestResponse:
-    """Send a friend request. Auto-accepts if the other user already requested you."""
+    """Send a friend request. Auto-accepts if the other user already requested you. Rejects if blocked."""
     if requester_id == addressee_id:
         raise HTTPException(400, "Can't add yourself")
 
@@ -95,6 +120,8 @@ async def send_friend_request(
     existing = res.scalar_one_or_none()
 
     if existing:
+        if existing.status == "blocked":
+            raise HTTPException(400, "Cannot send friend request to blocked user")
         if existing.status == "accepted":
             raise HTTPException(409, "Already friends")
         if existing.requester_id == addressee_id:
@@ -312,3 +339,92 @@ async def _build_friend_request_response(db: AsyncSession, friend: Friend) -> Fr
         requester=UserResponse.model_validate(requester) if requester else None,
         addressee=UserResponse.model_validate(addressee) if addressee else None,
     )
+
+
+# ── Blocked Users Management ─────────────────────────────────────────────────
+
+async def block_user(db: AsyncSession, user_id: str, target_user_id: str) -> None:
+    """
+    Block a user:
+    - Removes any existing friendship or request between the two users.
+    - Inserts a Friend row with status='blocked' (requester_id=blocker, addressee_id=blocked).
+    """
+    if user_id == target_user_id:
+        raise HTTPException(400, "Cannot block yourself")
+
+    target = await db.get(User, target_user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    # Remove existing relationship in either direction
+    await db.execute(
+        delete(Friend).where(
+            or_(
+                and_(Friend.requester_id == user_id, Friend.addressee_id == target_user_id),
+                and_(Friend.requester_id == target_user_id, Friend.addressee_id == user_id),
+            )
+        )
+    )
+
+    block_row = Friend(
+        requester_id=user_id,
+        addressee_id=target_user_id,
+        status="blocked",
+    )
+    db.add(block_row)
+    await db.commit()
+
+
+async def unblock_user(db: AsyncSession, user_id: str, target_user_id: str) -> None:
+    """Unblock a previously blocked user."""
+    res = await db.execute(
+        delete(Friend).where(
+            Friend.requester_id == user_id,
+            Friend.addressee_id == target_user_id,
+            Friend.status == "blocked",
+        )
+    )
+    if res.rowcount == 0:
+        raise HTTPException(404, "User is not blocked")
+    await db.commit()
+
+
+async def list_blocked_users(db: AsyncSession, user_id: str) -> list[BlockedUserResponse]:
+    """List all users blocked by the current user."""
+    res = await db.execute(
+        select(Friend, User)
+        .join(User, Friend.addressee_id == User.id)
+        .where(
+            Friend.requester_id == user_id,
+            Friend.status == "blocked",
+        )
+        .order_by(Friend.created_at.desc())
+    )
+    rows = res.all()
+    return [
+        BlockedUserResponse(
+            id=user.id,
+            username=user.username,
+            tag=user.tag,
+            avatar_url=user.avatar_url,
+            blocked_at=friend.created_at,
+        )
+        for friend, user in rows
+    ]
+
+
+async def is_user_friend(db: AsyncSession, user_a_id: str | None, user_b_id: str | None) -> bool:
+    """Check if two users have an accepted friendship."""
+    if not user_a_id or not user_b_id or user_a_id == user_b_id:
+        return False
+
+    res = await db.execute(
+        select(Friend.id).where(
+            Friend.status == "accepted",
+            or_(
+                and_(Friend.requester_id == user_a_id, Friend.addressee_id == user_b_id),
+                and_(Friend.requester_id == user_b_id, Friend.addressee_id == user_a_id),
+            ),
+        )
+    )
+    return res.first() is not None

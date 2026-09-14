@@ -33,6 +33,8 @@ class User(Base):
     timezone = Column(String(50), nullable=False, default="UTC")             # IANA name
     show_online_status = Column(Boolean, nullable=False, default=True)
     preferences = Column(JSON, default=dict)
+    profile_visibility = Column(Enum("public", "friends_only", "private", name="visibility"), default="public", nullable=False)
+    deletion_scheduled_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
@@ -50,7 +52,7 @@ class Friend(Base):
     id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
     requester_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     addressee_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    status = Column(Enum("pending", "accepted", name="friend_status"), nullable=False, default="pending")
+    status = Column(Enum("pending", "accepted", "blocked", name="friend_status"), nullable=False, default="pending")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
@@ -63,3 +65,25 @@ class UserPresence(Base):
 
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     last_seen_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    refresh_token_hash = Column(String, nullable=False, index=True)
+    device_label = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_active_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class TwoFactorAuth(Base):
+    __tablename__ = "two_factor_auth"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    totp_secret_encrypted = Column(String, nullable=False)
+    enabled = Column(Boolean, default=False, nullable=False)
+    backup_codes_hashed = Column(JSON, nullable=False, default=list)

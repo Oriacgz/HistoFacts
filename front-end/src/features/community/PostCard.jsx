@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Heart, MessageSquare, Share2, MoreVertical, Trash2, Lock, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import CommentSection from './CommentSection';
+import UserAvatar from '../../components/UserAvatar';
 
 export default function PostCard({
   post,
@@ -64,13 +65,7 @@ export default function PostCard({
       {/* Post Header */}
       <div className="flex items-start justify-between gap-3 mb-3.5">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-histo-dark text-white flex items-center justify-center font-display font-bold text-sm shadow-inner overflow-hidden border border-histo-copper/30">
-            {post.author?.avatar_url ? (
-              <img src={post.author.avatar_url} alt="" className="w-full h-full object-cover" />
-            ) : (
-              post.author?.username?.[0]?.toUpperCase() || 'S'
-            )}
-          </div>
+          <UserAvatar user={post.author} size="md" />
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-ui font-bold text-sm text-histo-dark">

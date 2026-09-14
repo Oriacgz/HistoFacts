@@ -5,9 +5,10 @@ FastAPI router for Quiz module endpoints and WebSocket Lobby.
 import asyncio
 from app.core.security import decode_token
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, status, WebSocket, WebSocketDisconnect
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.quiz.models import QuizQuestion, QuizAttempt
+from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord
 from app.quiz.schemas import (
     QuizQuestionResponse,
     QuizAttemptRequest,
@@ -29,7 +30,7 @@ from app.quiz.service import (
     lobby_manager,
 )
 from app.core.database import get_async_session
-from app.core.deps import get_optional_current_user, CurrentUser
+from app.core.deps import get_optional_current_user, CurrentUser, verify_internal_service_secret
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -393,3 +394,47 @@ async def websocket_lobby_endpoint(websocket: WebSocket, code: str):
             room.participants[user_id]["ws"] = None
     except Exception:
         pass
+
+
+# ── Internal Purge and Export Endpoints ──────────────────────────────────────
+
+internal_router = APIRouter(tags=["Quiz Internal"])
+
+
+@internal_router.post(
+    "/internal/users/{user_id}/purge",
+    dependencies=[Depends(verify_internal_service_secret)],
+)
+async def purge_user_quiz(
+    user_id: str,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Internal purge: delete personal attempts and sessions for user."""
+    await db.execute(delete(QuizAttempt).where(QuizAttempt.user_id == user_id))
+    await db.execute(delete(QuizSessionRecord).where(QuizSessionRecord.user_id == user_id))
+    await db.commit()
+    return {"status": "purged", "service": "quiz"}
+
+
+@internal_router.get(
+    "/internal/users/{user_id}/export",
+    dependencies=[Depends(verify_internal_service_secret)],
+)
+async def export_user_quiz(
+    user_id: str,
+    db: AsyncSession = Depends(get_async_session),
+):
+    res = await db.execute(select(QuizSessionRecord).where(QuizSessionRecord.user_id == user_id))
+    return {
+        "sessions": [
+            {"id": s.id, "score": s.score, "max_score": s.max_score, "created_at": str(s.created_at)}
+            for s in res.scalars().all()
+        ]
+    }
+
+
+main_quiz_router = APIRouter()
+main_quiz_router.include_router(router)
+main_quiz_router.include_router(internal_router)
+router = main_quiz_router
+

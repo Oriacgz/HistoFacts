@@ -9,8 +9,15 @@ from app.notification.models import Notification
 from app.notification.schemas import NotificationCreate
 
 
-async def create_notification_record(payload: NotificationCreate, db: AsyncSession) -> Notification:
-    """Create and persist a new notification."""
+async def create_notification_record(payload: NotificationCreate, db: AsyncSession) -> Notification | None:
+    """Create and persist a new notification if user has not disabled this notification type."""
+    from app.auth.models import User
+    user = await db.get(User, payload.user_id)
+    if user and user.preferences:
+        notif_prefs = user.preferences.get("notification_prefs")
+        if isinstance(notif_prefs, dict) and notif_prefs.get(payload.type) is False:
+            return None
+
     notification = Notification(
         user_id=payload.user_id,
         type=payload.type,

@@ -5,7 +5,7 @@ Pydantic schemas for auth requests and responses.
 import re
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
-from typing import Optional
+from typing import Optional, Literal
 
 # Static ISO 3166-1 alpha-2 codes — loaded once at import time.
 _ISO_ALPHA2 = {
@@ -38,6 +38,7 @@ class UserRegisterRequest(BaseModel):
 class UserLoginRequest(BaseModel):
     email: EmailStr
     password: str
+    totp_code: str | None = None
 
 
 class RefreshTokenRequest(BaseModel):
@@ -57,6 +58,10 @@ class UserResponse(BaseModel):
     pronouns: str | None = None
     timezone: str = "UTC"
     show_online_status: bool = True
+    preferences: dict = Field(default_factory=dict)
+    profile_visibility: str = "public"
+    is_2fa_enabled: bool = False
+    deletion_scheduled_at: datetime | None = None
     created_at: datetime
 
 
@@ -143,6 +148,7 @@ class ProfileUpdate(BaseModel):
     show_online_status: bool | None = None
     country_code: str | None = Field(None, min_length=2, max_length=2)
     username: str | None = Field(None, min_length=2, max_length=50)
+    profile_visibility: Literal["public", "friends_only", "private"] | None = None
 
     @field_validator("bio", mode="before")
     @classmethod
@@ -178,3 +184,70 @@ class PasswordChange(BaseModel):
 
 class EmailChangeRequest(BaseModel):
     new_email: EmailStr
+
+
+# ── Profile Settings Round 2 Schemas ─────────────────────────────────────────
+
+class UserSessionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    device_label: str | None = None
+    ip_address: str | None = None
+    created_at: datetime
+    last_active_at: datetime
+    is_current: bool = False
+
+
+class PreferencesUpdate(BaseModel):
+    theme: Literal["light", "dark", "system"] = "system"
+    language: str = "en"
+    notification_prefs: dict[str, bool] = {}
+
+
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    otpauth_uri: str
+    backup_codes: list[str]
+
+
+class TwoFactorCodeRequest(BaseModel):
+    code: str
+
+
+class TwoFactorStatusResponse(BaseModel):
+    enabled: bool
+    backup_codes_remaining: int
+
+
+class BlockedUserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    username: str
+    tag: str
+    avatar_url: str | None = None
+    blocked_at: datetime | None = None
+
+
+class PublicUserProfileResponse(BaseModel):
+    id: str
+    username: str
+    tag: str
+    avatar_url: str | None = None
+    bio: str | None = None
+    country_code: str | None = None
+    pronouns: str | None = None
+    show_online_status: bool = True
+    is_online: bool = False
+    last_seen_at: datetime | None = None
+    quiz_stats: dict | None = None
+    activity_history: list[dict] = Field(default_factory=list)
+    is_friend: bool = False
+    profile_visibility: str = "public"
+
+
+class AccountDeletionResponse(BaseModel):
+    status: str
+    message: str
+    deletion_scheduled_at: datetime | None = None
