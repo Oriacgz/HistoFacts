@@ -107,6 +107,7 @@ async def _sync_category(
     db: AsyncSession,
     max_retries: int = 3,
     initial_delay: float = 1.0,
+    enrich_with_ai: bool = False,
 ) -> int:
     """
     Fetch events from Wikimedia 'On This Day' feed for a specific category and date,
@@ -160,7 +161,14 @@ async def _sync_category(
                         )
                     )
                     if not existing.scalar_one_or_none():
-                        hook = await generate_history_hook(text)
+                        hook = None
+                        if enrich_with_ai:
+                            try:
+                                hook = await generate_history_hook(text)
+                            except Exception as hook_err:
+                                logger.warning(f"Failed to generate history hook: {hook_err}")
+                                hook = None
+
                         event = HistoricalEvent(
                             date=date_key,
                             year=year,
@@ -205,16 +213,18 @@ async def sync_wikimedia_events_for_date(
     Returns:
         int: Total number of new events inserted across all categories.
     """
+    # enrich_with_ai=True for 'selected' to provide AI hooks for daily featured events
+    # while staying well within Groq rate limits (30 RPM) and completing sync in seconds.
     categories = [
-        (WIKIMEDIA_ON_THIS_DAY_URL, "World History", "selected"),
-        (WIKIMEDIA_EVENTS_URL, "World History", "events"),
-        (WIKIMEDIA_BIRTHS_URL, "Births", "births"),
-        (WIKIMEDIA_DEATHS_URL, "Deaths", "deaths"),
-        (WIKIMEDIA_HOLIDAYS_URL, "Holidays", "holidays"),
+        (WIKIMEDIA_ON_THIS_DAY_URL, "World History", "selected", True),
+        (WIKIMEDIA_EVENTS_URL, "World History", "events", False),
+        (WIKIMEDIA_BIRTHS_URL, "Births", "births", False),
+        (WIKIMEDIA_DEATHS_URL, "Deaths", "deaths", False),
+        (WIKIMEDIA_HOLIDAYS_URL, "Holidays", "holidays", False),
     ]
 
     total_inserted = 0
-    for url_tmpl, label, json_key in categories:
+    for url_tmpl, label, json_key, enrich in categories:
         inserted = await _sync_category(
             url_template=url_tmpl,
             category_label=label,
@@ -224,9 +234,11 @@ async def sync_wikimedia_events_for_date(
             db=db,
             max_retries=max_retries,
             initial_delay=initial_delay,
+            enrich_with_ai=enrich,
         )
         total_inserted += inserted
 
     return total_inserted
+
 
 

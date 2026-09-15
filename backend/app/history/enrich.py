@@ -1,99 +1,88 @@
 """
 AI enrichment service for generating punchy historical hooks ("Did you know?").
-Supports Google Gemini with fallback to Groq.
+Powered by Groq with allam-2-7b.
 """
 
 import logging
+import re
 import httpx
 from app.core.config import settings
 
 logger = logging.getLogger("histofacts.history.enrich")
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# Shared HTTP client for connection pooling
+_client: httpx.AsyncClient | None = None
+
+
+def _get_groq_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            timeout=8.0,
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+        )
+    return _client
 
 
 async def generate_history_hook(event_text: str) -> str | None:
+    if not settings.groq_api_key:
+        return None
+
     prompt = (
-        f"In under 20 words, write one punchy 'did you know' style hook sentence "
-        f"based on this historical event. Return ONLY the sentence, no quotes, no preamble.\n\n"
-        f"Event: {event_text}"
+        "You are a master historical curator. Transform the following historical event "
+        "into a single, captivating question starting strictly with 'Did you know that' "
+        "and ending with a question mark (?).\n"
+        "Requirements:\n"
+        "- Exactly ONE sentence\n"
+        "- Under 25 words\n"
+        "- Absolutely no quotes, introductory text, or markdown\n\n"
+        f"Historical Event: {event_text}"
     )
 
     raw_hook: str | None = None
 
-    # 1. Attempt Gemini first if key is non-empty
-    # TODO: Gemini migrated to the Interactions API (different endpoint/response shape) — re-implement later, using Groq only for now.
-    if False and settings.gemini_api_key:
-        try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                resp = await client.post(
-                    GEMINI_URL,
-                    headers={
-                        "x-goog-api-key": settings.gemini_api_key,
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "contents": [
-                            {
-                                "parts": [
-                                    {"text": prompt}
-                                ]
-                            }
-                        ]
-                    },
-                )
-                if resp.status_code == 200:
-                    try:
-                        data = resp.json()
-                        raw_hook = data["candidates"][0]["content"]["parts"][0]["text"]
-                    except (KeyError, IndexError, TypeError) as parse_err:
-                        logger.warning(f"Failed to parse Gemini response: {parse_err}")
-                else:
-                    logger.warning(f"Gemini API returned status {resp.status_code}: {resp.text[:200]}")
-        except (httpx.RequestError, httpx.TimeoutException) as http_err:
-            logger.warning(f"Gemini API request error: {http_err}")
-        except Exception as exc:
-            logger.warning(f"Unexpected error calling Gemini API: {exc}")
+    try:
+        client = _get_groq_client()
+        resp = await client.post(
+            GROQ_URL,
+            headers={
+                "Authorization": f"Bearer {settings.groq_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "allam-2-7b",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 75,
+                "temperature": 0.6,
+            },
+        )
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                raw_hook = data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError) as parse_err:
+                logger.warning(f"Failed to parse Groq response: {parse_err}")
+        else:
+            logger.warning(f"Groq API returned status {resp.status_code}: {resp.text[:200]}")
+    except (httpx.RequestError, httpx.TimeoutException) as http_err:
+        logger.warning(f"Groq API request error: {http_err}")
+    except Exception as exc:
+        logger.warning(f"Unexpected error calling Groq API: {exc}")
 
-    # 2. If Gemini failed or was skipped, attempt Groq if key is non-empty
-    if not raw_hook and settings.groq_api_key:
-        try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                resp = await client.post(
-                    GROQ_URL,
-                    headers={
-                        "Authorization": f"Bearer {settings.groq_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "allam-2-7b",
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": 50,
-                        "temperature": 0.7,
-                    },
-                )
-                if resp.status_code == 200:
-                    try:
-                        data = resp.json()
-                        raw_hook = data["choices"][0]["message"]["content"]
-                    except (KeyError, IndexError, TypeError) as parse_err:
-                        logger.warning(f"Failed to parse Groq response: {parse_err}")
-                else:
-                    logger.warning(f"Groq API returned status {resp.status_code}: {resp.text[:200]}")
-        except (httpx.RequestError, httpx.TimeoutException) as http_err:
-            logger.warning(f"Groq API request error: {http_err}")
-        except Exception as exc:
-            logger.warning(f"Unexpected error calling Groq API: {exc}")
-
-    # 3. If both providers failed or both keys were empty, return None
     if not raw_hook:
         return None
 
-    # 4. Clean and format the extracted hook
+    # Clean and format the extracted hook
     cleaned = raw_hook.strip().strip('"\'').strip()
+
+    # Remove any stray <think> tags if ever present
+    if "<think>" in cleaned and "</think>" in cleaned:
+        cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+
     if not cleaned:
         return None
 
@@ -105,4 +94,9 @@ async def generate_history_hook(event_text: str) -> str | None:
         else:
             cleaned = cut.strip()
 
+    # Ensure it ends with appropriate punctuation
+    if cleaned and cleaned[-1] not in ".?!":
+        cleaned += "?"
+
     return cleaned or None
+
