@@ -19,10 +19,12 @@ import {
   X,
   Plus,
   Hash,
+  ExternalLink,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { getTodayEventsApi, searchEventsApi, addBookmarkApi, removeBookmarkApi } from '../api/history';
+import { getTodayEventsApi, getEventsByDateApi, searchEventsApi, addBookmarkApi, removeBookmarkApi, getMyBookmarksApi } from '../api/history';
 import Navbar from '../components/Navbar';
 
 const headerIcons = [
@@ -57,6 +59,14 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const [newsItems, setNewsItems] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
+  const [dateLabel, setDateLabel] = useState('Today');
   const [scrolled, setScrolled] = useState(false);
   const [activeNav, setActiveNav] = useState('Home');
   const [searchQuery, setSearchQuery] = useState('');
@@ -110,16 +120,25 @@ export default function DashboardPage() {
   }), [shouldReduceMotion]);
 
   useEffect(() => {
-    async function loadEvents() {
+    async function loadInitial() {
       setLoadingEvents(true);
       try {
-        const events = await getTodayEventsApi();
-        if (events && events.length > 0) {
-          setNewsItems(events.map(ev => ({
+        const [eventsRes, bookmarksRes] = await Promise.allSettled([
+          getTodayEventsApi(),
+          user ? getMyBookmarksApi() : Promise.resolve([]),
+        ]);
+
+        if (bookmarksRes.status === 'fulfilled' && Array.isArray(bookmarksRes.value)) {
+          setBookmarkedIds(new Set(bookmarksRes.value.map(b => b.event_id || b.id)));
+        }
+
+        if (eventsRes.status === 'fulfilled' && eventsRes.value && eventsRes.value.length > 0) {
+          setNewsItems(eventsRes.value.map(ev => ({
             id: ev.id,
             title: ev.year ? `${ev.title} (${ev.year})` : ev.title,
             content: ev.description,
             category: ev.category || 'General',
+            source_url: ev.source_url,
           })));
         } else {
           setNewsItems(newsSeed);
@@ -131,7 +150,7 @@ export default function DashboardPage() {
       }
     }
 
-    loadEvents();
+    loadInitial();
 
     const handleScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener('scroll', handleScroll);
@@ -140,7 +159,52 @@ export default function DashboardPage() {
     return () => {
       window.removeEventListener('scroll', handleScroll);
     };
-  }, []);
+  }, [user]);
+
+  const handleDateChange = async (dateStr) => {
+    if (!dateStr) return;
+    setSelectedDate(dateStr);
+    const parts = dateStr.split('-');
+    if (parts.length < 3) return;
+    const monthNum = parseInt(parts[1], 10);
+    const dayNum = parseInt(parts[2], 10);
+
+    const today = new Date();
+    const isToday = (today.getMonth() + 1 === monthNum) && (today.getDate() === dayNum);
+
+    const dateObj = new Date(2024, monthNum - 1, dayNum);
+    const monthName = dateObj.toLocaleString('en-US', { month: 'long' });
+    setDateLabel(isToday ? 'Today' : `${monthName} ${dayNum}`);
+
+    setLoadingEvents(true);
+    try {
+      const events = isToday ? await getTodayEventsApi() : await getEventsByDateApi(monthNum, dayNum);
+      if (events && events.length > 0) {
+        setNewsItems(events.map(ev => ({
+          id: ev.id,
+          title: ev.year ? `${ev.title} (${ev.year})` : ev.title,
+          content: ev.description,
+          category: ev.category || 'General',
+          source_url: ev.source_url,
+        })));
+      } else {
+        setNewsItems([]);
+      }
+    } catch {
+      toast?.showToast?.('Could not load events for this date', 'error');
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  const handleResetToday = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${day}`;
+    handleDateChange(todayStr);
+  };
 
   const handleSearchSubmit = async (e) => {
     e.preventDefault();
@@ -153,6 +217,7 @@ export default function DashboardPage() {
         title: ev.year ? `${ev.title} (${ev.year})` : ev.title,
         content: ev.description,
         category: ev.category || 'General',
+        source_url: ev.source_url,
       })));
     } catch {
       // Keep existing
@@ -189,38 +254,59 @@ export default function DashboardPage() {
           <div className="lg:col-span-7 flex flex-col gap-6">
             
             {/* Feature Banner (Hero) */}
-            <motion.section 
-              variants={customItemVariants}
-              whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.008, boxShadow: 'var(--shadow-deep)' }}
-              whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
-              className="relative overflow-hidden border border-histo-dark/10 bg-histo-dark text-histo-paper shadow-medium p-1 rounded-[4px] cursor-pointer"
-            >
-              <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.05\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
-              <div className="border-2 border-double border-histo-gold/30 p-6 md:p-8 relative z-10 flex flex-col items-center text-center">
-                <span className="text-xs uppercase tracking-[4px] text-histo-gold font-ui font-semibold mb-3">Chronicle Feature</span>
-                <h2 className="mb-4 font-display text-lg font-bold tracking-[2px] text-histo-paper uppercase opacity-80">HISTOFACTS</h2>
-                
-                <div className="max-w-2xl my-4">
-                  <span className="text-sm font-ui text-histo-gold tracking-widest uppercase font-semibold block mb-2">Today in History</span>
-                  <p className="font-display text-2xl md:text-3xl font-bold leading-tight text-white mb-4">
-                    March 17, 461 AD — Death of Saint Patrick
-                  </p>
-                  <p className="font-body text-histo-paper/70 text-sm leading-relaxed mb-6 italic">
-                    Saint Patrick, the patron saint of Ireland, dies in Saul. His life, mission, and legend would shape the spiritual and cultural landscape of Ireland and the Western world for centuries to come.
-                  </p>
-                </div>
-
-                <motion.a 
-                  href="#" 
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="inline-block border border-histo-gold bg-histo-gold text-histo-dark hover:bg-transparent hover:text-histo-gold font-ui text-xs font-bold tracking-widest uppercase py-3 px-6 rounded-[2px] shadow-soft transition-colors duration-300"
+            {(() => {
+              const heroItem = newsItems[0] || newsSeed[0];
+              return (
+                <motion.section 
+                  variants={customItemVariants}
+                  whileHover={shouldReduceMotion ? {} : { y: -4, scale: 1.008, boxShadow: 'var(--shadow-deep)' }}
+                  whileTap={shouldReduceMotion ? {} : { scale: 0.995 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+                  className="relative overflow-hidden border border-histo-dark/10 bg-histo-dark text-histo-paper shadow-medium p-1 rounded-[4px]"
                 >
-                  Explore Significance
-                </motion.a>
-              </div>
-            </motion.section>
+                  <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.05\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
+                  <div className="border-2 border-double border-histo-gold/30 p-6 md:p-8 relative z-10 flex flex-col items-center text-center">
+                    <span className="text-xs uppercase tracking-[4px] text-histo-gold font-ui font-semibold mb-3">Chronicle Feature</span>
+                    <h2 className="mb-4 font-display text-lg font-bold tracking-[2px] text-histo-paper uppercase opacity-80">HISTOFACTS</h2>
+                    
+                    <div className="max-w-2xl my-4">
+                      <span className="text-sm font-ui text-histo-gold tracking-widest uppercase font-semibold block mb-2">
+                        {dateLabel === 'Today' ? 'Today in History' : `On This Day: ${dateLabel}`}
+                      </span>
+                      <p className="font-display text-2xl md:text-3xl font-bold leading-tight text-white mb-4">
+                        {heroItem.title}
+                      </p>
+                      <p className="font-body text-histo-paper/70 text-sm leading-relaxed mb-6 italic">
+                        {heroItem.content}
+                      </p>
+                    </div>
+
+                    {heroItem.source_url ? (
+                      <motion.a 
+                        href={heroItem.source_url} 
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="inline-flex items-center gap-2 border border-histo-gold bg-histo-gold text-histo-dark hover:bg-transparent hover:text-histo-gold font-ui text-xs font-bold tracking-widest uppercase py-3 px-6 rounded-[2px] shadow-soft transition-colors duration-300"
+                      >
+                        Explore Significance
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </motion.a>
+                    ) : (
+                      <motion.button 
+                        type="button"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="inline-block border border-histo-gold bg-histo-gold text-histo-dark hover:bg-transparent hover:text-histo-gold font-ui text-xs font-bold tracking-widest uppercase py-3 px-6 rounded-[2px] shadow-soft transition-colors duration-300"
+                      >
+                        Explore Significance
+                      </motion.button>
+                    )}
+                  </div>
+                </motion.section>
+              );
+            })()}
 
             {/* Historical Events Feed */}
             <motion.section 
@@ -230,19 +316,50 @@ export default function DashboardPage() {
               transition={{ type: 'spring', stiffness: 300, damping: 22 }}
               className="border border-histo-dark/10 bg-histo-cream p-4 md:p-6 shadow-soft rounded-[4px]"
             >
-              <div className="mb-4 md:mb-6 flex items-center justify-between border-b border-histo-dark/10 pb-3 md:pb-4">
+              <div className="mb-4 md:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-histo-dark/10 pb-3 md:pb-4">
                 <div className="flex items-center gap-3 md:gap-4">
                   <div className="flex h-8 md:h-10 w-8 md:w-10 items-center justify-center border border-histo-dark/20 text-histo-dark bg-white/40 rounded-full shadow-soft">
                     <Clock className="h-4 md:h-5 w-4 md:w-5" />
                   </div>
-                  <h3 className="font-display text-lg md:text-2xl font-bold tracking-wide text-histo-dark">Historical Events</h3>
+                  <div>
+                    <h3 className="font-display text-lg md:text-2xl font-bold tracking-wide text-histo-dark">Historical Events</h3>
+                    <span className="text-xs font-ui tracking-wider text-histo-ink/60">
+                      {dateLabel === 'Today' ? "Today's Events" : `Events for ${dateLabel}`} ({newsItems.length})
+                    </span>
+                  </div>
                 </div>
-                <span className="text-xs font-ui tracking-wider text-histo-ink/60 uppercase">Chronology</span>
+
+                {/* Interactive Date Picker & Today Reset */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 bg-white/80 border border-histo-dark/20 px-3 py-1.5 rounded-[3px] shadow-xs">
+                    <Calendar className="h-4 w-4 text-histo-copper" />
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => handleDateChange(e.target.value)}
+                      className="text-xs font-ui bg-transparent border-none text-histo-dark focus:outline-none cursor-pointer"
+                      title="Select date to explore historical events"
+                    />
+                  </div>
+                  {dateLabel !== 'Today' && (
+                    <button
+                      type="button"
+                      onClick={handleResetToday}
+                      className="flex items-center gap-1.5 text-xs font-ui font-semibold text-histo-copper hover:text-histo-dark bg-histo-copper/10 hover:bg-histo-copper/20 px-3 py-1.5 rounded-[3px] transition-colors"
+                      title="Reset to today's events"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Today
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="min-h-[120px] flex flex-col gap-3 md:gap-4">
-                {newsItems.length === 0 ? (
-                  <div className="py-6 text-center text-sm font-body italic text-histo-ink/60">Loading today&apos;s chronicle events...</div>
+                {loadingEvents ? (
+                  <div className="py-8 text-center text-sm font-body italic text-histo-ink/60">Loading chronicle events...</div>
+                ) : newsItems.length === 0 ? (
+                  <div className="py-8 text-center text-sm font-body italic text-histo-ink/60">No events found for this date. Try picking another date.</div>
                 ) : (
                   <motion.div 
                     initial="hidden"
@@ -255,20 +372,35 @@ export default function DashboardPage() {
                         key={(item.id || item.title) + idx}
                         variants={listItemVariants}
                         whileHover={shouldReduceMotion ? {} : { x: 4, transition: { type: "spring", stiffness: 300, damping: 15 } }}
-                        className="border-l-4 border-histo-gold bg-white/60 hover:bg-white/90 p-4 md:p-5 shadow-soft transition-colors duration-200 rounded-[2px] cursor-pointer relative group"
+                        className="border-l-4 border-histo-gold bg-white/60 hover:bg-white/90 p-4 md:p-5 shadow-soft transition-colors duration-200 rounded-[2px] relative group"
                       >
                         <div className="flex items-center justify-between gap-2 mb-2">
                           <span className="text-[10px] font-ui tracking-widest uppercase text-histo-copper font-semibold bg-histo-copper/10 px-2 py-0.5 rounded-[2px]">
                             {item.category || 'History'}
                           </span>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); toggleBookmark(item.id); }}
-                            className="p-1 rounded-full text-histo-ink/40 hover:text-histo-gold transition-colors"
-                            title={bookmarkedIds.has(item.id) ? 'Remove Bookmark' : 'Bookmark Event'}
-                          >
-                            <Bookmark className={`h-4 w-4 ${bookmarkedIds.has(item.id) ? 'text-histo-gold fill-histo-gold' : ''}`} />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {item.source_url && (
+                              <a
+                                href={item.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[10px] font-ui text-histo-ink/60 hover:text-histo-copper flex items-center gap-1 transition-colors px-1.5 py-0.5 rounded hover:bg-histo-copper/5"
+                                title="Read on Wikipedia"
+                              >
+                                Source
+                                <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleBookmark(item.id); }}
+                              className="p-1 rounded-full text-histo-ink/40 hover:text-histo-gold transition-colors"
+                              title={bookmarkedIds.has(item.id) ? 'Remove Bookmark' : 'Bookmark Event'}
+                            >
+                              <Bookmark className={`h-4 w-4 ${bookmarkedIds.has(item.id) ? 'text-histo-gold fill-histo-gold' : ''}`} />
+                            </button>
+                          </div>
                         </div>
                         <h4 className="mb-2 font-display text-base md:text-lg font-bold text-histo-dark tracking-wide">{item.title}</h4>
                         <p className="font-body text-sm text-histo-ink leading-relaxed">{item.content}</p>

@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_provider: str = "openai"
 
+    # ── Wikimedia API ─────────────────────────────────────────
+    wikimedia_api_token: str = ""
+
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
+
     # ── Redis ─────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
 

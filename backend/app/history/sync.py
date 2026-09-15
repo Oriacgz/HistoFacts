@@ -7,9 +7,15 @@ import httpx
 from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.config import settings
 from app.history.models import HistoricalEvent
+from app.history.enrich import generate_history_hook
 
 WIKIMEDIA_ON_THIS_DAY_URL = "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/selected/{month}/{day}"
+WIKIMEDIA_EVENTS_URL = "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/events/{month}/{day}"
+WIKIMEDIA_BIRTHS_URL = "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/births/{month}/{day}"
+WIKIMEDIA_DEATHS_URL = "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/deaths/{month}/{day}"
+WIKIMEDIA_HOLIDAYS_URL = "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/holidays/{month}/{day}"
 
 SAMPLE_EVENTS = [
     {
@@ -92,7 +98,10 @@ import logging
 logger = logging.getLogger("histofacts.history.sync")
 
 
-async def sync_wikimedia_events_for_date(
+async def _sync_category(
+    url_template: str,
+    category_label: str,
+    category_json_key: str,
     month: str,
     day: str,
     db: AsyncSession,
@@ -100,20 +109,25 @@ async def sync_wikimedia_events_for_date(
     initial_delay: float = 1.0,
 ) -> int:
     """
-    Fetch events from Wikimedia 'On This Day' feed for month and day (e.g. month='03', day='17')
+    Fetch events from Wikimedia 'On This Day' feed for a specific category and date,
     and upsert into PostgreSQL historical_events table with exponential backoff retry.
 
     Returns:
         int: Number of new events inserted.
     """
-    url = WIKIMEDIA_ON_THIS_DAY_URL.format(month=month.zfill(2), day=day.zfill(2))
+    url = url_template.format(month=month.zfill(2), day=day.zfill(2))
     date_key = f"{month.zfill(2)}-{day.zfill(2)}"
     events_inserted = 0
 
     for attempt in range(1, max_retries + 1):
         try:
             async with httpx.AsyncClient(timeout=12.0) as client:
-                resp = await client.get(url, headers={"User-Agent": "HistoFacts/1.0 (Educational Project)"})
+                headers = {"User-Agent": "HistoFacts/1.0 (Educational Project; mailto:contact@histofacts.org)"}
+                if settings.wikimedia_api_token:
+                    headers["Authorization"] = f"Bearer {settings.wikimedia_api_token}"
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 401 and settings.wikimedia_api_token and "." not in settings.wikimedia_api_token:
+                    resp = await client.get(url, headers={"User-Agent": headers["User-Agent"], "Authorization": settings.wikimedia_api_token})
 
                 if resp.status_code == 429:
                     retry_after = float(resp.headers.get("Retry-After", initial_delay * (2 ** (attempt - 1))))
@@ -129,7 +143,7 @@ async def sync_wikimedia_events_for_date(
                     return 0
 
                 data = resp.json()
-                events = data.get("selected", [])
+                events = data.get(category_json_key, [])
 
                 for item in events:
                     text = item.get("text", "")
@@ -146,14 +160,16 @@ async def sync_wikimedia_events_for_date(
                         )
                     )
                     if not existing.scalar_one_or_none():
+                        hook = await generate_history_hook(text)
                         event = HistoricalEvent(
                             date=date_key,
                             year=year,
                             title=title,
                             description=text,
-                            category="World History",
+                            category=category_label,
                             source="Wikimedia",
                             source_url=source_url,
+                            ai_hook=hook,
                         )
                         db.add(event)
                         events_inserted += 1
@@ -167,10 +183,50 @@ async def sync_wikimedia_events_for_date(
             if attempt < max_retries:
                 await asyncio.sleep(initial_delay * (2 ** (attempt - 1)))
             else:
-                logger.error(f"Failed to sync Wikimedia events for {date_key} after {max_retries} attempts.")
+                logger.error(f"Failed to sync Wikimedia events for {date_key} ({category_label}) after {max_retries} attempts.")
         except Exception as err:
-            logger.error(f"Unexpected error syncing Wikimedia events for {date_key}: {err}")
+            logger.error(f"Unexpected error syncing Wikimedia events for {date_key} ({category_label}): {err}")
             break
 
     return events_inserted
+
+
+async def sync_wikimedia_events_for_date(
+    month: str,
+    day: str,
+    db: AsyncSession,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+) -> int:
+    """
+    Fetch events from Wikimedia 'On This Day' feed for month and day across
+    selected, events, births, deaths, and holidays, and upsert into PostgreSQL.
+
+    Returns:
+        int: Total number of new events inserted across all categories.
+    """
+    categories = [
+        (WIKIMEDIA_ON_THIS_DAY_URL, "World History", "selected"),
+        (WIKIMEDIA_EVENTS_URL, "World History", "events"),
+        (WIKIMEDIA_BIRTHS_URL, "Births", "births"),
+        (WIKIMEDIA_DEATHS_URL, "Deaths", "deaths"),
+        (WIKIMEDIA_HOLIDAYS_URL, "Holidays", "holidays"),
+    ]
+
+    total_inserted = 0
+    for url_tmpl, label, json_key in categories:
+        inserted = await _sync_category(
+            url_template=url_tmpl,
+            category_label=label,
+            category_json_key=json_key,
+            month=month,
+            day=day,
+            db=db,
+            max_retries=max_retries,
+            initial_delay=initial_delay,
+        )
+        total_inserted += inserted
+
+    return total_inserted
+
 

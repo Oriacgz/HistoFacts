@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from app.core.config import settings
-from app.core.database import async_session_factory
+from app.core.database import async_session_factory, engine, Base
 from app.auth.router import router as auth_router, users_router
 from app.history.router import router as history_router
 from app.quiz.router import router as quiz_router
@@ -25,6 +25,9 @@ from app.quiz.service import seed_quiz_questions
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
     async with async_session_factory() as session:
         await seed_token_packs(session)
         await seed_initial_events(session)
