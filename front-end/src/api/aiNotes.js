@@ -34,26 +34,15 @@ export async function generateHandwrittenNoteApi(noteId) {
   });
 }
 
-export async function getMyNotesApi() {
-  return apiFetch('/api/notes');
+export async function reviseNoteApi(noteId, instruction) {
+  return apiFetch(`/api/notes/${noteId}/revise`, {
+    method: 'POST',
+    body: JSON.stringify({ instruction }),
+  });
 }
 
-export async function updateNoteApi(noteId, titleOrData, maybeContent, maybeCurriculumTag) {
-  let body = {};
-  if (typeof titleOrData === 'object' && titleOrData !== null) {
-    body = titleOrData;
-  } else {
-    body = {
-      title: titleOrData,
-      content: maybeContent,
-      curriculum_tag: maybeCurriculumTag,
-    };
-  }
-
-  return apiFetch(`/api/notes/${noteId}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  });
+export async function getMyNotesApi() {
+  return apiFetch('/api/notes');
 }
 
 export async function shareNoteToGroupApi(noteId, groupId) {

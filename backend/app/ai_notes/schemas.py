@@ -34,11 +34,8 @@ class NoteResponse(BaseModel):
     created_at: datetime
 
 
-class UpdateNoteRequest(BaseModel):
-    title: str | None = None
-    content: str | None = None
-    curriculum_tag: str | None = None
-    style: str | None = None
+class ReviseNoteRequest(BaseModel):
+    instruction: str = Field(..., min_length=1, max_length=2000)
 
 
 class WalletResponse(BaseModel):
