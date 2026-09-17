@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai_notes.models import Note, GroupSharedNote
+from app.ai_notes.models import Note
 from app.ai_notes.schemas import GenerateNoteRequest, ReviseNoteRequest
 from app.ai_notes.llm_client import (
     generate_curriculum_note,
@@ -219,8 +219,15 @@ async def get_note_thread_for_user(note_id: str, user_id: str, db: AsyncSession)
     root = res.scalar_one_or_none()
     if not root:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
-    if root.source_note_id is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not a root note")
+
+    while root.source_note_id is not None:
+        parent_res = await db.execute(
+            select(Note).where(Note.id == root.source_note_id, Note.user_id == user_id)
+        )
+        parent = parent_res.scalar_one_or_none()
+        if not parent:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+        root = parent
 
     chain = [root]
     current = root
@@ -299,19 +306,34 @@ async def save_conversation_turn(
     return new_turn
 
 
-async def share_note_to_group(note_id: str, group_id: str, user_id: str, db: AsyncSession) -> bool:
-    res = await db.execute(
-        select(GroupSharedNote).where(
-            GroupSharedNote.group_id == group_id, GroupSharedNote.note_id == note_id
-        )
-    )
-    if res.scalar_one_or_none():
-        return False
+async def _get_note_or_404(db: AsyncSession, note_id: str, user_id: str) -> Note:
+    """Return the note if it belongs to user, else raise 404."""
+    res = await db.execute(select(Note).where(Note.id == note_id, Note.user_id == user_id))
+    note = res.scalar_one_or_none()
+    if not note:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+    return note
 
-    shared = GroupSharedNote(group_id=group_id, note_id=note_id, shared_by=user_id)
-    db.add(shared)
-    await db.flush()
-    return True
+
+async def share_note_to_conversations(
+    note_id: str, conversation_ids: list[str], user_id: str, db: AsyncSession
+) -> int:
+    """
+    Fan-out a note as a note_share chat message to each conversation.
+    Works for both direct (friend) and group conversations — no separate path.
+    """
+    from app.chat.schemas import SendMessageRequest
+    from app.chat.service import send_message
+
+    note = await _get_note_or_404(db, note_id, user_id)
+    payload = SendMessageRequest(
+        message_type="note_share",
+        content=note.title,
+        shared_ref_id=note.id,
+    )
+    for conv_id in conversation_ids:
+        await send_message(conv_id, user_id, payload, db)
+    return len(conversation_ids)
 
 
 async def delete_user_note(note_id: str, user_id: str, db: AsyncSession) -> bool:

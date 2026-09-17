@@ -19,6 +19,8 @@ from app.ai_notes.schemas import (
     WalletResponse,
     TokenPackResponse,
     PurchaseResponse,
+    ShareNoteRequest,
+    ShareNoteResponse,
 )
 from app.ai_notes.service import (
     create_note_for_user,
@@ -28,7 +30,7 @@ from app.ai_notes.service import (
     get_note_thread_for_user,
     build_conversation_messages,
     save_conversation_turn,
-    share_note_to_group,
+    share_note_to_conversations,
     delete_user_note,
 )
 from app.ai_notes.llm_client import (
@@ -302,17 +304,16 @@ async def delete_note(
     return {"status": "deleted", "note_id": note_id}
 
 
-@router.post("/api/notes/{note_id}/share/{group_id}", status_code=status.HTTP_200_OK)
+@router.post("/api/notes/{note_id}/share", response_model=ShareNoteResponse, status_code=status.HTTP_200_OK)
 async def share_note(
     note_id: str,
-    group_id: str,
+    payload: ShareNoteRequest,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    shared = await share_note_to_group(note_id, group_id, current_user.id, db)
-    if not shared:
-        raise HTTPException(status_code=400, detail="Note already shared to this group")
-    return {"status": "shared", "note_id": note_id, "group_id": group_id}
+    """Fan-out a note as a note_share chat message to one or more conversations."""
+    count = await share_note_to_conversations(note_id, payload.conversation_ids, current_user.id, db)
+    return ShareNoteResponse(shared_to=count)
 
 
 # ── Token & Histoin Wallet Endpoints ──────────────────────────────

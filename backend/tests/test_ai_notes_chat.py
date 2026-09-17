@@ -158,11 +158,11 @@ async def test_chat_stream_and_thread_flow(client: AsyncClient, monkeypatch):
     assert thread[1]["prompt"] == "What was the Mansabdari system?"
     assert thread[1]["source_note_id"] == root_id
 
-    # 5. Non-root note rejected on /thread endpoint
+    # 5. A shared child note resolves to the complete root thread
     child_id = thread[1]["id"]
-    bad_thread = await client.get(f"/api/notes/{child_id}/thread", headers=headers)
-    assert bad_thread.status_code == 400
-    assert "Not a root note" in bad_thread.json()["detail"]
+    child_thread = await client.get(f"/api/notes/{child_id}/thread", headers=headers)
+    assert child_thread.status_code == 200
+    assert [turn["id"] for turn in child_thread.json()] == [root_id, child_id]
 
     # 6. Library list contains ONLY root note
     library_res = await client.get("/api/notes", headers=headers)

@@ -1,5 +1,25 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+export async function authenticatedFetch(endpoint, options = {}) {
+  const requestOptions = { ...options };
+  const makeRequest = () => {
+    const token = localStorage.getItem('access_token');
+    const headers = {
+      ...(requestOptions.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+    return fetch(`${API_BASE_URL}${endpoint}`, { ...requestOptions, headers });
+  };
+
+  let response = await makeRequest();
+  if (response.status === 401 && !requestOptions._retry && localStorage.getItem('refresh_token')) {
+    requestOptions._retry = true;
+    const refreshed = await attemptRefreshToken();
+    if (refreshed) response = await makeRequest();
+  }
+  return response;
+}
+
 export async function apiFetch(endpoint, options = {}) {
   const token = localStorage.getItem('access_token');
 

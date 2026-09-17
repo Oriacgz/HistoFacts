@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Sparkles, Copy, CheckCircle2, PenTool, Loader2, Paperclip } from 'lucide-react';
+import { Sparkles, Copy, CheckCircle2, PenTool, Loader2, Paperclip, Share2 } from 'lucide-react';
 import MarkdownBlockViewer from './MarkdownBlockViewer';
 import HandwrittenBlockViewer from './HandwrittenBlockViewer';
 
@@ -13,6 +13,7 @@ export default function NoteThread({
   isRestylingId = null,
   onCopyNote,
   copiedNoteId = null,
+  onShare,
 }) {
   const bottomRef = useRef(null);
 
@@ -40,6 +41,7 @@ export default function NoteThread({
               isRestyling={isRestylingId === turn.id}
               onCopy={onCopyNote}
               isCopied={copiedNoteId === turn.id}
+              onShare={onShare}
             />
           </React.Fragment>
         );
@@ -115,6 +117,7 @@ function AssistantTurn({
   isRestyling,
   onCopy,
   isCopied,
+  onShare,
 }) {
   const isHandwritten = note.style === 'handwritten';
   const Viewer = isHandwritten ? HandwrittenBlockViewer : MarkdownBlockViewer;
@@ -135,6 +138,7 @@ function AssistantTurn({
           isRestyling={isRestyling}
           onCopy={onCopy}
           isCopied={isCopied}
+          onShare={onShare}
         />
       </div>
     </div>
@@ -168,6 +172,7 @@ function MessageActions({
   isRestyling,
   onCopy,
   isCopied,
+  onShare,
 }) {
   return (
     <div className="flex items-center gap-2 mt-3 pt-2 border-t border-histo-dark/10">
@@ -190,6 +195,19 @@ function MessageActions({
           </>
         )}
       </button>
+
+      {/* Share Action */}
+      {onShare && (
+        <button
+          type="button"
+          onClick={() => onShare(note)}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-white border border-histo-dark/15 hover:border-histo-copper hover:bg-histo-cream transition-all font-ui text-xs text-histo-ink/70 hover:text-histo-copper cursor-pointer shadow-2xs"
+          title="Share note to direct chat or group"
+        >
+          <Share2 className="h-3.5 w-3.5" />
+          <span className="text-[11px] font-medium">Share</span>
+        </button>
+      )}
 
       {/* Restyle as handwritten (available on standard style notes) */}
       {!isHandwritten && isLatest && onConvertToHandwritten && (

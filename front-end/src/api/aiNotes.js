@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE_URL } from './client';
+import { apiFetch, authenticatedFetch } from './client';
 
 export async function generateNoteApi(paramsOrTopic, curriculum = 'NCERT Class 10 History', eventId = null) {
   let body = {};
@@ -49,9 +49,10 @@ export async function getMyNotesApi() {
   return apiFetch('/api/notes');
 }
 
-export async function shareNoteToGroupApi(noteId, groupId) {
-  return apiFetch(`/api/notes/${noteId}/share/${groupId}`, {
+export async function shareNoteApi(noteId, conversationIds) {
+  return apiFetch(`/api/notes/${noteId}/share`, {
     method: 'POST',
+    body: JSON.stringify({ conversation_ids: conversationIds }),
   });
 }
 
@@ -120,13 +121,11 @@ async function streamSseReader(res, onDelta, onNoteSaved) {
 }
 
 export async function streamGenerateNoteApi({ payload, onDelta, onNoteSaved, signal }) {
-  const token = localStorage.getItem('access_token');
   const headers = {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const res = await fetch(`${API_BASE_URL}/api/notes/generate/stream`, {
+  const res = await authenticatedFetch('/api/notes/generate/stream', {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
@@ -137,13 +136,11 @@ export async function streamGenerateNoteApi({ payload, onDelta, onNoteSaved, sig
 }
 
 export async function streamContinueConversationApi({ noteId, payload, onDelta, onNoteSaved, signal }) {
-  const token = localStorage.getItem('access_token');
   const headers = {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const res = await fetch(`${API_BASE_URL}/api/notes/${noteId}/continue/stream`, {
+  const res = await authenticatedFetch(`/api/notes/${noteId}/continue/stream`, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),

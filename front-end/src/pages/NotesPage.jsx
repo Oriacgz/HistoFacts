@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import {
@@ -24,10 +25,13 @@ import NotesHeader from '../features/ai-notes/components/NotesHeader';
 import WelcomeCanvas from '../features/ai-notes/components/WelcomeCanvas';
 import PromptInputArea from '../features/ai-notes/components/PromptInputArea';
 import NoteThread from '../features/ai-notes/components/NoteThread';
+import SharePickerModal from '../features/chat/SharePickerModal';
 
 export default function NotesPage() {
   const { user, logout } = useAuth();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sharedNoteId = searchParams.get('note');
 
   // Fresh state on every load: activeNoteId is always null on mount (never auto-selected, never restored)
   const [activeNoteId, setActiveNoteId] = useState(null);
@@ -46,6 +50,7 @@ export default function NotesPage() {
   const [streamingText, setStreamingText] = useState('');
   const [isRestylingId, setIsRestylingId] = useState(null);
   const [copiedNoteId, setCopiedNoteId] = useState(null);
+  const [shareNoteId, setShareNoteId] = useState(null);
 
   // Attached files state
   const [attachedFiles, setAttachedFiles] = useState([]);
@@ -375,6 +380,32 @@ export default function NotesPage() {
     }
   };
 
+  useEffect(() => {
+    if (!sharedNoteId) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const thread = await getNoteThreadApi(sharedNoteId);
+        if (cancelled) return;
+        setActiveNoteId(thread?.[0]?.id || sharedNoteId);
+        setActiveThread(thread || []);
+      } catch {
+        if (!cancelled) {
+          setActiveNoteId(null);
+          setActiveThread([]);
+          toast.error('This shared note is unavailable.');
+        }
+      } finally {
+        if (!cancelled) setSearchParams({}, { replace: true });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sharedNoteId, setSearchParams, toast]);
+
   // Delete session from sidebar
   const handleDeleteNote = async (noteId, e) => {
     e.stopPropagation();
@@ -495,9 +526,18 @@ export default function NotesPage() {
                 isRestylingId={isRestylingId}
                 onCopyNote={handleCopyNote}
                 copiedNoteId={copiedNoteId}
+                onShare={(note) => setShareNoteId(note.id)}
               />
             )}
           </div>
+
+          {/* Share Picker Modal */}
+          {shareNoteId && (
+            <SharePickerModal
+              noteId={shareNoteId}
+              onClose={() => setShareNoteId(null)}
+            />
+          )}
 
           {/* Bottom Persistent Chat Composer */}
           <PromptInputArea

@@ -32,13 +32,6 @@ class Note(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
-class GroupSharedNote(Base):
-    __tablename__ = "group_shared_notes"
-
-    group_id = Column(String, primary_key=True)
-    note_id = Column(String, ForeignKey("notes.id", ondelete="CASCADE"), primary_key=True)
-    shared_by = Column(String, nullable=False)
-    shared_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class UserTokenWallet(Base):
