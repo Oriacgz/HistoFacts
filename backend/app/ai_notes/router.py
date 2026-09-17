@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai_notes.schemas import (
     GenerateNoteRequest,
     NoteResponse,
-    UpdateNoteRequest,
+    ReviseNoteRequest,
     WalletResponse,
     TokenPackResponse,
     PurchaseResponse,
@@ -19,8 +19,8 @@ from app.ai_notes.schemas import (
 from app.ai_notes.service import (
     create_note_for_user,
     create_handwritten_note_for_user,
+    revise_note_for_user,
     get_user_notes,
-    update_note,
     share_note_to_group,
     delete_user_note,
 )
@@ -67,6 +67,22 @@ async def restyle_handwritten_note(
     return NoteResponse.model_validate(note)
 
 
+@router.post("/api/notes/{note_id}/revise", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
+async def revise_note(
+    note_id: str,
+    req: ReviseNoteRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    Create an AI-revised version of a note from a plain-language instruction.
+    The original note is never modified — the revision is a new linked note.
+    Off-topic instructions are rejected before any generation call (0 tokens charged).
+    """
+    note = await revise_note_for_user(note_id, req, current_user.id, db)
+    return NoteResponse.model_validate(note)
+
+
 @router.get("/api/notes", response_model=list[NoteResponse])
 @router.get("/api/notes/me", response_model=list[NoteResponse], include_in_schema=False)
 async def list_notes(
@@ -75,19 +91,6 @@ async def list_notes(
 ):
     notes = await get_user_notes(current_user.id, db)
     return [NoteResponse.model_validate(n) for n in notes]
-
-
-@router.put("/api/notes/{note_id}", response_model=NoteResponse)
-async def edit_note(
-    note_id: str,
-    req: UpdateNoteRequest,
-    current_user: CurrentUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_async_session),
-):
-    note = await update_note(note_id, req, current_user.id, db)
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-    return NoteResponse.model_validate(note)
 
 
 @router.delete("/api/notes/{note_id}", status_code=status.HTTP_200_OK)
@@ -128,7 +131,6 @@ async def get_my_wallet(
     """
     token_wallet, histoin_wallet = await get_or_create_wallets(current_user.id, db)
 
-    # Next refresh is tomorrow 00:00 UTC
     now = datetime.now(timezone.utc)
     next_refresh = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -243,5 +245,3 @@ async def export_user_ai_notes(
         "token_balance": token_wallet.token_balance if token_wallet else 0,
         "histoin_balance": histoin_wallet.balance if histoin_wallet else 0,
     }
-
-

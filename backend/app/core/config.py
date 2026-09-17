@@ -33,9 +33,13 @@ class Settings(BaseSettings):
         """Parse comma-separated CORS origins into a list."""
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
-    # ── LLM (Phase 5) ────────────────────────────────────────
-    llm_api_key: str = ""
-    llm_provider: str = "openai"
+    # ── LLM — LM Studio / Qwen3-VL-4B-Thinking ─────────────────
+    # Override these via environment variables for cloud deployments.
+    # llm_base_url must point to an OpenAI-compatible inference endpoint.
+    llm_base_url: str = "http://localhost:1234/v1"   # LM Studio default port
+    llm_model: str = "qwen3-vl-4b-thinking"           # exact model ID from LM Studio
+    llm_api_key: str = "not-needed"                  # local inference; no real key required
+    llm_provider: str = "lm_studio"
 
     # ── Redis ─────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"

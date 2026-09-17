@@ -8,12 +8,16 @@ import {
   Sparkles,
   CheckCircle2,
   Copy,
+  Wand2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import {
   generateNoteApi,
   generateHandwrittenNoteApi,
+  reviseNoteApi,
   getMyNotesApi,
   deleteNoteApi,
   getWalletApi,
@@ -67,6 +71,11 @@ export default function NotesPage() {
   const [shopPacks, setShopPacks] = useState([]);
   const [confirmPack, setConfirmPack] = useState(null);
   const [isPurchasing, setIsPurchasing] = useState(false);
+
+  // "Refine with AI" panel state
+  const [refineOpenId, setRefineOpenId] = useState(null);   // message id whose panel is expanded
+  const [refineInput, setRefineInput] = useState('');
+  const [isRefining, setIsRefining] = useState(false);
 
   // Debounced cost estimate state
   const [estimatedTokens, setEstimatedTokens] = useState(0);
@@ -347,8 +356,20 @@ export default function NotesPage() {
       if (err.status === 402) {
         toast.error('Insufficient tokens! Visit shop to refill.');
         handleOpenShop();
+      } else if (err.status === 400) {
+        // Guardrail refusal — show as a friendly assistant bubble, not an error toast
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `ai-refusal-${Date.now()}`,
+            role: 'assistant',
+            isRefusal: true,
+            content: err.message || "I can only help with history topics. Try asking about a historical event, figure, or period!",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
       } else {
-        toast.error('Failed to generate note. Please try again.');
+        toast.error(err.message || 'Failed to generate note. Please try again.');
       }
     } finally {
       setIsGenerating(false);
@@ -399,6 +420,77 @@ export default function NotesPage() {
         handleNewChat();
       }
       toast.success('Note deleted locally');
+    }
+  };
+
+  const handleRefineNote = async (msg) => {
+    const instruction = refineInput.trim();
+    if (!instruction || isRefining) return;
+
+    if (wallet.token_balance < 1000) {
+      toast.error('Not enough tokens to refine! Please visit the Shop.');
+      handleOpenShop();
+      return;
+    }
+
+    setIsRefining(true);
+    try {
+      const res = await reviseNoteApi(msg.noteId, instruction);
+
+      // Add the user's instruction bubble
+      const userMsgId = `user-refine-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: userMsgId,
+          role: 'user',
+          content: `Refine: ${instruction}`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      // Add the revised note as a new AI block
+      const refinedMsgId = `ai-refined-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: refinedMsgId,
+          noteId: res.id,
+          role: 'assistant',
+          title: res.title,
+          content: res.content,
+          style: res.style || 'standard',
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      // Prepend revised note to library; original is untouched
+      setNotes((prev) => [
+        {
+          id: res.id,
+          title: res.title,
+          content: res.content,
+          style: res.style || 'standard',
+          source_note_id: res.source_note_id,
+          created_at: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+      setActiveNoteId(res.id);
+
+      setRefineOpenId(null);
+      setRefineInput('');
+      fetchWallet();
+      toast.success('Note refined! Original preserved in library.');
+    } catch (err) {
+      if (err.status === 402) {
+        toast.error('Insufficient tokens! Visit shop to refill.');
+        handleOpenShop();
+      } else {
+        toast.error(err.message || 'Failed to refine note. Please try again.');
+      }
+    } finally {
+      setIsRefining(false);
     }
   };
 
@@ -574,6 +666,30 @@ export default function NotesPage() {
                       </button>
                     )}
 
+                    {/* Refine with AI toggle button */}
+                    {msg.noteId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (refineOpenId === msg.id) {
+                            setRefineOpenId(null);
+                            setRefineInput('');
+                          } else {
+                            setRefineOpenId(msg.id);
+                            setRefineInput('');
+                          }
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-[4px] bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 transition-all font-ui text-xs font-semibold cursor-pointer shadow-2xs active:scale-95"
+                        title="Refine this note with a plain-language instruction"
+                      >
+                        <Wand2 className="h-3.5 w-3.5 text-amber-700" />
+                        <span className="text-[11px] hidden sm:inline">Refine with AI</span>
+                        {refineOpenId === msg.id
+                          ? <ChevronUp className="h-3 w-3 text-amber-600" />
+                          : <ChevronDown className="h-3 w-3 text-amber-600" />}
+                      </button>
+                    )}
+
                     {/* Copy Button */}
                     <button
                       type="button"
@@ -604,6 +720,58 @@ export default function NotesPage() {
                     <MarkdownBlockViewer content={msg.content} />
                   )}
                 </div>
+
+                {/* Refine with AI expandable panel */}
+                <AnimatePresence>
+                  {refineOpenId === msg.id && (
+                    <motion.div
+                      key={`refine-panel-${msg.id}`}
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      className="overflow-hidden border-t border-amber-100 bg-amber-50/60"
+                    >
+                      <div className="px-6 py-4 space-y-2">
+                        <p className="font-ui text-[11px] text-amber-800/80 font-semibold uppercase tracking-wide flex items-center gap-1.5">
+                          <Wand2 className="h-3 w-3" />
+                          Describe the change you want
+                        </p>
+                        <div className="flex gap-2">
+                          <textarea
+                            id={`refine-input-${msg.id}`}
+                            value={refineInput}
+                            onChange={(e) => setRefineInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                handleRefineNote(msg);
+                              }
+                            }}
+                            placeholder="e.g. Focus on economic causes, add more dates, simplify for a younger audience…"
+                            rows={2}
+                            disabled={isRefining}
+                            className="flex-1 resize-none px-3 py-2 text-sm font-body text-histo-ink bg-white border border-amber-200 rounded-lg outline-none focus:border-amber-400 placeholder:text-histo-ink/40 disabled:opacity-60"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRefineNote(msg)}
+                            disabled={isRefining || !refineInput.trim()}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-ui text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed self-start mt-0.5"
+                          >
+                            {isRefining ? (
+                              <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Refining…</span></>
+                            ) : (
+                              <><Wand2 className="h-3.5 w-3.5" /><span>Refine</span></>
+                            )}
+                          </button>
+                        </div>
+                        <p className="font-ui text-[10px] text-amber-700/60">
+                          Original note is preserved · revised copy appears in your library · ⌘Enter to submit
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             );
           })}
