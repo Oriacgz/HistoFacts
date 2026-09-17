@@ -21,6 +21,7 @@ class Note(Base):
     user_id = Column(String, nullable=False, index=True)
     event_id = Column(String, nullable=True)
     title = Column(String, nullable=False)
+    prompt = Column(Text, nullable=True)
     content = Column(Text, nullable=False)
     curriculum_tag = Column(String, nullable=True)  # e.g. "NCERT Class 10", "UPSC GS I"
     style = Column(String, default="standard")      # "standard" or "handwritten"

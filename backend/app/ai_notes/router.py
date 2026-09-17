@@ -2,16 +2,20 @@
 FastAPI router for AI Notes, Token Wallet, Shop, and Handwritten Notes endpoints.
 """
 
+import json
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_notes.models import Note
 from app.ai_notes.schemas import (
     GenerateNoteRequest,
     NoteResponse,
     ReviseNoteRequest,
+    ContinueConversationRequest,
     WalletResponse,
     TokenPackResponse,
     PurchaseResponse,
@@ -21,13 +25,27 @@ from app.ai_notes.service import (
     create_handwritten_note_for_user,
     revise_note_for_user,
     get_user_notes,
+    get_note_thread_for_user,
+    build_conversation_messages,
+    save_conversation_turn,
     share_note_to_group,
     delete_user_note,
+)
+from app.ai_notes.llm_client import (
+    stream_and_filter_thinking,
+    stream_chat,
+    is_history_related,
+    scrub_identity_leak,
+    calculate_approx_tokens,
+    REFUSAL_MESSAGE,
+    SYSTEM_PROMPT,
 )
 from app.ai_notes.wallet_service import (
     get_or_create_wallets,
     get_shop_packs,
     purchase_token_pack,
+    preflight_token_check,
+    deduct_generation_tokens,
     FREE_REFILL_CAP,
     DAILY_REFRESH,
     PURCHASED_CEILING,
@@ -54,6 +72,185 @@ async def generate_note(
 ):
     note = await create_note_for_user(req, current_user.id, db)
     return NoteResponse.model_validate(note)
+
+
+@router.post("/api/notes/generate/stream")
+@limiter.limit("10/minute")
+async def generate_note_stream(
+    request: Request,
+    req: GenerateNoteRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    Stream note generation via SSE token-by-token.
+    Enforces pre-classification guardrail, filters <think> traces,
+    scrubs identity leaks, and saves the resulting note to database.
+    """
+    # 0. Pre-classification guard
+    if not await is_history_related(req.topic):
+        async def refusal_stream():
+            yield f"data: {json.dumps({'delta': REFUSAL_MESSAGE})}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(refusal_stream(), media_type="text/event-stream")
+
+    # 1. Pre-flight token estimation check
+    prompt_tokens = calculate_approx_tokens(req.topic) + calculate_approx_tokens(req.attachment_text or "")
+    estimated_tokens = prompt_tokens + 1200
+    await preflight_token_check(current_user.id, estimated_tokens, db)
+
+    # 2. Build initial prompt instructions
+    clean_topic_title = req.topic.strip().replace("\n", " ")
+    if len(clean_topic_title) > 60:
+        clean_topic_title = f"{clean_topic_title[:57]}..."
+    elif not clean_topic_title and req.attachment_name:
+        clean_topic_title = f"Document Analysis: {req.attachment_name}"
+    elif not clean_topic_title:
+        clean_topic_title = "Historical Study Notes"
+
+    title = f"Study Notes: {clean_topic_title} ({req.curriculum})"
+
+    attachment_instructions = ""
+    if req.attachment_name:
+        attachment_instructions += f"\n\nAttached Source File: '{req.attachment_name}' (Type: {req.attachment_type or 'document'})."
+    if req.attachment_text:
+        snippet = req.attachment_text[:12000]
+        attachment_instructions += (
+            f"\n\n--- SOURCE MATERIAL CONTENT ---\n{snippet}\n--- END SOURCE MATERIAL ---\n\n"
+            "Carefully analyze, extract, and incorporate the primary facts, concepts, arguments, "
+            "timelines, and figures from this attached source into the structured curriculum study notes."
+        )
+
+    user_prompt = (
+        f"Generate a comprehensive, high-yield structured study note for the historical topic/inquiry: '{req.topic}'.\n"
+        f"Target Curriculum / Syllabus: '{req.curriculum}'.{attachment_instructions}\n\n"
+        f"Format the output in clean, readable Markdown with clear headings and bullet points:\n"
+        f"- 📌 Key Takeaways & Core Concepts\n"
+        f"- 🏛️ Historical Context & Background\n"
+        f"- 📜 Chronological Timeline & Major Events\n"
+        f"- 🔍 Source & Document Analysis (if source attached)\n"
+        f"- 🎯 Examination & Curriculum Relevance (High-yield points, keywords, essay pointers)\n"
+        f"- ❓ Self-Assessment & Exam Practice Questions"
+    )
+
+    user_content: str | list = user_prompt
+    if req.attachment_data and req.attachment_data.startswith("data:image/"):
+        user_content = [
+            {"type": "text", "text": user_prompt},
+            {"type": "image_url", "image_url": {"url": req.attachment_data, "detail": "auto"}},
+        ]
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+    async def event_stream():
+        full_response = ""
+        async for delta in stream_and_filter_thinking(stream_chat(messages)):
+            full_response += delta
+            yield f"data: {json.dumps({'delta': delta})}\n\n"
+
+        final = scrub_identity_leak(full_response)
+        actual_tokens = calculate_approx_tokens(str(messages)) + calculate_approx_tokens(final)
+        await deduct_generation_tokens(current_user.id, actual_tokens, db)
+
+        note = Note(
+            user_id=current_user.id,
+            event_id=req.event_id,
+            title=title,
+            prompt=req.topic,
+            content=final,
+            curriculum_tag=req.curriculum,
+            style=req.style or "standard",
+            attachment_name=req.attachment_name,
+            attachment_type=req.attachment_type,
+            is_ai_generated=True,
+        )
+        db.add(note)
+        await db.commit()
+        await db.refresh(note)
+
+        yield f"data: {json.dumps({'note': NoteResponse.model_validate(note).model_dump(mode='json')})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/api/notes/{note_id}/continue/stream")
+async def continue_conversation_stream(
+    note_id: str,
+    req: ContinueConversationRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    Continue a multi-turn conversation on an active note thread.
+    Passes full prior conversation chain as context for coherent reasoning.
+    Runs topic guardrails using the session topic as context.
+    Streams token-by-token, filters thinking traces, scrubs identity leaks,
+    and appends a new turn to the version chain.
+    """
+    chain = await get_note_thread_for_user(note_id, current_user.id, db)
+    root = chain[0]
+
+    # Guardrail check with thread context
+    if not await is_history_related(req.message, thread_topic=root.title):
+        async def refusal_stream():
+            yield f"data: {json.dumps({'delta': REFUSAL_MESSAGE})}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(refusal_stream(), media_type="text/event-stream")
+
+    # Preflight check
+    estimated_tokens = calculate_approx_tokens(req.message) + 1200
+    await preflight_token_check(current_user.id, estimated_tokens, db)
+
+    # Build conversation messages
+    user_turn_content = req.message
+    if req.attachment_name:
+        user_turn_content += f"\n\n[Attached File: {req.attachment_name}]"
+    if req.attachment_text:
+        user_turn_content += f"\n\n--- ATTACHED CONTENT ---\n{req.attachment_text[:8000]}\n--- END ---"
+
+    history = build_conversation_messages(chain)
+    messages = history + [{"role": "user", "content": user_turn_content}]
+
+    async def event_stream():
+        full_response = ""
+        async for delta in stream_and_filter_thinking(stream_chat(messages)):
+            full_response += delta
+            yield f"data: {json.dumps({'delta': delta})}\n\n"
+
+        final = scrub_identity_leak(full_response)
+        actual_tokens = calculate_approx_tokens(str(messages)) + calculate_approx_tokens(final)
+        await deduct_generation_tokens(current_user.id, actual_tokens, db)
+
+        new_turn = await save_conversation_turn(
+            root_note_id=root.id,
+            user_id=current_user.id,
+            prompt=req.message,
+            content=final,
+            db=db,
+            style="standard",
+        )
+        yield f"data: {json.dumps({'note': NoteResponse.model_validate(new_turn).model_dump(mode='json')})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get("/api/notes/{note_id}/thread", response_model=list[NoteResponse])
+async def get_note_thread(
+    note_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    Load the full conversation thread for a session in chronological order.
+    Every turn contains prompt (user request) and content (AI note).
+    """
+    chain = await get_note_thread_for_user(note_id, current_user.id, db)
+    return [NoteResponse.model_validate(n) for n in chain]
 
 
 @router.post("/api/notes/{note_id}/handwritten", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)

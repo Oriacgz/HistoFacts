@@ -53,11 +53,22 @@ async def test_ai_notes_and_wallet_flow(client: AsyncClient):
     assert hw_note["style"] == "handwritten"
     assert hw_note["source_note_id"] == note_id
 
-    # 6. List my notes
+    # 6. List my notes - only root notes are returned (session grouping)
     list_resp = await client.get("/api/notes/me", headers=headers)
     assert list_resp.status_code == 200
     notes_list = list_resp.json()
-    assert len(notes_list) >= 2
+    assert len(notes_list) == 1
+    assert notes_list[0]["id"] == note_id
+    assert notes_list[0]["prompt"] == "The Industrial Revolution in Britain"
+
+    # 7. Get conversation thread for root note - returns full version chain
+    thread_resp = await client.get(f"/api/notes/{note_id}/thread", headers=headers)
+    assert thread_resp.status_code == 200
+    thread = thread_resp.json()
+    assert len(thread) == 2
+    assert thread[0]["id"] == note_id
+    assert thread[1]["id"] == hw_note["id"]
+    assert thread[1]["prompt"] is not None
 
 
 @pytest.mark.asyncio
