@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { ChatProvider } from './contexts/ChatContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FeatureErrorFallback } from './components/FeatureErrorFallback';
 
@@ -163,9 +164,11 @@ export default function App() {
               path="/notes"
               element={
                 <ProtectedRoute>
-                  <FeatureBoundary featureName="AI Notes & Histoins">
-                    <NotesPage />
-                  </FeatureBoundary>
+                  <ChatProvider>
+                    <FeatureBoundary featureName="AI Notes & Histoins">
+                      <NotesPage />
+                    </FeatureBoundary>
+                  </ChatProvider>
                 </ProtectedRoute>
               }
             />

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiFetch } from './client';
+import { apiFetch, authenticatedFetch } from './client';
 
 const storage = {};
 global.localStorage = {
@@ -57,5 +57,24 @@ describe('apiFetch client', () => {
     });
 
     await expect(apiFetch('/api/history/events/999')).rejects.toThrow('Event not found');
+  });
+
+  it('refreshes the token before retrying an authenticated raw request', async () => {
+    localStorage.setItem('access_token', 'expired-token');
+    localStorage.setItem('refresh_token', 'refresh-token');
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ status: 401, ok: false })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: 'new-token', refresh_token: 'new-refresh', user: { id: 'u1' } }),
+      })
+      .mockResolvedValueOnce({ status: 200, ok: true });
+
+    const response = await authenticatedFetch('/api/notes/generate/stream', { method: 'POST' });
+
+    expect(response.ok).toBe(true);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(global.fetch.mock.calls[2][1].headers.Authorization).toBe('Bearer new-token');
   });
 });

@@ -1,7 +1,9 @@
 import { motion } from 'framer-motion';
 import { FileText, Gamepad2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function MessageBubble({ message, isOwnMessage, showSender }) {
+  const navigate = useNavigate();
   const isText = message.message_type === 'text';
   const isNoteShare = message.message_type === 'note_share';
   const isQuizShare = message.message_type === 'quiz_share';
@@ -10,6 +12,12 @@ export default function MessageBubble({ message, isOwnMessage, showSender }) {
     hour: '2-digit',
     minute: '2-digit',
   });
+
+  const handleOpenNote = () => {
+    if (message.shared_ref_id) {
+      navigate(`/notes?note=${encodeURIComponent(message.shared_ref_id)}`);
+    }
+  };
 
   return (
     <motion.div
@@ -62,7 +70,9 @@ export default function MessageBubble({ message, isOwnMessage, showSender }) {
               </p>
               <button
                 type="button"
-                className="mt-1.5 text-[10px] font-ui font-bold uppercase tracking-wider text-histo-gold hover:text-histo-copper transition-colors cursor-pointer bg-transparent border-none p-0"
+                onClick={handleOpenNote}
+                disabled={!message.shared_ref_id}
+                className="mt-1.5 text-[10px] font-ui font-bold uppercase tracking-wider text-histo-gold hover:text-histo-copper transition-colors cursor-pointer bg-transparent border-none p-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Open Note →
               </button>
