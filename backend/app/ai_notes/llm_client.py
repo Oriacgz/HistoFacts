@@ -72,11 +72,76 @@ def calculate_approx_tokens(text: str) -> int:
     return max(int(words * 1.3), int(chars / 3.8))
 
 
+async def stream_and_filter_thinking(raw_stream):
+    """
+    Stream tokens while strictly suppressing <think>...</think> blocks,
+    even when tags or content are split across arbitrary chunk boundaries.
+    """
+    buffer = ""
+    in_thinking = False
+    open_tag = "<think>"
+    close_tag = "</think>"
+
+    async for chunk in raw_stream:
+        buffer += chunk
+
+        while buffer:
+            if not in_thinking:
+                if open_tag in buffer:
+                    before, _, after = buffer.partition(open_tag)
+                    if before:
+                        yield before
+                    in_thinking = True
+                    buffer = after
+                    continue
+
+                # Check if buffer ends with a partial open_tag like '<', '<t', '<th', etc.
+                partial_match_len = 0
+                for i in range(1, min(len(open_tag), len(buffer) + 1)):
+                    if open_tag.startswith(buffer[-i:]):
+                        partial_match_len = i
+                        break
+
+                if partial_match_len > 0:
+                    to_yield = buffer[:-partial_match_len]
+                    buffer = buffer[-partial_match_len:]
+                    if to_yield:
+                        yield to_yield
+                    break
+                else:
+                    yield buffer
+                    buffer = ""
+                    break
+            else:
+                if close_tag in buffer:
+                    _, _, after = buffer.partition(close_tag)
+                    in_thinking = False
+                    buffer = after
+                    continue
+
+                # Check if buffer ends with a partial close_tag like '<', '</', '</t', etc.
+                partial_match_len = 0
+                for i in range(1, min(len(close_tag), len(buffer) + 1)):
+                    if close_tag.startswith(buffer[-i:]):
+                        partial_match_len = i
+                        break
+
+                if partial_match_len > 0:
+                    buffer = buffer[-partial_match_len:]
+                else:
+                    buffer = ""
+                break
+
+    if buffer and not in_thinking:
+        yield buffer
+
+
 # ── Pre-classification (Layer 2) ───────────────────────────────────────────────
 
-async def is_history_related(user_input: str) -> bool:
+async def is_history_related(user_input: str, thread_topic: str | None = None) -> bool:
     """
     Classify whether the request is about history before spending a full generation.
+    When thread_topic is provided, evaluate in the context of the active conversation thread.
     Returns True if on-topic, False if off-topic.
 
     Qwen3-VL-4B-Thinking is a reasoning model: it places chain-of-thought in
@@ -94,17 +159,26 @@ async def is_history_related(user_input: str) -> bool:
         api_key=settings.llm_api_key or "not-needed",
         http_client=_httpx.AsyncClient(timeout=_httpx.Timeout(5.0, connect=3.0)),
     )
+    if thread_topic:
+        prompt_content = (
+            f'Conversation topic: "{thread_topic}". New message: "{user_input}". '
+            f'Is this a reasonable continuation of a history-related conversation, or an attempt to go off-topic? '
+            f'Respond with only "HISTORY" or "OFF_TOPIC".'
+        )
+    else:
+        prompt_content = (
+            "Classify if this request is about history, historical events, or historical figures. "
+            "Respond with only HISTORY or OFF_TOPIC.\n"
+            f"Request: {user_input}"
+        )
+
     try:
         resp = await client.chat.completions.create(
             model=settings.llm_model,
             messages=[
                 {
                     "role": "user",
-                    "content": (
-                        "Classify if this request is about history, historical events, or historical figures. "
-                        "Respond with only HISTORY or OFF_TOPIC.\n"
-                        f"Request: {user_input}"
-                    ),
+                    "content": prompt_content,
                 }
             ],
             max_tokens=2000,  # reasoning models need budget to think before writing content
@@ -129,11 +203,69 @@ async def is_history_related(user_input: str) -> bool:
         # If we truly cannot determine, allow the request through
         return True
     except Exception:
-        # LM Studio unreachable or any other error — don't block the user.
+        # LM Studio unreachable or any other error — don't block legitimate user continuation
         return True
 
 
-# ── Live generation via LM Studio ─────────────────────────────────────────────
+# ── Live generation & streaming via LM Studio ─────────────────────────────────
+
+async def stream_chat(messages: list[dict], max_tokens: int = 2000):
+    """
+    Stream token chunks from LM Studio OpenAI-compatible endpoint.
+    If offline or connection fails, falls back to simulated token stream.
+    """
+    import httpx as _httpx
+    import asyncio
+
+    client = AsyncOpenAI(
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key or "not-needed",
+        http_client=_httpx.AsyncClient(timeout=_httpx.Timeout(45.0, connect=5.0)),
+    )
+    try:
+        resp_stream = await client.chat.completions.create(
+            model=settings.llm_model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        async for chunk in resp_stream:
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+        return
+    except Exception as e:
+        print(f"LLM streaming error (using fallback stream): {e}")
+
+    # Fallback streaming when LM Studio is offline
+    last_user_msg = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            content = m.get("content")
+            if isinstance(content, str):
+                last_user_msg = content
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        last_user_msg = part.get("text", "")
+            break
+
+    fallback_text = (
+        f"### Historical Analysis\n\n"
+        f"Regarding your follow-up **\"{last_user_msg[:70]}\"**:\n\n"
+        f"- **Contextual Significance:** Building directly on our earlier discussion, "
+        f"historical developments in this area reflect broader socioeconomic shifts.\n"
+        f"- **Primary Takeaways:** Primary sources emphasize key turning points, institutional "
+        f"reforms, and significant diplomatic outcomes.\n"
+        f"- **Exam / Synthesis Notes:** Consider comparing these consequences with contemporary "
+        f"regional transformations."
+    )
+    for word in fallback_text.split(" "):
+        yield word + " "
+        await asyncio.sleep(0.01)
+
 
 async def _chat_complete(messages: list[dict], max_tokens: int = 2000) -> tuple[str, int]:
     """

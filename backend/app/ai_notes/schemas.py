@@ -24,6 +24,7 @@ class NoteResponse(BaseModel):
     user_id: str
     event_id: str | None = None
     title: str
+    prompt: str | None = None
     content: str
     curriculum_tag: str | None = None
     style: str = "standard"
@@ -36,6 +37,14 @@ class NoteResponse(BaseModel):
 
 class ReviseNoteRequest(BaseModel):
     instruction: str = Field(..., min_length=1, max_length=2000)
+
+
+class ContinueConversationRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    attachment_name: str | None = None
+    attachment_type: str | None = None
+    attachment_text: str | None = None
+    attachment_data: str | None = None
 
 
 class WalletResponse(BaseModel):
@@ -62,3 +71,11 @@ class PurchaseResponse(BaseModel):
     histoin_balance: int
     tokens_credited: int
     pack_name: str
+
+
+class ShareNoteRequest(BaseModel):
+    conversation_ids: list[str] = Field(..., min_length=1)
+
+
+class ShareNoteResponse(BaseModel):
+    shared_to: int
