@@ -12,17 +12,18 @@
 
 1. [Product Overview](#product-overview)
 2. [Features](#features)
-3. [System Architecture](#system-architecture)
-4. [Tech Stack](#tech-stack)
-5. [Project Structure](#project-structure)
-6. [Local Development Setup](#local-development-setup)
-7. [Environment Variables](#environment-variables)
-8. [Database Migrations](#database-migrations)
-9. [Testing](#testing)
-10. [Docker Compose Deployment](#docker-compose-deployment)
-11. [WebSocket Multiplayer Lobby](#websocket-multiplayer-lobby)
-12. [Security Architecture](#security-architecture)
-13. [Troubleshooting](#troubleshooting)
+3. [Open-Source Collaboration](#open-source-collaboration)
+4. [System Architecture](#system-architecture)
+5. [Tech Stack](#tech-stack)
+6. [Project Structure](#project-structure)
+7. [Local Development Setup](#local-development-setup)
+8. [Environment Variables](#environment-variables)
+9. [Database Migrations](#database-migrations)
+10. [Testing](#testing)
+11. [Docker Compose Deployment](#docker-compose-deployment)
+12. [WebSocket Multiplayer Lobby](#websocket-multiplayer-lobby)
+13. [Security Architecture](#security-architecture)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -55,6 +56,54 @@ HistoFacts is a full-stack SPA built for history enthusiasts, students, and comp
 | 🤝 Friends | Add/remove friends, see their activity |
 | 🏆 Leaderboard | Monthly global quiz leaderboard with accuracy and score ranking |
 | 🔖 Bookmarks | Save historical events for later |
+
+---
+
+## Open-Source Collaboration
+
+Contributions are welcome from developers, historians, educators, designers, and documentation contributors. Please use the following workflow to keep changes easy to review and maintain.
+
+### Before You Start
+
+- Search existing issues and pull requests before opening a new one.
+- Open an issue first for large features, architecture changes, database changes, or breaking API changes.
+- Keep each pull request focused on one bug, feature, documentation update, or refactor.
+- Do not include secrets, private user data, generated build output, local database files, or unrelated formatting changes.
+
+### Issue Reports
+
+Include:
+
+- A clear title and concise problem description.
+- Exact steps to reproduce the problem.
+- Expected and actual behavior.
+- Relevant browser, operating system, runtime, and deployment details.
+- Console logs, API responses, screenshots, or a minimal reproduction when available.
+
+### Pull Requests
+
+1. Create a branch from the default branch using a descriptive name such as `fix/ai-notes-streaming` or `feat/shared-note-permissions`.
+2. Implement the smallest complete change and update documentation when behavior or setup changes.
+3. Add or update focused tests for the changed behavior.
+4. Run the relevant backend tests, frontend tests, lint checks, and production build locally.
+5. Open a pull request describing the problem, solution, testing performed, and any known limitations.
+
+### Code and Review Standards
+
+- Follow the existing React, FastAPI, SQLAlchemy, Pydantic, and Tailwind patterns in the repository.
+- Preserve existing public API behavior unless the pull request explicitly documents a breaking change.
+- Enforce authentication, authorization, ownership, and input validation on the backend; frontend checks are not security boundaries.
+- Prefer accessible controls, responsive layouts, clear error states, and keyboard support for user-facing features.
+- Reviewers should focus on correctness, security, regressions, maintainability, performance, and test coverage.
+- Contributors should respond to review feedback respectfully and explain trade-offs when a suggestion is not applied.
+
+### Security Reports
+
+Do not disclose exploitable vulnerabilities in a public issue. Report security concerns privately to the repository maintainers with reproduction steps, affected components, impact, and suggested mitigation. Do not include passwords, access tokens, API keys, or personal data in issues or pull requests.
+
+### License
+
+By contributing, you agree that your contribution is provided under the project license. See [LICENSE](LICENSE) for the applicable terms.
 
 ---
 
@@ -233,7 +282,7 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-Backend API available at: `http://localhost:8000`  
+Backend API available at: `http://localhost:8000`
 Interactive docs: `http://localhost:8000/docs`
 
 ### 2. Frontend Setup
