@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { apiFetch, authenticatedFetch } from './client';
 
 export async function generateNoteApi(paramsOrTopic, curriculum = 'NCERT Class 10 History', eventId = null) {
   let body = {};
@@ -34,31 +34,25 @@ export async function generateHandwrittenNoteApi(noteId) {
   });
 }
 
+export async function reviseNoteApi(noteId, instruction) {
+  return apiFetch(`/api/notes/${noteId}/revise`, {
+    method: 'POST',
+    body: JSON.stringify({ instruction }),
+  });
+}
+
+export async function getNoteThreadApi(noteId) {
+  return apiFetch(`/api/notes/${noteId}/thread`);
+}
+
 export async function getMyNotesApi() {
   return apiFetch('/api/notes');
 }
 
-export async function updateNoteApi(noteId, titleOrData, maybeContent, maybeCurriculumTag) {
-  let body = {};
-  if (typeof titleOrData === 'object' && titleOrData !== null) {
-    body = titleOrData;
-  } else {
-    body = {
-      title: titleOrData,
-      content: maybeContent,
-      curriculum_tag: maybeCurriculumTag,
-    };
-  }
-
-  return apiFetch(`/api/notes/${noteId}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  });
-}
-
-export async function shareNoteToGroupApi(noteId, groupId) {
-  return apiFetch(`/api/notes/${noteId}/share/${groupId}`, {
+export async function shareNoteApi(noteId, conversationIds) {
+  return apiFetch(`/api/notes/${noteId}/share`, {
     method: 'POST',
+    body: JSON.stringify({ conversation_ids: conversationIds }),
   });
 }
 
@@ -82,4 +76,76 @@ export async function purchasePackApi(packId, idempotencyKey = null) {
     options.headers = { 'Idempotency-Key': idempotencyKey };
   }
   return apiFetch(`/api/shop/purchase/${packId}`, options);
+}
+
+async function streamSseReader(res, onDelta, onNoteSaved) {
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({ detail: 'Network or server error' }));
+    const error = new Error(errorData.detail || 'An error occurred during streaming');
+    error.status = res.status;
+    error.data = errorData;
+    throw error;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // preserve trailing partial line
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data: ')) continue;
+      const rawData = trimmed.slice(6);
+      if (rawData === '[DONE]') break;
+
+      try {
+        const parsed = JSON.parse(rawData);
+        if (parsed.delta && onDelta) {
+          onDelta(parsed.delta);
+        }
+        if (parsed.note && onNoteSaved) {
+          onNoteSaved(parsed.note);
+        }
+      } catch (err) {
+        console.warn('Failed to parse SSE chunk:', rawData, err);
+      }
+    }
+  }
+}
+
+export async function streamGenerateNoteApi({ payload, onDelta, onNoteSaved, signal }) {
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  const res = await authenticatedFetch('/api/notes/generate/stream', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  return streamSseReader(res, onDelta, onNoteSaved);
+}
+
+export async function streamContinueConversationApi({ noteId, payload, onDelta, onNoteSaved, signal }) {
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  const res = await authenticatedFetch(`/api/notes/${noteId}/continue/stream`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  return streamSseReader(res, onDelta, onNoteSaved);
 }

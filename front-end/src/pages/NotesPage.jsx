@@ -1,58 +1,61 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import {
-  Upload,
-  Loader2,
-  Paperclip,
-  PenTool,
-  Sparkles,
-  CheckCircle2,
-  Copy,
-} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Upload } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import {
-  generateNoteApi,
   generateHandwrittenNoteApi,
   getMyNotesApi,
   deleteNoteApi,
   getWalletApi,
   getShopPacksApi,
   purchasePackApi,
+  getNoteThreadApi,
+  streamGenerateNoteApi,
+  streamContinueConversationApi,
 } from '../api/aiNotes';
 
 // Modular feature imports
 import { estimateClientTokens } from '../features/ai-notes/utils/tokenEstimator';
 import { processAttachedFile } from '../features/ai-notes/utils/fileProcessor';
-import MarkdownBlockViewer from '../features/ai-notes/components/MarkdownBlockViewer';
-import HandwrittenBlockViewer from '../features/ai-notes/components/HandwrittenBlockViewer';
 import ShopModal from '../features/ai-notes/components/ShopModal';
 import NotesSidebar from '../features/ai-notes/components/NotesSidebar';
 import NotesHeader from '../features/ai-notes/components/NotesHeader';
 import WelcomeCanvas from '../features/ai-notes/components/WelcomeCanvas';
 import PromptInputArea from '../features/ai-notes/components/PromptInputArea';
+import NoteThread from '../features/ai-notes/components/NoteThread';
+import SharePickerModal from '../features/chat/SharePickerModal';
 
 export default function NotesPage() {
   const { user, logout } = useAuth();
   const toast = useToast();
-  const shouldReduceMotion = useReducedMotion();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sharedNoteId = searchParams.get('note');
 
-  // State
-  const [notes, setNotes] = useState([]);
-  const [messages, setMessages] = useState([]);
+  // Fresh state on every load: activeNoteId is always null on mount (never auto-selected, never restored)
   const [activeNoteId, setActiveNoteId] = useState(null);
-  const [inputValue, setInputValue] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isRestylingId, setIsRestylingId] = useState(null);
+  const [activeThread, setActiveThread] = useState([]);
+
+  // Sidebar library (root sessions only)
+  const [notes, setNotes] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [copiedMessageId, setCopiedMessageId] = useState(null);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+
+  // Composer & Streaming State
+  const [inputValue, setInputValue] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingPrompt, setStreamingPrompt] = useState('');
+  const [streamingAttachments, setStreamingAttachments] = useState([]);
+  const [streamingText, setStreamingText] = useState('');
+  const [isRestylingId, setIsRestylingId] = useState(null);
+  const [copiedNoteId, setCopiedNoteId] = useState(null);
+  const [shareNoteId, setShareNoteId] = useState(null);
 
   // Attached files state
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Token Wallet & Shop State
   const [wallet, setWallet] = useState({
@@ -68,22 +71,25 @@ export default function NotesPage() {
   const [confirmPack, setConfirmPack] = useState(null);
   const [isPurchasing, setIsPurchasing] = useState(false);
 
-  // Debounced cost estimate state
+  // User Profile Menu State
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  // Debounced token estimate calculation
   const [estimatedTokens, setEstimatedTokens] = useState(0);
 
   const fileInputRef = useRef(null);
-  const chatBottomRef = useRef(null);
 
-  // Fetch Wallet & Notes
+  // Fetch Wallet
   const fetchWallet = useCallback(async () => {
     try {
       const data = await getWalletApi();
       if (data) setWallet(data);
     } catch {
-      // Keep default state
+      // Keep default wallet state
     }
   }, []);
 
+  // Initial Data Load: Load root notes and wallet info
   const loadData = useCallback(async () => {
     try {
       const [notesData, walletData] = await Promise.all([
@@ -131,8 +137,10 @@ export default function NotesPage() {
       toast.error(`Insufficient Histoins! Need ${pack.histoin_cost} 🪙`);
       return;
     }
-    // Generate idempotency key once per purchase attempt
-    const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const idempotencyKey =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     setConfirmPack({ ...pack, idempotencyKey });
   };
 
@@ -154,11 +162,6 @@ export default function NotesPage() {
       setIsPurchasing(false);
     }
   };
-
-  // Scroll to bottom when messages update
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: shouldReduceMotion ? 'auto' : 'smooth' });
-  }, [messages, isGenerating, isRestylingId, shouldReduceMotion]);
 
   // Handle File Input Selection
   const handleFileSelect = async (e) => {
@@ -212,21 +215,18 @@ export default function NotesPage() {
     }
   };
 
-  // Copy individual AI block content
-  const handleCopyBlock = (messageId, content) => {
-    if (!content) return;
-    navigator.clipboard.writeText(content);
-    setCopiedMessageId(messageId);
-    toast.success('Copied response to clipboard!');
-    setTimeout(() => setCopiedMessageId(null), 2000);
+  // Copy note content
+  const handleCopyNote = (note) => {
+    if (!note?.content) return;
+    navigator.clipboard.writeText(note.content);
+    setCopiedNoteId(note.id);
+    toast.success('Copied note to clipboard!');
+    setTimeout(() => setCopiedNoteId(null), 2000);
   };
 
-  // Convert Note to Handwritten Style
-  const handleConvertToHandwritten = async (noteId, messageId) => {
-    if (!noteId) {
-      toast.info('Please save or select a note to convert');
-      return;
-    }
+  // Convert Note to Handwritten Style (adds to chain, never clutters sidebar)
+  const handleConvertToHandwritten = async (noteId) => {
+    if (!noteId) return;
 
     if (wallet.token_balance < 1000) {
       toast.error('Not enough tokens to restyle! Please visit the Shop.');
@@ -234,32 +234,11 @@ export default function NotesPage() {
       return;
     }
 
-    setIsRestylingId(messageId);
+    setIsRestylingId(noteId);
     try {
       const res = await generateHandwrittenNoteApi(noteId);
-
-      const hwMsgId = `ai-hw-${Date.now()}`;
-      const hwMessage = {
-        id: hwMsgId,
-        noteId: res.id,
-        role: 'assistant',
-        title: res.title,
-        content: res.content,
-        style: 'handwritten',
-        timestamp: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, hwMessage]);
-
-      const savedNote = {
-        id: res.id || `n-hw-${Date.now()}`,
-        title: res.title,
-        content: res.content,
-        style: 'handwritten',
-        created_at: new Date().toISOString(),
-      };
-      setNotes((prev) => [savedNote, ...prev]);
-      setActiveNoteId(savedNote.id);
+      // Append the handwritten version as a turn in the active thread
+      setActiveThread((prev) => [...prev, res]);
       fetchWallet();
       toast.success('Converted to Handwritten Notes!');
     } catch (err) {
@@ -267,17 +246,17 @@ export default function NotesPage() {
         toast.error('Insufficient tokens! Visit shop to refill.');
         handleOpenShop();
       } else {
-        toast.error('Failed to convert to handwritten notes');
+        toast.error(err.message || 'Failed to convert note');
       }
     } finally {
       setIsRestylingId(null);
     }
   };
 
-  // Send Message / Generate Answer Block
+  // Start new session or send follow-up message in active thread
   const handleSendMessage = async (customPrompt = null) => {
     const promptText = (customPrompt || inputValue).trim();
-    if ((!promptText && attachedFiles.length === 0) || isGenerating) return;
+    if ((!promptText && attachedFiles.length === 0) || isStreaming) return;
 
     // Check token balance
     const estCost = estimateClientTokens(promptText, attachedFiles);
@@ -288,117 +267,162 @@ export default function NotesPage() {
     }
 
     const currentFiles = [...attachedFiles];
-    const userPrompt = promptText || (currentFiles.length > 0 ? `Analyze attached document: ${currentFiles[0].name}` : 'Generate study notes');
-
-    const userMsgId = `user-${Date.now()}`;
-    const userMessage = {
-      id: userMsgId,
-      role: 'user',
-      content: userPrompt,
-      attachments: currentFiles,
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInputValue('');
-    setAttachedFiles([]);
-    setIsGenerating(true);
-
+    const userPrompt =
+      promptText ||
+      (currentFiles.length > 0
+        ? `Analyze attached document: ${currentFiles[0].name}`
+        : 'Generate historical study notes');
     const primaryFile = currentFiles[0] || null;
 
-    try {
+    // Clear composer input immediately
+    setInputValue('');
+    setAttachedFiles([]);
+
+    // Set streaming state
+    setIsStreaming(true);
+    setStreamingPrompt(userPrompt);
+    setStreamingAttachments(currentFiles);
+    setStreamingText('');
+
+    if (!activeNoteId) {
+      // ── New Session Generation ─────────────────────────────
       const payload = {
         topic: userPrompt,
-        curriculum: 'General History & Curriculum',
+        curriculum: 'NCERT Class 10 History',
         attachment_name: primaryFile?.name || null,
         attachment_type: primaryFile?.type || null,
         attachment_text: primaryFile?.extractedText || null,
         attachment_data: primaryFile?.dataUrl || null,
       };
 
-      const res = await generateNoteApi(payload);
-
-      const aiMsgId = `ai-${Date.now()}`;
-      const aiMessage = {
-        id: aiMsgId,
-        noteId: res.id,
-        role: 'assistant',
-        title: res.title,
-        content: res.content,
-        style: res.style || 'standard',
-        attachment_name: primaryFile?.name || null,
-        timestamp: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, aiMessage]);
-
-      const savedNote = {
-        id: res.id || `n-${Date.now()}`,
-        title: res.title || userPrompt.slice(0, 45),
-        content: res.content,
-        style: res.style || 'standard',
-        created_at: new Date().toISOString(),
-      };
-      setNotes((prev) => [savedNote, ...prev]);
-      setActiveNoteId(savedNote.id);
-      fetchWallet();
-      toast.success('Answer generated on canvas!');
-    } catch (err) {
-      if (err.status === 402) {
-        toast.error('Insufficient tokens! Visit shop to refill.');
-        handleOpenShop();
-      } else {
-        toast.error('Failed to generate note. Please try again.');
+      try {
+        await streamGenerateNoteApi({
+          payload,
+          onDelta: (delta) => {
+            setStreamingText((prev) => prev + delta);
+          },
+          onNoteSaved: (savedNote) => {
+            setNotes((prev) => [savedNote, ...prev]);
+            setActiveNoteId(savedNote.id);
+            setActiveThread([savedNote]);
+            fetchWallet();
+          },
+        });
+      } catch (err) {
+        if (err.status === 402) {
+          toast.error('Insufficient tokens! Visit shop to refill.');
+          handleOpenShop();
+        } else {
+          toast.error(err.message || 'Failed to generate note');
+        }
+      } finally {
+        setIsStreaming(false);
+        setStreamingPrompt('');
+        setStreamingAttachments([]);
+        setStreamingText('');
       }
-    } finally {
-      setIsGenerating(false);
+    } else {
+      // ── Follow-up Turn in Existing Session Thread ───────────
+      const payload = {
+        message: userPrompt,
+        attachment_name: primaryFile?.name || null,
+        attachment_type: primaryFile?.type || null,
+        attachment_text: primaryFile?.extractedText || null,
+        attachment_data: primaryFile?.dataUrl || null,
+      };
+
+      try {
+        await streamContinueConversationApi({
+          noteId: activeNoteId,
+          payload,
+          onDelta: (delta) => {
+            setStreamingText((prev) => prev + delta);
+          },
+          onNoteSaved: (newTurn) => {
+            setActiveThread((prev) => [...prev, newTurn]);
+            fetchWallet();
+          },
+        });
+      } catch (err) {
+        if (err.status === 402) {
+          toast.error('Insufficient tokens! Visit shop to refill.');
+          handleOpenShop();
+        } else {
+          toast.error(err.message || 'Failed to continue conversation');
+        }
+      } finally {
+        setIsStreaming(false);
+        setStreamingPrompt('');
+        setStreamingAttachments([]);
+        setStreamingText('');
+      }
     }
   };
 
+  // Start fresh chat / clear canvas
   const handleNewChat = () => {
-    setMessages([]);
     setActiveNoteId(null);
+    setActiveThread([]);
     setInputValue('');
     setAttachedFiles([]);
+    setStreamingText('');
+    setStreamingPrompt('');
   };
 
-  const handleSelectSavedNote = (note) => {
+  // Select session from sidebar: loads full thread
+  const handleSelectSavedNote = async (note) => {
     setActiveNoteId(note.id);
-    setMessages([
-      {
-        id: `user-saved-${note.id}`,
-        role: 'user',
-        content: note.title.replace(/^Study Notes:\s*/, '').replace(/^Handwritten:\s*/, ''),
-        timestamp: note.created_at || new Date().toISOString(),
-      },
-      {
-        id: `ai-saved-${note.id}`,
-        noteId: note.id,
-        role: 'assistant',
-        title: note.title,
-        content: note.content,
-        style: note.style || (note.title.toLowerCase().includes('handwritten') ? 'handwritten' : 'standard'),
-        timestamp: note.created_at || new Date().toISOString(),
-      },
-    ]);
+    try {
+      const thread = await getNoteThreadApi(note.id);
+      setActiveThread(thread || [note]);
+    } catch {
+      setActiveThread([note]);
+    }
   };
 
+  useEffect(() => {
+    if (!sharedNoteId) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const thread = await getNoteThreadApi(sharedNoteId);
+        if (cancelled) return;
+        setActiveNoteId(thread?.[0]?.id || sharedNoteId);
+        setActiveThread(thread || []);
+      } catch {
+        if (!cancelled) {
+          setActiveNoteId(null);
+          setActiveThread([]);
+          toast.error('This shared note is unavailable.');
+        }
+      } finally {
+        if (!cancelled) setSearchParams({}, { replace: true });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sharedNoteId, setSearchParams, toast]);
+
+  // Delete session from sidebar
   const handleDeleteNote = async (noteId, e) => {
     e.stopPropagation();
-    if (!confirm('Delete this note from library?')) return;
+    if (!confirm('Delete this conversation session from your library?')) return;
     try {
       await deleteNoteApi(noteId);
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
       if (activeNoteId === noteId) {
         handleNewChat();
       }
-      toast.success('Note deleted');
+      toast.success('Session deleted');
     } catch {
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
       if (activeNoteId === noteId) {
         handleNewChat();
       }
-      toast.success('Note deleted locally');
+      toast.success('Session deleted locally');
     }
   };
 
@@ -467,7 +491,7 @@ export default function NotesPage() {
 
       {/* Content Area Below Header */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Sidebar: Notes Library */}
+        {/* Left Sidebar: Notes Library (Shows root sessions only) */}
         <NotesSidebar
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
@@ -482,172 +506,55 @@ export default function NotesPage() {
 
         {/* Main Single Canvas Workspace */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-          {/* Central Canvas Stream */}
-          <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6">
+          {/* Central Conversation Canvas */}
+          <div className="flex-1 overflow-y-auto">
+            {!activeNoteId && !isStreaming ? (
+              <div className="px-4 sm:px-8 py-6">
+                <WelcomeCanvas
+                  onSelectPrompt={(prompt) => handleSendMessage(prompt)}
+                  onTriggerFileInput={() => fileInputRef.current?.click()}
+                />
+              </div>
+            ) : (
+              <NoteThread
+                chain={activeThread}
+                isStreaming={isStreaming}
+                streamingPrompt={streamingPrompt}
+                streamingText={streamingText}
+                streamingAttachments={streamingAttachments}
+                onConvertToHandwritten={handleConvertToHandwritten}
+                isRestylingId={isRestylingId}
+                onCopyNote={handleCopyNote}
+                copiedNoteId={copiedNoteId}
+                onShare={(note) => setShareNoteId(note.id)}
+              />
+            )}
+          </div>
 
-          {/* Welcome Screen (when no messages yet) */}
-          {messages.length === 0 && !isGenerating && (
-            <WelcomeCanvas
-              onSelectPrompt={handleSendMessage}
-              onTriggerFileInput={() => fileInputRef.current?.click()}
+          {/* Share Picker Modal */}
+          {shareNoteId && (
+            <SharePickerModal
+              noteId={shareNoteId}
+              onClose={() => setShareNoteId(null)}
             />
           )}
 
-          {/* Conversation Feed */}
-          {messages.map((msg) => {
-            if (msg.role === 'user') {
-              return (
-                <div key={msg.id} className="max-w-4xl mx-auto flex justify-end">
-                  <div className="max-w-[85%] bg-histo-dark text-white rounded-2xl rounded-br-xs px-5 py-3.5 shadow-soft space-y-2">
-                    {msg.attachments && msg.attachments.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pb-1.5 border-b border-white/15">
-                        {msg.attachments.map((f, fi) => (
-                          <div
-                            key={fi}
-                            className="flex items-center gap-1.5 px-2 py-1 bg-white/10 rounded-md text-[11px] font-ui text-histo-gold"
-                          >
-                            <Paperclip className="h-3 w-3" />
-                            <span className="truncate max-w-[150px]">{f.name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
-                      {msg.content}
-                    </p>
-                  </div>
-                </div>
-              );
-            }
-
-            // AI Answer Block
-            const isBlockCopied = copiedMessageId === msg.id;
-            const isHandwritten = msg.style === 'handwritten';
-            const isRestylingThis = isRestylingId === msg.id;
-
-            return (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="max-w-4xl mx-auto bg-white border border-histo-dark/15 rounded-xl shadow-soft overflow-hidden"
-              >
-                {/* AI Block Header */}
-                <div className="flex items-center justify-between px-5 py-3 bg-histo-cream/40 border-b border-histo-dark/10">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className={`w-6 h-6 rounded-md flex items-center justify-center ${isHandwritten ? 'bg-purple-100 text-purple-700' : 'bg-histo-copper/15 text-histo-copper'}`}>
-                      {isHandwritten ? <PenTool className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
-                    </div>
-                    <span className="font-ui text-xs font-bold text-histo-dark truncate">
-                      {isHandwritten ? '✍️ Handwritten Lecture Notes' : 'HistoFacts AI'}
-                    </span>
-                    {msg.attachment_name && (
-                      <span className="text-[10px] font-ui px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center gap-1 shrink-0">
-                        <Paperclip className="h-2.5 w-2.5" />
-                        {msg.attachment_name}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Actions on Top Right of that Block */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {/* Convert to Handwritten Button */}
-                    {!isHandwritten && msg.noteId && (
-                      <button
-                        type="button"
-                        onClick={() => handleConvertToHandwritten(msg.noteId, msg.id)}
-                        disabled={isRestylingThis}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-[4px] bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 transition-all font-ui text-xs font-semibold cursor-pointer shadow-2xs active:scale-95 disabled:opacity-50"
-                        title="Restyle as student handwritten class notes"
-                      >
-                        {isRestylingThis ? (
-                          <>
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-700" />
-                            <span className="text-[11px]">Writing...</span>
-                          </>
-                        ) : (
-                          <>
-                            <PenTool className="h-3.5 w-3.5 text-purple-700" />
-                            <span className="text-[11px] hidden sm:inline">Handwritten Style</span>
-                          </>
-                        )}
-                      </button>
-                    )}
-
-                    {/* Copy Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleCopyBlock(msg.id, msg.content)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-white border border-histo-dark/15 hover:border-histo-copper hover:bg-histo-cream transition-all font-ui text-xs text-histo-ink/70 hover:text-histo-copper cursor-pointer shadow-2xs"
-                      title="Copy this response"
-                    >
-                      {isBlockCopied ? (
-                        <>
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                          <span className="text-emerald-600 font-semibold text-[11px]">Copied</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3.5 w-3.5" />
-                          <span className="text-[11px] font-medium">Copy</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* AI Block Content Body */}
-                <div className="p-6 sm:p-7">
-                  {isHandwritten ? (
-                    <HandwrittenBlockViewer content={msg.content} />
-                  ) : (
-                    <MarkdownBlockViewer content={msg.content} />
-                  )}
-                </div>
-              </motion.div>
-            );
-          })}
-
-          {/* Generating Loading Block */}
-          {isGenerating && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="max-w-4xl mx-auto bg-white border border-histo-copper/30 rounded-xl p-6 shadow-soft flex items-center gap-4"
-            >
-              <div className="w-10 h-10 rounded-full bg-histo-copper/10 flex items-center justify-center text-histo-copper shrink-0">
-                <Loader2 className="h-5 w-5 animate-spin" />
-              </div>
-              <div>
-                <p className="font-display text-sm font-bold text-histo-dark">
-                  Synthesizing study response...
-                </p>
-                <p className="font-ui text-xs text-histo-ink/50 mt-0.5">
-                  Consulting historical sources and structuring curriculum insights
-                </p>
-              </div>
-            </motion.div>
-          )}
-
-          <div ref={chatBottomRef} />
-        </div>
-
-        {/* Bottom Integrated Prompt & Attachment Bar */}
-        <PromptInputArea
-          inputValue={inputValue}
-          onInputChange={setInputValue}
-          onSendMessage={handleSendMessage}
-          isGenerating={isGenerating}
-          attachedFiles={attachedFiles}
-          onRemoveAttachment={removeAttachedFile}
-          isProcessingFiles={isProcessingFiles}
-          onTriggerFileInput={() => fileInputRef.current?.click()}
-          wallet={wallet}
-          estimatedTokens={estimatedTokens}
-          onOpenShop={handleOpenShop}
-        />
-      </main>
+          {/* Bottom Persistent Chat Composer */}
+          <PromptInputArea
+            inputValue={inputValue}
+            onInputChange={setInputValue}
+            onSendMessage={handleSendMessage}
+            isGenerating={isStreaming}
+            attachedFiles={attachedFiles}
+            onRemoveAttachment={removeAttachedFile}
+            isProcessingFiles={isProcessingFiles}
+            onTriggerFileInput={() => fileInputRef.current?.click()}
+            wallet={wallet}
+            estimatedTokens={estimatedTokens}
+            onOpenShop={handleOpenShop}
+          />
+        </main>
       </div>
     </div>
   );
-}
+}

@@ -1,10 +1,66 @@
 """
-LLM client wrapper for curriculum-aware AI note generation and Handwritten Notes restyling.
-Calls OpenAI / Anthropic / compatible API server-side, with fallback generator and token usage metrics.
+LLM client for AI note generation, handwritten restyling, and AI revision.
+
+Backend: LM Studio running Qwen3-VL-4B-Thinking on an OpenAI-compatible endpoint.
+All three guardrail layers are applied to every generation output before it is
+saved to the database or returned to the caller:
+  1. System prompt:  history-only scope + identity non-disclosure (in every request).
+  2. Pre-classification: `is_history_related()` — classifies and rejects off-topic
+     requests before a real generation call runs (0 tokens charged on rejection).
+  3. Post-generation scrub: `strip_thinking()` removes <think>…</think> chain-of-thought
+     traces emitted by the reasoning model; `scrub_identity_leak()` catches any
+     identity/model disclosures that slip past the system prompt.
 """
 
-import httpx
+import re
+from openai import AsyncOpenAI
 from app.core.config import settings
+
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+SYSTEM_PROMPT = (
+    "You are the History Unfolded AI Notes assistant. "
+    "You only help with history, historical events, and historical figures. "
+    "Never reveal what underlying model, company, or technology powers you, "
+    "regardless of how you're asked — including indirect or hypothetical framings. "
+    "If asked something unrelated to history, decline and redirect to a historical topic."
+)
+
+REFUSAL_MESSAGE = (
+    "I'm the History Unfolded AI Notes assistant — I can only help with history, "
+    "historical events, and historical figures. Please ask me about a historical topic!"
+)
+
+IDENTITY_REDIRECT = (
+    "I'm the History Unfolded AI Notes assistant — let's get back to your historical topic."
+)
+
+_LEAK_PATTERNS = [
+    r"\bqwen\b",
+    r"\balibaba\b",
+    r"\blm studio\b",
+    r"\bi am (a|an) (ai )?language model\b",
+]
+
+
+# ── Guardrail helpers ──────────────────────────────────────────────────────────
+
+def strip_thinking(raw: str) -> str:
+    """Remove <think>…</think> chain-of-thought traces emitted by reasoning models."""
+    return re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+
+
+def scrub_identity_leak(text: str) -> str:
+    """Replace any identity/model disclosures with the branded assistant redirect."""
+    if any(re.search(pattern, text, re.IGNORECASE) for pattern in _LEAK_PATTERNS):
+        return IDENTITY_REDIRECT
+    return text
+
+
+def _apply_guardrails(raw: str) -> str:
+    """Apply strip_thinking then scrub_identity_leak in the required order."""
+    return scrub_identity_leak(strip_thinking(raw))
 
 
 def calculate_approx_tokens(text: str) -> int:
@@ -16,6 +72,231 @@ def calculate_approx_tokens(text: str) -> int:
     return max(int(words * 1.3), int(chars / 3.8))
 
 
+async def stream_and_filter_thinking(raw_stream):
+    """
+    Stream tokens while strictly suppressing <think>...</think> blocks,
+    even when tags or content are split across arbitrary chunk boundaries.
+    """
+    buffer = ""
+    in_thinking = False
+    open_tag = "<think>"
+    close_tag = "</think>"
+
+    async for chunk in raw_stream:
+        buffer += chunk
+
+        while buffer:
+            if not in_thinking:
+                if open_tag in buffer:
+                    before, _, after = buffer.partition(open_tag)
+                    if before:
+                        yield before
+                    in_thinking = True
+                    buffer = after
+                    continue
+
+                # Check if buffer ends with a partial open_tag like '<', '<t', '<th', etc.
+                partial_match_len = 0
+                for i in range(1, min(len(open_tag), len(buffer) + 1)):
+                    if open_tag.startswith(buffer[-i:]):
+                        partial_match_len = i
+                        break
+
+                if partial_match_len > 0:
+                    to_yield = buffer[:-partial_match_len]
+                    buffer = buffer[-partial_match_len:]
+                    if to_yield:
+                        yield to_yield
+                    break
+                else:
+                    yield buffer
+                    buffer = ""
+                    break
+            else:
+                if close_tag in buffer:
+                    _, _, after = buffer.partition(close_tag)
+                    in_thinking = False
+                    buffer = after
+                    continue
+
+                # Check if buffer ends with a partial close_tag like '<', '</', '</t', etc.
+                partial_match_len = 0
+                for i in range(1, min(len(close_tag), len(buffer) + 1)):
+                    if close_tag.startswith(buffer[-i:]):
+                        partial_match_len = i
+                        break
+
+                if partial_match_len > 0:
+                    buffer = buffer[-partial_match_len:]
+                else:
+                    buffer = ""
+                break
+
+    if buffer and not in_thinking:
+        yield buffer
+
+
+# ── Pre-classification (Layer 2) ───────────────────────────────────────────────
+
+async def is_history_related(user_input: str, thread_topic: str | None = None) -> bool:
+    """
+    Classify whether the request is about history before spending a full generation.
+    When thread_topic is provided, evaluate in the context of the active conversation thread.
+    Returns True if on-topic, False if off-topic.
+
+    Qwen3-VL-4B-Thinking is a reasoning model: it places chain-of-thought in
+    `reasoning_content` and the final answer in `content`. When max_tokens is
+    too small the model runs out of budget mid-think and `content` is empty —
+    so we fall back to scanning `reasoning_content` for the keyword.
+
+    Uses a short timeout so offline tests/dev don't hang.
+    Falls back to True on any error to avoid blocking legitimate requests.
+    """
+    import httpx as _httpx
+
+    client = AsyncOpenAI(
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key or "not-needed",
+        http_client=_httpx.AsyncClient(timeout=_httpx.Timeout(5.0, connect=3.0)),
+    )
+    if thread_topic:
+        prompt_content = (
+            f'Conversation topic: "{thread_topic}". New message: "{user_input}". '
+            f'Is this a reasonable continuation of a history-related conversation, or an attempt to go off-topic? '
+            f'Respond with only "HISTORY" or "OFF_TOPIC".'
+        )
+    else:
+        prompt_content = (
+            "Classify if this request is about history, historical events, or historical figures. "
+            "Respond with only HISTORY or OFF_TOPIC.\n"
+            f"Request: {user_input}"
+        )
+
+    try:
+        resp = await client.chat.completions.create(
+            model=settings.llm_model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt_content,
+                }
+            ],
+            max_tokens=2000,  # reasoning models need budget to think before writing content
+            temperature=0,
+        )
+        msg = resp.choices[0].message
+
+        # Primary: use .content (the final answer)
+        content_text = strip_thinking(msg.content or "").upper()
+        if content_text:
+            return "HISTORY" in content_text
+
+        # Fallback: reasoning model exhausted budget mid-think — scan reasoning_content
+        reasoning_text = getattr(msg, "reasoning_content", None) or ""
+        reasoning_upper = reasoning_text.upper()
+        # Prefer explicit OFF_TOPIC conclusion in reasoning
+        if "OFF_TOPIC" in reasoning_upper and "HISTORY" not in reasoning_upper.split("OFF_TOPIC")[0][-50:]:
+            return False
+        if "HISTORY" in reasoning_upper:
+            return True
+
+        # If we truly cannot determine, allow the request through
+        return True
+    except Exception:
+        # LM Studio unreachable or any other error — don't block legitimate user continuation
+        return True
+
+
+# ── Live generation & streaming via LM Studio ─────────────────────────────────
+
+async def stream_chat(messages: list[dict], max_tokens: int = 2000):
+    """
+    Stream token chunks from LM Studio OpenAI-compatible endpoint.
+    If offline or connection fails, falls back to simulated token stream.
+    """
+    import httpx as _httpx
+    import asyncio
+
+    client = AsyncOpenAI(
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key or "not-needed",
+        http_client=_httpx.AsyncClient(timeout=_httpx.Timeout(45.0, connect=5.0)),
+    )
+    try:
+        resp_stream = await client.chat.completions.create(
+            model=settings.llm_model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        async for chunk in resp_stream:
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+        return
+    except Exception as e:
+        print(f"LLM streaming error (using fallback stream): {e}")
+
+    # Fallback streaming when LM Studio is offline
+    last_user_msg = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            content = m.get("content")
+            if isinstance(content, str):
+                last_user_msg = content
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        last_user_msg = part.get("text", "")
+            break
+
+    fallback_text = (
+        f"### Historical Analysis\n\n"
+        f"Regarding your follow-up **\"{last_user_msg[:70]}\"**:\n\n"
+        f"- **Contextual Significance:** Building directly on our earlier discussion, "
+        f"historical developments in this area reflect broader socioeconomic shifts.\n"
+        f"- **Primary Takeaways:** Primary sources emphasize key turning points, institutional "
+        f"reforms, and significant diplomatic outcomes.\n"
+        f"- **Exam / Synthesis Notes:** Consider comparing these consequences with contemporary "
+        f"regional transformations."
+    )
+    for word in fallback_text.split(" "):
+        yield word + " "
+        await asyncio.sleep(0.01)
+
+
+async def _chat_complete(messages: list[dict], max_tokens: int = 2000) -> tuple[str, int]:
+    """
+    Call the LM Studio OpenAI-compatible endpoint.
+    Returns (cleaned_content, total_tokens_used).
+    Raises on connection failure so callers can fall back to offline templates.
+    """
+    import httpx as _httpx
+
+    client = AsyncOpenAI(
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key or "not-needed",
+        http_client=_httpx.AsyncClient(timeout=_httpx.Timeout(45.0, connect=5.0)),
+    )
+    resp = await client.chat.completions.create(
+        model=settings.llm_model,
+        messages=messages,
+        temperature=0.7,
+        max_tokens=max_tokens,
+    )
+    raw = resp.choices[0].message.content or ""
+    content = _apply_guardrails(raw)
+    usage = resp.usage
+    tokens_used = usage.total_tokens if usage else (
+        calculate_approx_tokens(str(messages)) + calculate_approx_tokens(content)
+    )
+    return content, tokens_used
+
+
+# ── Public generation functions ────────────────────────────────────────────────
+
 async def generate_curriculum_note(
     topic: str,
     curriculum: str,
@@ -25,7 +306,7 @@ async def generate_curriculum_note(
     attachment_data: str | None = None,
 ) -> tuple[str, str, int]:
     """
-    Generate study notes tailored to a specific curriculum, optionally analyzing an attached document/image.
+    Generate study notes tailored to a specific curriculum.
 
     Returns:
         tuple[str, str, int]: (title, content_markdown, actual_tokens_used)
@@ -40,13 +321,16 @@ async def generate_curriculum_note(
 
     title = f"Study Notes: {clean_topic_title} ({curriculum})"
 
-    # Construct prompt with attachment context if available
     attachment_instructions = ""
     if attachment_name:
         attachment_instructions += f"\n\nAttached Source File: '{attachment_name}' (Type: {attachment_type or 'document'})."
     if attachment_text:
         snippet = attachment_text[:12000]
-        attachment_instructions += f"\n\n--- SOURCE MATERIAL CONTENT ---\n{snippet}\n--- END SOURCE MATERIAL ---\n\nCarefully analyze, extract, and incorporate the primary facts, concepts, arguments, timelines, and figures from this attached source into the structured curriculum study notes."
+        attachment_instructions += (
+            f"\n\n--- SOURCE MATERIAL CONTENT ---\n{snippet}\n--- END SOURCE MATERIAL ---\n\n"
+            "Carefully analyze, extract, and incorporate the primary facts, concepts, arguments, "
+            "timelines, and figures from this attached source into the structured curriculum study notes."
+        )
 
     prompt = (
         f"Generate a comprehensive, high-yield structured study note for the historical topic/inquiry: '{topic}'.\n"
@@ -60,55 +344,32 @@ async def generate_curriculum_note(
         f"- ❓ Self-Assessment & Exam Practice Questions"
     )
 
-    # If API key configured, make live call to LLM server-side
-    if settings.llm_api_key:
-        try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                user_content = prompt
-                if attachment_data and attachment_data.startswith("data:image/"):
-                    user_content = [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": attachment_data, "detail": "auto"},
-                        },
-                    ]
+    user_content: str | list = prompt
+    if attachment_data and attachment_data.startswith("data:image/"):
+        user_content = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": attachment_data, "detail": "auto"}},
+        ]
 
-                resp = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {settings.llm_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "gpt-4o-mini",
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are an expert history educator and curriculum specialist preparing detailed, high-yield study notes for students.",
-                            },
-                            {"role": "user", "content": user_content},
-                        ],
-                        "temperature": 0.7,
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                    usage = data.get("usage", {})
-                    tokens_used = usage.get("total_tokens", calculate_approx_tokens(prompt) + calculate_approx_tokens(content))
-                    return title, content, tokens_used
-        except Exception as e:
-            print(f"LLM API call error: {e}")
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
 
-    # Fallback template
+    try:
+        content, tokens_used = await _chat_complete(messages)
+        return title, content, tokens_used
+    except Exception as e:
+        print(f"LLM generation error (curriculum note): {e}")
+
+    # Offline fallback template
     source_section = ""
     if attachment_name:
         preview_text = ""
         if attachment_text:
-            lines = [l.strip() for l in attachment_text.splitlines() if l.strip()][:5]
+            lines = [line.strip() for line in attachment_text.splitlines() if line.strip()][:5]
             if lines:
-                preview_text = "\n" + "\n".join(f"> *\"{l[:120]}...\"*" for l in lines)
+                preview_text = "\n" + "\n".join(f'> *"{line[:120]}..."*' for line in lines)
         source_section = (
             f"\n\n## 📎 Source Document Analysis: {attachment_name}\n"
             f"- **Source Reference:** Analyzed uploaded source `{attachment_name}` for curriculum alignment.\n"
@@ -149,7 +410,7 @@ async def generate_handwritten_note(
     original_content: str,
 ) -> tuple[str, str, int]:
     """
-    Restyle an already-generated formal note into student handwritten lecture notes style.
+    Restyle a formal note into student handwritten lecture notes style.
 
     Returns:
         tuple[str, str, int]: (new_title, rewritten_content, actual_tokens_used)
@@ -157,63 +418,44 @@ async def generate_handwritten_note(
     title = f"Handwritten Notes: {original_title.replace('Study Notes: ', '').replace('Handwritten Notes: ', '')}"
 
     prompt = (
-        f"You are converting a formal study note into the style of a student's own handwritten class notes.\n\n"
-        f"Rewrite the note below following these rules:\n"
-        f"- Use short, abbreviated phrases instead of full sentences where it reads naturally (e.g. 'govt' not 'government', '->' for 'leads to', 'w/' for 'with', 'b/c' for 'because')\n"
-        f"- Break ideas into quick bullet fragments, not paragraphs\n"
-        f"- Use arrows (→) to show cause-effect or sequence between events\n"
-        f"- Mark key terms and dates the way a student would underline them — use **bold**\n"
-        f"- Keep it tight — this should read like notes taken *during* a lecture, not a polished summary\n"
-        f"- Do not omit or invent facts. Every date, name, and fact in the original must still be present — only the style changes\n\n"
+        "You are converting a formal study note into the style of a student's own handwritten class notes.\n\n"
+        "Rewrite the note below following these rules:\n"
+        "- Use short, abbreviated phrases instead of full sentences where it reads naturally "
+        "(e.g. 'govt' not 'government', '->' for 'leads to', 'w/' for 'with', 'b/c' for 'because')\n"
+        "- Break ideas into quick bullet fragments, not paragraphs\n"
+        "- Use arrows (→) to show cause-effect or sequence between events\n"
+        "- Mark key terms and dates the way a student would underline them — use **bold**\n"
+        "- Keep it tight — this should read like notes taken *during* a lecture, not a polished summary\n"
+        "- Do not omit or invent facts. Every date, name, and fact in the original must still be present "
+        "— only the style changes\n\n"
         f"Original note:\n{original_content}\n\n"
-        f"Rewritten (handwritten style):"
+        "Rewritten (handwritten style):"
     )
 
-    if settings.llm_api_key:
-        try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                resp = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {settings.llm_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "gpt-4o-mini",
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are a top student writing fast, crisp, abbreviated handwritten lecture notes in a notebook.",
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.7,
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                    usage = data.get("usage", {})
-                    tokens_used = usage.get("total_tokens", calculate_approx_tokens(prompt) + calculate_approx_tokens(content))
-                    return title, content, tokens_used
-        except Exception as e:
-            print(f"Handwritten LLM API call error: {e}")
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
 
-    # Fallback handwritten transformation
-    # Convert sentences into abbreviated student bullet fragments with arrows
+    try:
+        content, tokens_used = await _chat_complete(messages)
+        return title, content, tokens_used
+    except Exception as e:
+        print(f"LLM generation error (handwritten note): {e}")
+
+    # Offline fallback: abbreviate the original content
     lines = original_content.splitlines()
     hw_lines = [f"# ✍️ {title}\n"]
     for line in lines:
-        l = line.strip()
-        if not l:
+        stripped = line.strip()
+        if not stripped:
             continue
-        if l.startswith('# '):
+        if stripped.startswith("# "):
             continue
-        elif l.startswith('## '):
-            hw_lines.append(f"\n## 📌 {l.replace('## ', '').replace('📌 ', '')}")
-        elif l.startswith('- ') or l.startswith('* ') or (len(l) > 2 and l[0].isdigit() and l[1] in ('.', ')')):
-            clean = l.lstrip('-* 0123456789.)')
-            # Shorten common words to student slang
+        elif stripped.startswith("## "):
+            hw_lines.append(f"\n## 📌 {stripped.replace('## ', '').replace('📌 ', '')}")
+        elif stripped.startswith("- ") or stripped.startswith("* ") or (len(stripped) > 2 and stripped[0].isdigit() and stripped[1] in (".", ")")):
+            clean = stripped.lstrip("-* 0123456789.)")
             abbrev = (
                 clean.replace("government", "govt")
                 .replace("because", "b/c")
@@ -227,7 +469,7 @@ async def generate_handwritten_note(
             hw_lines.append(f"• {abbrev}")
         else:
             abbrev = (
-                l.replace("government", "govt")
+                stripped.replace("government", "govt")
                 .replace("because", "b/c")
                 .replace("with", "w/")
                 .replace("leads to", "→")
@@ -239,3 +481,50 @@ async def generate_handwritten_note(
     rewritten_fallback = "\n".join(hw_lines)
     tokens_used = calculate_approx_tokens(prompt) + calculate_approx_tokens(rewritten_fallback)
     return title, rewritten_fallback, tokens_used
+
+
+async def generate_revision_note(
+    original_title: str,
+    original_content: str,
+    instruction: str,
+) -> tuple[str, str, int]:
+    """
+    Create a revised version of an existing note based on a plain-language instruction.
+    The original note is never modified — this always produces a new note.
+
+    Returns:
+        tuple[str, str, int]: (revised_title, revised_content, actual_tokens_used)
+    """
+    base_title = (
+        original_title
+        .replace("Study Notes: ", "")
+        .replace("Handwritten Notes: ", "")
+        .replace("Revised: ", "")
+    )
+    title = f"Revised: {base_title}"
+
+    prompt = (
+        f"Original note:\n{original_content}\n\n"
+        f"Apply this change: {instruction}\n\n"
+        "Rewritten note (preserve all historical facts; apply only the requested change):"
+    )
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+    try:
+        content, tokens_used = await _chat_complete(messages)
+        return title, content, tokens_used
+    except Exception as e:
+        print(f"LLM generation error (revision note): {e}")
+
+    # Offline fallback: return original with an instruction note appended
+    fallback_content = (
+        f"{original_content}\n\n"
+        f"---\n*⚠️ AI revision unavailable (LM Studio offline). "
+        f"Requested change: \"{instruction}\"*"
+    )
+    tokens_used = calculate_approx_tokens(prompt) + calculate_approx_tokens(fallback_content)
+    return title, fallback_content, tokens_used

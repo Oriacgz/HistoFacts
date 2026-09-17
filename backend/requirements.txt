@@ -17,8 +17,11 @@ pydantic>=2.11.3,<3
 pydantic-settings>=2.9.1,<3
 python-dotenv>=1.1.0,<2
 
-# HTTP client (for Wikidata sync, LLM calls)
+# HTTP client (for Wikidata sync, fallback LLM calls)
 httpx>=0.28.1,<0.29
+
+# OpenAI-compatible client (used for LM Studio local inference)
+openai>=1.0.0,<2
 
 # WebSocket proxy (gateway)
 websockets>=12.0,<14

@@ -21,6 +21,7 @@ class Note(Base):
     user_id = Column(String, nullable=False, index=True)
     event_id = Column(String, nullable=True)
     title = Column(String, nullable=False)
+    prompt = Column(Text, nullable=True)
     content = Column(Text, nullable=False)
     curriculum_tag = Column(String, nullable=True)  # e.g. "NCERT Class 10", "UPSC GS I"
     style = Column(String, default="standard")      # "standard" or "handwritten"
@@ -31,13 +32,6 @@ class Note(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
-class GroupSharedNote(Base):
-    __tablename__ = "group_shared_notes"
-
-    group_id = Column(String, primary_key=True)
-    note_id = Column(String, ForeignKey("notes.id", ondelete="CASCADE"), primary_key=True)
-    shared_by = Column(String, nullable=False)
-    shared_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class UserTokenWallet(Base):

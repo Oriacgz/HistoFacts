@@ -10,6 +10,21 @@ import ConversationListItem from './ConversationListItem';
 import ChatThread from './ChatThread';
 import ChatComposer from './ChatComposer';
 
+const DEFAULT_PANEL_WIDTH = 400;
+const MIN_PANEL_WIDTH = 280;
+const MAX_PANEL_WIDTH = 720;
+
+function getPanelWidthBounds(viewportWidth) {
+  const minWidth = Math.min(320, Math.max(MIN_PANEL_WIDTH, viewportWidth - 16));
+  const maxWidth = Math.max(minWidth, Math.min(MAX_PANEL_WIDTH, viewportWidth - 16));
+  return { minWidth, maxWidth };
+}
+
+function clampPanelWidth(width, viewportWidth) {
+  const { minWidth, maxWidth } = getPanelWidthBounds(viewportWidth);
+  return Math.min(maxWidth, Math.max(minWidth, width));
+}
+
 export default function ChatSidebar() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -30,8 +45,39 @@ export default function ChatSidebar() {
   const [friends, setFriends] = useState([]);
   const [loadingFriends, setLoadingFriends] = useState(false);
   const [showFriendsPicker, setShowFriendsPicker] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(() => Math.min(DEFAULT_PANEL_WIDTH, window.innerWidth || DEFAULT_PANEL_WIDTH));
+  const [isResizing, setIsResizing] = useState(false);
   const pollRef = useRef(null);
   const loadingMoreRef = useRef(false);
+  const resizeRef = useRef(null);
+  const panelRef = useRef(null);
+
+  const handleResizeStart = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeRef.current = { startX: event.clientX, startWidth: panelWidth, currentWidth: panelWidth };
+    setIsResizing(true);
+  };
+
+  const handleResizeMove = (event) => {
+    if (!resizeRef.current) return;
+
+    const nextWidth = resizeRef.current.startWidth + resizeRef.current.startX - event.clientX;
+    const clampedWidth = clampPanelWidth(nextWidth, window.innerWidth);
+    resizeRef.current.currentWidth = clampedWidth;
+    setPanelWidth(clampedWidth);
+  };
+
+  const stopResize = (event) => {
+    if (!resizeRef.current) return;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setPanelWidth(resizeRef.current.currentWidth);
+    resizeRef.current = null;
+    setIsResizing(false);
+  };
 
   // Fetch friends list whenever chat opens
   useEffect(() => {
@@ -188,9 +234,32 @@ export default function ChatSidebar() {
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="fixed top-0 right-0 h-full w-full sm:w-[400px] bg-histo-paper border-l border-histo-dark/10 shadow-deep z-50 flex flex-col"
+            transition={isResizing ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 30 }}
+            style={{ width: `${panelWidth}px`, maxWidth: '100vw' }}
+            className={`fixed top-0 right-0 h-full bg-histo-paper border-l border-histo-dark/10 shadow-deep z-50 flex flex-col ${
+              isResizing ? 'select-none' : ''
+            }`}
           >
+            <div
+              role="separator"
+              aria-label="Resize chat window"
+              aria-orientation="vertical"
+              aria-valuemin={getPanelWidthBounds(window.innerWidth).minWidth}
+              aria-valuemax={getPanelWidthBounds(window.innerWidth).maxWidth}
+              aria-valuenow={Math.round(panelWidth)}
+              tabIndex={0}
+              onPointerDown={handleResizeStart}
+              onPointerMove={handleResizeMove}
+              onPointerUp={stopResize}
+              onPointerCancel={stopResize}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                event.preventDefault();
+                const direction = event.key === 'ArrowLeft' ? 16 : -16;
+                setPanelWidth((current) => clampPanelWidth(current + direction, window.innerWidth));
+              }}
+              className="absolute inset-y-0 -left-1 z-10 w-2 cursor-ew-resize touch-none bg-transparent focus:outline-none"
+            />
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-histo-dark/10 bg-white shrink-0">
               {activeConversation ? (
