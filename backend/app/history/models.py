@@ -26,6 +26,7 @@ class HistoricalEvent(Base):
     country = Column(String, nullable=True, index=True)
     source = Column(String, default="Wikimedia")
     source_url = Column(String, nullable=True)
+    ai_hook = Column(Text, nullable=True)
     synced_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (

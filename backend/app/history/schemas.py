@@ -18,6 +18,7 @@ class HistoricalEventResponse(BaseModel):
     country: str | None = None
     source: str
     source_url: str | None = None
+    ai_hook: str | None = None
     synced_at: datetime
 
 

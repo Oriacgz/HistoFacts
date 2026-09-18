@@ -1,24 +1,17 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useAiNotes } from '../contexts/AiNotesContext';
 import {
-  generateHandwrittenNoteApi,
-  getMyNotesApi,
-  deleteNoteApi,
-  getWalletApi,
   getShopPacksApi,
   purchasePackApi,
   getNoteThreadApi,
-  streamGenerateNoteApi,
-  streamContinueConversationApi,
 } from '../api/aiNotes';
 
 // Modular feature imports
-import { estimateClientTokens } from '../features/ai-notes/utils/tokenEstimator';
-import { processAttachedFile } from '../features/ai-notes/utils/fileProcessor';
 import ShopModal from '../features/ai-notes/components/ShopModal';
 import NotesSidebar from '../features/ai-notes/components/NotesSidebar';
 import NotesHeader from '../features/ai-notes/components/NotesHeader';
@@ -33,39 +26,45 @@ export default function NotesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const sharedNoteId = searchParams.get('note');
 
-  // Fresh state on every load: activeNoteId is always null on mount (never auto-selected, never restored)
-  const [activeNoteId, setActiveNoteId] = useState(null);
-  const [activeThread, setActiveThread] = useState([]);
+  // Shared persistent AI Notes context
+  const {
+    notes,
+    activeNoteId,
+    setActiveNoteId,
+    activeThread,
+    setActiveThread,
+    inputValue,
+    setInputValue,
+    attachedFiles,
+    addFiles,
+    removeAttachedFile,
+    isProcessingFiles,
+    thinkEnabled,
+    setThinkEnabled,
+    isStreaming,
+    streamingPrompt,
+    streamingAttachments,
+    streamingText,
+    wallet,
+    setWallet,
+    isInsufficient,
+    isRestylingId,
+    handleSendMessage,
+    handleStopGenerating,
+    handleNewChat,
+    handleSelectSavedNote,
+    handleDeleteNote,
+    handleConvertToHandwritten,
+  } = useAiNotes();
 
-  // Sidebar library (root sessions only)
-  const [notes, setNotes] = useState([]);
+  // Local Page Layout & Modal State
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Composer & Streaming State
-  const [inputValue, setInputValue] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingPrompt, setStreamingPrompt] = useState('');
-  const [streamingAttachments, setStreamingAttachments] = useState([]);
-  const [streamingText, setStreamingText] = useState('');
-  const [isRestylingId, setIsRestylingId] = useState(null);
   const [copiedNoteId, setCopiedNoteId] = useState(null);
   const [shareNoteId, setShareNoteId] = useState(null);
-
-  // Attached files state
-  const [attachedFiles, setAttachedFiles] = useState([]);
-  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Token Wallet & Shop State
-  const [wallet, setWallet] = useState({
-    token_balance: 350000,
-    histoin_balance: 0,
-    next_refresh_at: new Date().toISOString(),
-    daily_refresh_amount: 50000,
-    free_refill_cap: 350000,
-    purchased_ceiling: 1000000,
-  });
+  // Shop Modal State
   const [shopOpen, setShopOpen] = useState(false);
   const [shopPacks, setShopPacks] = useState([]);
   const [confirmPack, setConfirmPack] = useState(null);
@@ -74,47 +73,35 @@ export default function NotesPage() {
   // User Profile Menu State
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
-  // Debounced token estimate calculation
-  const [estimatedTokens, setEstimatedTokens] = useState(0);
-
   const fileInputRef = useRef(null);
+  const scrollContainerRef = useRef(null);
 
-  // Fetch Wallet
-  const fetchWallet = useCallback(async () => {
-    try {
-      const data = await getWalletApi();
-      if (data) setWallet(data);
-    } catch {
-      // Keep default wallet state
-    }
-  }, []);
-
-  // Initial Data Load: Load root notes and wallet info
-  const loadData = useCallback(async () => {
-    try {
-      const [notesData, walletData] = await Promise.all([
-        getMyNotesApi().catch(() => []),
-        getWalletApi().catch(() => null),
-      ]);
-      setNotes(notesData || []);
-      if (walletData) setWallet(walletData);
-    } catch {
-      setNotes([]);
-    }
-  }, []);
-
+  // Handle Shared Note URL parameter
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (!sharedNoteId) return undefined;
+    let cancelled = false;
 
-  // Debounced token estimate calculation (~300ms)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const est = estimateClientTokens(inputValue, attachedFiles);
-      setEstimatedTokens(est);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [inputValue, attachedFiles]);
+    (async () => {
+      try {
+        const thread = await getNoteThreadApi(sharedNoteId);
+        if (cancelled) return;
+        setActiveNoteId(thread?.[0]?.id || sharedNoteId);
+        setActiveThread(thread || []);
+      } catch {
+        if (!cancelled) {
+          setActiveNoteId(null);
+          setActiveThread([]);
+          toast.error('This shared note is unavailable.');
+        }
+      } finally {
+        if (!cancelled) setSearchParams({}, { replace: true });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sharedNoteId, setSearchParams, toast, setActiveNoteId, setActiveThread]);
 
   // Open Shop & Load Packs
   const handleOpenShop = async () => {
@@ -171,27 +158,6 @@ export default function NotesPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const addFiles = async (files) => {
-    setIsProcessingFiles(true);
-    try {
-      const processed = await Promise.all(files.map((file) => processAttachedFile(file)));
-      setAttachedFiles((prev) => [...prev, ...processed]);
-      toast.success(`Attached ${files.length} file${files.length > 1 ? 's' : ''}`);
-    } catch {
-      toast.error('Failed to process attached files');
-    } finally {
-      setIsProcessingFiles(false);
-    }
-  };
-
-  const removeAttachedFile = (index) => {
-    setAttachedFiles((prev) => {
-      const target = prev[index];
-      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
-      return prev.filter((_, i) => i !== index);
-    });
-  };
-
   // Drag and Drop handlers
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -222,208 +188,6 @@ export default function NotesPage() {
     setCopiedNoteId(note.id);
     toast.success('Copied note to clipboard!');
     setTimeout(() => setCopiedNoteId(null), 2000);
-  };
-
-  // Convert Note to Handwritten Style (adds to chain, never clutters sidebar)
-  const handleConvertToHandwritten = async (noteId) => {
-    if (!noteId) return;
-
-    if (wallet.token_balance < 1000) {
-      toast.error('Not enough tokens to restyle! Please visit the Shop.');
-      handleOpenShop();
-      return;
-    }
-
-    setIsRestylingId(noteId);
-    try {
-      const res = await generateHandwrittenNoteApi(noteId);
-      // Append the handwritten version as a turn in the active thread
-      setActiveThread((prev) => [...prev, res]);
-      fetchWallet();
-      toast.success('Converted to Handwritten Notes!');
-    } catch (err) {
-      if (err.status === 402) {
-        toast.error('Insufficient tokens! Visit shop to refill.');
-        handleOpenShop();
-      } else {
-        toast.error(err.message || 'Failed to convert note');
-      }
-    } finally {
-      setIsRestylingId(null);
-    }
-  };
-
-  // Start new session or send follow-up message in active thread
-  const handleSendMessage = async (customPrompt = null) => {
-    const promptText = (customPrompt || inputValue).trim();
-    if ((!promptText && attachedFiles.length === 0) || isStreaming) return;
-
-    // Check token balance
-    const estCost = estimateClientTokens(promptText, attachedFiles);
-    if (wallet.token_balance < estCost) {
-      toast.error(`Not enough tokens! You need ~${estCost.toLocaleString()} tokens.`);
-      handleOpenShop();
-      return;
-    }
-
-    const currentFiles = [...attachedFiles];
-    const userPrompt =
-      promptText ||
-      (currentFiles.length > 0
-        ? `Analyze attached document: ${currentFiles[0].name}`
-        : 'Generate historical study notes');
-    const primaryFile = currentFiles[0] || null;
-
-    // Clear composer input immediately
-    setInputValue('');
-    setAttachedFiles([]);
-
-    // Set streaming state
-    setIsStreaming(true);
-    setStreamingPrompt(userPrompt);
-    setStreamingAttachments(currentFiles);
-    setStreamingText('');
-
-    if (!activeNoteId) {
-      // ── New Session Generation ─────────────────────────────
-      const payload = {
-        topic: userPrompt,
-        curriculum: 'NCERT Class 10 History',
-        attachment_name: primaryFile?.name || null,
-        attachment_type: primaryFile?.type || null,
-        attachment_text: primaryFile?.extractedText || null,
-        attachment_data: primaryFile?.dataUrl || null,
-      };
-
-      try {
-        await streamGenerateNoteApi({
-          payload,
-          onDelta: (delta) => {
-            setStreamingText((prev) => prev + delta);
-          },
-          onNoteSaved: (savedNote) => {
-            setNotes((prev) => [savedNote, ...prev]);
-            setActiveNoteId(savedNote.id);
-            setActiveThread([savedNote]);
-            fetchWallet();
-          },
-        });
-      } catch (err) {
-        if (err.status === 402) {
-          toast.error('Insufficient tokens! Visit shop to refill.');
-          handleOpenShop();
-        } else {
-          toast.error(err.message || 'Failed to generate note');
-        }
-      } finally {
-        setIsStreaming(false);
-        setStreamingPrompt('');
-        setStreamingAttachments([]);
-        setStreamingText('');
-      }
-    } else {
-      // ── Follow-up Turn in Existing Session Thread ───────────
-      const payload = {
-        message: userPrompt,
-        attachment_name: primaryFile?.name || null,
-        attachment_type: primaryFile?.type || null,
-        attachment_text: primaryFile?.extractedText || null,
-        attachment_data: primaryFile?.dataUrl || null,
-      };
-
-      try {
-        await streamContinueConversationApi({
-          noteId: activeNoteId,
-          payload,
-          onDelta: (delta) => {
-            setStreamingText((prev) => prev + delta);
-          },
-          onNoteSaved: (newTurn) => {
-            setActiveThread((prev) => [...prev, newTurn]);
-            fetchWallet();
-          },
-        });
-      } catch (err) {
-        if (err.status === 402) {
-          toast.error('Insufficient tokens! Visit shop to refill.');
-          handleOpenShop();
-        } else {
-          toast.error(err.message || 'Failed to continue conversation');
-        }
-      } finally {
-        setIsStreaming(false);
-        setStreamingPrompt('');
-        setStreamingAttachments([]);
-        setStreamingText('');
-      }
-    }
-  };
-
-  // Start fresh chat / clear canvas
-  const handleNewChat = () => {
-    setActiveNoteId(null);
-    setActiveThread([]);
-    setInputValue('');
-    setAttachedFiles([]);
-    setStreamingText('');
-    setStreamingPrompt('');
-  };
-
-  // Select session from sidebar: loads full thread
-  const handleSelectSavedNote = async (note) => {
-    setActiveNoteId(note.id);
-    try {
-      const thread = await getNoteThreadApi(note.id);
-      setActiveThread(thread || [note]);
-    } catch {
-      setActiveThread([note]);
-    }
-  };
-
-  useEffect(() => {
-    if (!sharedNoteId) return undefined;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const thread = await getNoteThreadApi(sharedNoteId);
-        if (cancelled) return;
-        setActiveNoteId(thread?.[0]?.id || sharedNoteId);
-        setActiveThread(thread || []);
-      } catch {
-        if (!cancelled) {
-          setActiveNoteId(null);
-          setActiveThread([]);
-          toast.error('This shared note is unavailable.');
-        }
-      } finally {
-        if (!cancelled) setSearchParams({}, { replace: true });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [sharedNoteId, setSearchParams, toast]);
-
-  // Delete session from sidebar
-  const handleDeleteNote = async (noteId, e) => {
-    e.stopPropagation();
-    if (!confirm('Delete this conversation session from your library?')) return;
-    try {
-      await deleteNoteApi(noteId);
-      setNotes((prev) => prev.filter((n) => n.id !== noteId));
-      if (activeNoteId === noteId) {
-        handleNewChat();
-      }
-      toast.success('Session deleted');
-    } catch {
-      setNotes((prev) => prev.filter((n) => n.id !== noteId));
-      if (activeNoteId === noteId) {
-        handleNewChat();
-      }
-      toast.success('Session deleted locally');
-    }
   };
 
   return (
@@ -507,8 +271,8 @@ export default function NotesPage() {
         {/* Main Single Canvas Workspace */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           {/* Central Conversation Canvas */}
-          <div className="flex-1 overflow-y-auto">
-            {!activeNoteId && !isStreaming ? (
+          <div className="flex-1 overflow-y-auto" ref={scrollContainerRef}>
+            {activeThread.length === 0 && !isStreaming ? (
               <div className="px-4 sm:px-8 py-6">
                 <WelcomeCanvas
                   onSelectPrompt={(prompt) => handleSendMessage(prompt)}
@@ -527,6 +291,7 @@ export default function NotesPage() {
                 onCopyNote={handleCopyNote}
                 copiedNoteId={copiedNoteId}
                 onShare={(note) => setShareNoteId(note.id)}
+                scrollContainerRef={scrollContainerRef}
               />
             )}
           </div>
@@ -545,12 +310,18 @@ export default function NotesPage() {
             onInputChange={setInputValue}
             onSendMessage={handleSendMessage}
             isGenerating={isStreaming}
+            onStopGenerating={handleStopGenerating}
             attachedFiles={attachedFiles}
             onRemoveAttachment={removeAttachedFile}
             isProcessingFiles={isProcessingFiles}
             onTriggerFileInput={() => fileInputRef.current?.click()}
+            isInsufficient={isInsufficient}
+            thinkEnabled={thinkEnabled}
+            onToggleThink={() => setThinkEnabled((v) => !v)}
             wallet={wallet}
-            estimatedTokens={estimatedTokens}
+            streamingPrompt={streamingPrompt}
+            streamingText={streamingText}
+            streamingAttachments={streamingAttachments}
             onOpenShop={handleOpenShop}
           />
         </main>

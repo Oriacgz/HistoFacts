@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { GoogleIcon, FacebookIcon, EyeIcon, EyeOffIcon } from '../components/MotionIcons';
@@ -32,6 +32,15 @@ export default function LoginPage() {
   const [signInErrors, setSignInErrors] = useState({});
 
   const shouldReduceMotion = useReducedMotion();
+
+  const currentDate = useMemo(() => {
+    return new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }, []);
 
   const customContainerVariants = useMemo(() => ({
     hidden: { opacity: 0 },
@@ -75,10 +84,8 @@ export default function LoginPage() {
     }
   }), [shouldReduceMotion]);
 
-  useEffect(() => {
-    window.document.body.style.overflow = 'hidden';
-    return () => { window.document.body.style.overflow = ''; };
-  }, []);
+  // Removed body scroll lock to ensure proper smooth scrolling across all devices and viewport sizes
+
 
   const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const validatePassword = (pw) => pw.length >= 8 && /[A-Z]/.test(pw) && /[0-9]/.test(pw);
@@ -119,13 +126,19 @@ export default function LoginPage() {
       toast.success('Registration successful! Welcome to HistoFacts.');
       navigate('/home');
     } catch (err) {
-      // Fallback for offline local testing
-      const next = [...registeredUsers, { name, email, password }];
-      setRegisteredUsers(next);
-      window.localStorage.setItem('registeredUsers', JSON.stringify(next));
-      toast.info('Registered locally! (Backend server offline)');
-      form.reset();
-      setActiveTab('signin');
+      console.error('Registration error:', err);
+      if (err.data?.detail || (err.status && err.status >= 400 && err.status < 500)) {
+        toast.error(err.data?.detail || err.message || 'Registration failed');
+        setSignUpErrors({ email: err.data?.detail || err.message });
+      } else {
+        // Fallback for offline local testing
+        const next = [...registeredUsers, { name, email, password }];
+        setRegisteredUsers(next);
+        window.localStorage.setItem('registeredUsers', JSON.stringify(next));
+        toast.info('Registered locally! (Backend server offline)');
+        form.reset();
+        setActiveTab('signin');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -165,10 +178,6 @@ export default function LoginPage() {
     }
   };
 
-  const currentDate = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  });
-
   const renderSignIn = () => (
     <motion.div 
       variants={formStaggerVariants}
@@ -201,11 +210,12 @@ export default function LoginPage() {
           <motion.button
             variants={formItemVariants}
             type="submit"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-            className="w-full rounded-[2px] border border-histo-dark bg-histo-dark py-3.5 text-xs font-bold font-ui uppercase tracking-[2px] text-histo-paper transition-colors duration-300 hover:bg-histo-gold hover:text-histo-dark hover:border-histo-gold shadow-soft cursor-pointer"
+            disabled={submitting}
+            whileHover={submitting ? undefined : { scale: 1.02 }}
+            whileTap={submitting ? undefined : { scale: 0.97 }}
+            className={`w-full rounded-[2px] border border-histo-dark bg-histo-dark py-3.5 text-xs font-bold font-ui uppercase tracking-[2px] text-histo-paper transition-colors duration-300 hover:bg-histo-gold hover:text-histo-dark hover:border-histo-gold shadow-soft ${submitting ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
           >
-            Sign In
+            {submitting ? 'Signing In...' : 'Sign In'}
           </motion.button>
         </form>
 
@@ -266,11 +276,12 @@ export default function LoginPage() {
           <motion.button
             variants={formItemVariants}
             type="submit"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-            className="w-full mt-4 rounded-[2px] border border-histo-copper bg-histo-copper py-3.5 text-xs font-bold font-ui uppercase tracking-[2px] text-white transition-colors duration-300 hover:bg-histo-dark hover:border-histo-dark shadow-soft cursor-pointer"
+            disabled={submitting}
+            whileHover={submitting ? undefined : { scale: 1.02 }}
+            whileTap={submitting ? undefined : { scale: 0.97 }}
+            className={`w-full mt-4 rounded-[2px] border border-histo-copper bg-histo-copper py-3.5 text-xs font-bold font-ui uppercase tracking-[2px] text-white transition-colors duration-300 hover:bg-histo-dark hover:border-histo-dark shadow-soft ${submitting ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
           >
-            Create Account
+            {submitting ? 'Creating Account...' : 'Create Account'}
           </motion.button>
         </form>
 
@@ -295,7 +306,7 @@ export default function LoginPage() {
   );
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#121c25]">
+    <div className="relative min-h-screen overflow-y-auto overflow-x-hidden scroll-smooth bg-[#121c25]">
       {/* Subtle background grain */}
       <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-br from-[#0d1720] via-[#162534] to-[#1c3144]" />
       <div className="pointer-events-none fixed inset-0 -z-[5] opacity-[0.03]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\' opacity=\'0.5\'/%3E%3C/svg%3E")' }} />
@@ -310,7 +321,7 @@ export default function LoginPage() {
       </header>
 
       {/* Main editorial spread */}
-      <main className="flex min-h-screen items-center justify-center px-4 pt-24 pb-8">
+      <main className="flex min-h-screen items-center justify-center px-4 pt-28 pb-16">
         <motion.div
           initial="hidden"
           animate="visible"

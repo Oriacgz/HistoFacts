@@ -28,16 +28,30 @@ async def get_today_events(db: AsyncSession = Depends(get_async_session)):
     )
     events = res.scalars().all()
 
-    # Fallback to general historical events if date has no specific events
-    if not events:
-        res = await db.execute(select(HistoricalEvent).limit(10))
-        events = res.scalars().all()
+    # If nothing cached or only partial category seed exists (< 30 events),
+    # pull live from Wikimedia across all categories (events, births, deaths, holidays)
+    if len(events) < 30:
+        inserted = await sync_wikimedia_events_for_date(str(now.month), str(now.day), db)
+        if inserted > 0:
+            res = await db.execute(
+                select(HistoricalEvent)
+                .where(HistoricalEvent.date == date_key)
+                .order_by(HistoricalEvent.synced_at.desc())
+            )
+            events = res.scalars().all()
+
 
     return events
 
 
 @router.get("/date/{month}/{day}", response_model=list[HistoricalEventResponse])
 async def get_events_by_date(month: int, day: int, db: AsyncSession = Depends(get_async_session)):
+    if month < 1 or month > 12 or day < 1 or day > 31:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid date: month must be 1-12 and day must be 1-31 (received month={month}, day={day})"
+        )
+
     date_key = f"{month:02d}-{day:02d}"
     res = await db.execute(
         select(HistoricalEvent)
@@ -46,9 +60,18 @@ async def get_events_by_date(month: int, day: int, db: AsyncSession = Depends(ge
     )
     events = res.scalars().all()
 
-    if not events:
-        res = await db.execute(select(HistoricalEvent).limit(10))
-        events = res.scalars().all()
+    # If nothing cached or partial category seed exists (< 30 events),
+    # pull full categories from Wikimedia
+    if len(events) < 30:
+        inserted = await sync_wikimedia_events_for_date(str(month), str(day), db)
+        if inserted > 0:
+            res = await db.execute(
+                select(HistoricalEvent)
+                .where(HistoricalEvent.date == date_key)
+                .order_by(HistoricalEvent.synced_at.desc())
+            )
+            events = res.scalars().all()
+
 
     return events
 
@@ -58,6 +81,8 @@ async def search_events(
     q: str = Query(..., min_length=1),
     category: str | None = None,
     country: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_async_session),
 ):
     query = select(HistoricalEvent).where(
@@ -73,7 +98,7 @@ async def search_events(
     if country:
         query = query.where(HistoricalEvent.country.ilike(f"%{country}%"))
 
-    res = await db.execute(query.limit(20))
+    res = await db.execute(query.limit(limit).offset(offset))
     return res.scalars().all()
 
 

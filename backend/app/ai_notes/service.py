@@ -2,6 +2,7 @@
 Service logic for creating, listing, revising, sharing, and restyling AI notes with token deductions.
 """
 
+import re
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +46,7 @@ async def create_note_for_user(req: GenerateNoteRequest, user_id: str, db: Async
         attachment_type=req.attachment_type,
         attachment_text=req.attachment_text,
         attachment_data=req.attachment_data,
+        think=bool(getattr(req, "think", False)),
     )
 
     # 3. Deduct actual tokens used
@@ -245,15 +247,94 @@ async def get_note_thread_for_user(note_id: str, user_id: str, db: AsyncSession)
     return chain
 
 
-def build_conversation_messages(chain: list[Note]) -> list[dict]:
+def _find_referenced_turns(chain: list[Note], current_query: str | None) -> set[int]:
+    """
+    Find indices of intermediate turns that contain names, events, or terms
+    referenced in the current user prompt.
+    """
+    if not current_query or len(chain) <= 4:
+        return set()
+
+    query_lower = current_query.lower()
+    query_words = set(re.findall(r"\b[a-z]{3,}\b", query_lower))
+    stopwords = {
+        "the", "and", "for", "why", "how", "who", "all", "any", "not",
+        "but", "can", "had", "has", "her", "him", "his", "its", "our",
+        "out", "too", "use", "did", "you", "are", "was", "were", "been",
+        "what", "when", "where", "which", "about", "could", "would",
+        "should", "their", "there", "these", "those", "after", "before",
+        "please", "explain", "detail", "write", "notes", "tell", "more",
+        "that", "from", "with", "this", "then", "than", "they", "them",
+    }
+    keywords = query_words - stopwords
+
+    matched_indices = set()
+    # Search intermediate turns (between root chain[0] and recent chain[-2:])
+    for idx in range(1, len(chain) - 2):
+        turn = chain[idx]
+        content_snippet = (turn.content or "")[:600].lower()
+        text_corpus = f"{turn.prompt or ''} {turn.title or ''} {content_snippet}".lower()
+        if any(kw in text_corpus for kw in keywords):
+            matched_indices.add(idx)
+
+    return matched_indices
+
+
+def build_conversation_messages(
+    chain: list[Note],
+    current_query: str | None = None,
+    max_recent_turns: int = 3,
+) -> list[dict]:
     """
     Build message history from the thread chain for multi-turn coherence.
+    Preserves:
+    - Root topic/context (chain[0])
+    - Recent turns (latest 2-3 turns)
+    - Any older intermediate turn required to resolve the user's reference
     """
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for turn in chain:
+    if not chain:
+        return messages
+
+    if len(chain) <= 4:
+        selected_indices = list(range(len(chain)))
+    else:
+        selected = {0}
+        recent_count = min(max_recent_turns, len(chain))
+        for r in range(len(chain) - recent_count, len(chain)):
+            selected.add(r)
+        referenced = _find_referenced_turns(chain, current_query)
+        selected.update(referenced)
+        selected_indices = sorted(selected)
+
+    total = len(selected_indices)
+    prev_idx = -1
+    for i, idx in enumerate(selected_indices):
+        # If older intermediate turns were omitted, add a lightweight reference note
+        if prev_idx != -1 and idx > prev_idx + 1:
+            omitted = [
+                chain[s].title or chain[s].prompt or f"Turn {s+1}"
+                for s in range(prev_idx + 1, idx)
+            ]
+            summary = "; ".join(omitted[:3])
+            messages.append({
+                "role": "system",
+                "content": f"[Earlier conversation context: previously discussed {summary}]"
+            })
+
+        turn = chain[idx]
         user_prompt = turn.prompt or turn.title or "Historical query"
+        content = turn.content or ""
+
+        # For historical turns prior to the immediate last turn, bound length to avoid token bloat
+        is_last_assistant = (i == total - 1)
+        if not is_last_assistant and len(content) > 1000:
+            content = content[:900].rsplit(" ", 1)[0] + "\n\n[...earlier turn context retained...]"
+
         messages.append({"role": "user", "content": user_prompt})
-        messages.append({"role": "assistant", "content": turn.content})
+        messages.append({"role": "assistant", "content": content})
+        prev_idx = idx
+
     return messages
 
 

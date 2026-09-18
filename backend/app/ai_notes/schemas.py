@@ -15,6 +15,7 @@ class GenerateNoteRequest(BaseModel):
     attachment_text: str | None = None
     attachment_data: str | None = None
     style: str | None = "standard"  # "standard" or "handwritten"
+    think: bool | None = False  # Enable deeper step-by-step reasoning
 
 
 class NoteResponse(BaseModel):
@@ -45,6 +46,7 @@ class ContinueConversationRequest(BaseModel):
     attachment_type: str | None = None
     attachment_text: str | None = None
     attachment_data: str | None = None
+    think: bool | None = False  # Enable deeper step-by-step reasoning
 
 
 class WalletResponse(BaseModel):

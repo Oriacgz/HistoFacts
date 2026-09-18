@@ -55,3 +55,30 @@ async def get_async_session() -> AsyncSession:
         except Exception:
             await session.rollback()
             raise
+
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def streaming_session_scope():
+    """
+    Session context manager for background/streaming generators.
+    Honors FastAPI app.dependency_overrides[get_async_session] in tests.
+    """
+    from app.main import app
+    if get_async_session in app.dependency_overrides:
+        override = app.dependency_overrides[get_async_session]
+        gen = override()
+        try:
+            session = await anext(gen)
+            yield session
+        finally:
+            await gen.aclose()
+    else:
+        async with async_session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise

@@ -217,7 +217,7 @@ async def test_off_topic_revision_rejected_zero_tokens(client: AsyncClient, monk
     """Off-topic revision instructions are rejected before generation; wallet balance unchanged."""
     from app.ai_notes import service
 
-    async def mock_is_history(text: str) -> bool:
+    async def mock_is_history(text: str, thread_topic: str | None = None, **kwargs) -> bool:
         if "poem about cats" in text:
             return False
         return True
