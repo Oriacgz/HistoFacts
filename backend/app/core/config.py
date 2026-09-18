@@ -26,12 +26,19 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # ── CORS ──────────────────────────────────────────────────
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
 
     @property
     def cors_origin_list(self) -> list[str]:
-        """Parse comma-separated CORS origins into a list."""
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        """Parse comma-separated CORS origins into a list with automatic localhost/127.0.0.1 alias support."""
+        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        expanded = set(origins)
+        for o in origins:
+            if "localhost" in o:
+                expanded.add(o.replace("localhost", "127.0.0.1"))
+            elif "127.0.0.1" in o:
+                expanded.add(o.replace("127.0.0.1", "localhost"))
+        return list(expanded)
 
     # ── LLM — LM Studio / Qwen3-VL-4B-Thinking ─────────────────
     # Override these via environment variables for cloud deployments.
@@ -40,6 +47,12 @@ class Settings(BaseSettings):
     llm_model: str = "qwen3-vl-4b-thinking"           # exact model ID from LM Studio
     llm_api_key: str = "not-needed"                  # local inference; no real key required
     llm_provider: str = "lm_studio"
+
+    # ── Wikimedia API ─────────────────────────────────────────
+    wikimedia_api_token: str = ""
+
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
 
     # ── Redis ─────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
