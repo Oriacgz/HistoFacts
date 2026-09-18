@@ -1,5 +1,5 @@
 
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Lora:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700;800;900&family=Caveat:wght@400;600;700&family=Patrick+Hand&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Lora:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700;800;900&family=Caveat:wght@400;600;700&family=Patrick+Hand&family=Kalam:wght@400;700&display=swap');
 
 @import "tailwindcss";
 
@@ -25,7 +25,7 @@
   --font-body: "Lora", Georgia, serif;
   --font-display: "Playfair Display", serif;
   --font-ui: "Poppins", sans-serif;
-  --font-handwriting: "Caveat", "Patrick Hand", cursive;
+  --font-handwriting: "Patrick Hand", "Kalam", "Caveat", cursive, sans-serif;
 
   --radius-histo: 12px;
   --radius-login: 30px;
@@ -157,12 +157,11 @@
   }
 
   .handwritten-notebook {
-    background-color: #fdfbf7;
-    background-image: 
-      linear-gradient(90deg, transparent 46px, rgba(239, 68, 68, 0.25) 47px, transparent 48px),
-      linear-gradient(rgba(78, 84, 200, 0.12) 1px, transparent 1px);
-    background-size: 100% 100%, 100% 28px;
-    line-height: 28px;
+    background-color: #faf8f5;
+    border-left: 2.5px solid rgba(239, 68, 68, 0.32);
     font-family: var(--font-handwriting);
+    color: #162a45;
+    letter-spacing: 0.012em;
+    line-height: 1.75;
   }
 }
