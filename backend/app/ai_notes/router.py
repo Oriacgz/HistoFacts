@@ -39,6 +39,8 @@ from app.ai_notes.llm_client import (
     is_history_related,
     scrub_identity_leak,
     calculate_approx_tokens,
+    build_prompt_payload,
+    detect_task_intent,
     REFUSAL_MESSAGE,
     SYSTEM_PROMPT,
 )
@@ -52,7 +54,7 @@ from app.ai_notes.wallet_service import (
     DAILY_REFRESH,
     PURCHASED_CEILING,
 )
-from app.core.database import get_async_session
+from app.core.database import get_async_session, streaming_session_scope
 from app.core.deps import get_current_user, CurrentUser
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -101,46 +103,26 @@ async def generate_note_stream(
     estimated_tokens = prompt_tokens + 1200
     await preflight_token_check(current_user.id, estimated_tokens, db)
 
-    # 2. Build initial prompt instructions
+    # 2. Build minimal low-latency prompt payload
     clean_topic_title = req.topic.strip().replace("\n", " ")
     if len(clean_topic_title) > 60:
         clean_topic_title = f"{clean_topic_title[:57]}..."
     elif not clean_topic_title and req.attachment_name:
         clean_topic_title = f"Document Analysis: {req.attachment_name}"
     elif not clean_topic_title:
-        clean_topic_title = "Historical Study Notes"
+        clean_topic_title = "Historical Notes"
 
-    title = f"Study Notes: {clean_topic_title} ({req.curriculum})"
+    title = f"Notes: {clean_topic_title}"
 
-    attachment_instructions = ""
-    if req.attachment_name:
-        attachment_instructions += f"\n\nAttached Source File: '{req.attachment_name}' (Type: {req.attachment_type or 'document'})."
-    if req.attachment_text:
-        snippet = req.attachment_text[:12000]
-        attachment_instructions += (
-            f"\n\n--- SOURCE MATERIAL CONTENT ---\n{snippet}\n--- END SOURCE MATERIAL ---\n\n"
-            "Carefully analyze, extract, and incorporate the primary facts, concepts, arguments, "
-            "timelines, and figures from this attached source into the structured curriculum study notes."
-        )
-
-    user_prompt = (
-        f"Generate a comprehensive, high-yield structured study note for the historical topic/inquiry: '{req.topic}'.\n"
-        f"Target Curriculum / Syllabus: '{req.curriculum}'.{attachment_instructions}\n\n"
-        f"Format the output in clean, readable Markdown with clear headings and bullet points:\n"
-        f"- 📌 Key Takeaways & Core Concepts\n"
-        f"- 🏛️ Historical Context & Background\n"
-        f"- 📜 Chronological Timeline & Major Events\n"
-        f"- 🔍 Source & Document Analysis (if source attached)\n"
-        f"- 🎯 Examination & Curriculum Relevance (High-yield points, keywords, essay pointers)\n"
-        f"- ❓ Self-Assessment & Exam Practice Questions"
+    user_content, _ = build_prompt_payload(
+        user_text=req.topic,
+        attachment_name=req.attachment_name,
+        attachment_type=req.attachment_type,
+        attachment_text=req.attachment_text,
+        attachment_data=req.attachment_data,
+        curriculum=req.curriculum,
+        think=bool(req.think),
     )
-
-    user_content: str | list = user_prompt
-    if req.attachment_data and req.attachment_data.startswith("data:image/"):
-        user_content = [
-            {"type": "text", "text": user_prompt},
-            {"type": "image_url", "image_url": {"url": req.attachment_data, "detail": "auto"}},
-        ]
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -149,31 +131,53 @@ async def generate_note_stream(
 
     async def event_stream():
         full_response = ""
-        async for delta in stream_and_filter_thinking(stream_chat(messages)):
-            full_response += delta
-            yield f"data: {json.dumps({'delta': delta})}\n\n"
+        try:
+            async for delta in stream_and_filter_thinking(stream_chat(messages, think=bool(req.think))):
+                full_response += delta
+                yield f"data: {json.dumps({'delta': delta})}\n\n"
+        except Exception as e:
+            if not full_response:
+                full_response = "I encountered an issue generating this study note. Please try again."
+                yield f"data: {json.dumps({'delta': full_response})}\n\n"
 
         final = scrub_identity_leak(full_response)
         actual_tokens = calculate_approx_tokens(str(messages)) + calculate_approx_tokens(final)
-        await deduct_generation_tokens(current_user.id, actual_tokens, db)
 
-        note = Note(
-            user_id=current_user.id,
-            event_id=req.event_id,
-            title=title,
-            prompt=req.topic,
-            content=final,
-            curriculum_tag=req.curriculum,
-            style=req.style or "standard",
-            attachment_name=req.attachment_name,
-            attachment_type=req.attachment_type,
-            is_ai_generated=True,
-        )
-        db.add(note)
-        await db.commit()
-        await db.refresh(note)
+        try:
+            async with streaming_session_scope() as stream_db:
+                actual_balance = await deduct_generation_tokens(current_user.id, actual_tokens, stream_db)
+                note = Note(
+                    user_id=current_user.id,
+                    event_id=req.event_id,
+                    title=title,
+                    prompt=req.topic,
+                    content=final,
+                    curriculum_tag=req.curriculum,
+                    style=req.style or "standard",
+                    attachment_name=req.attachment_name,
+                    attachment_type=req.attachment_type,
+                    is_ai_generated=True,
+                )
+                stream_db.add(note)
+                await stream_db.commit()
+                await stream_db.refresh(note)
 
-        yield f"data: {json.dumps({'note': NoteResponse.model_validate(note).model_dump(mode='json')})}\n\n"
+                yield f"data: {json.dumps({'note': NoteResponse.model_validate(note).model_dump(mode='json'), 'token_balance': actual_balance, 'tokens_used': actual_tokens})}\n\n"
+        except Exception:
+            fallback_note = NoteResponse(
+                id=str(datetime.now(timezone.utc).timestamp()),
+                user_id=current_user.id,
+                title=title,
+                prompt=req.topic,
+                content=final,
+                curriculum_tag=req.curriculum,
+                style=req.style or "standard",
+                is_ai_generated=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            yield f"data: {json.dumps({'note': fallback_note.model_dump(mode='json')})}\n\n"
+
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -207,35 +211,71 @@ async def continue_conversation_stream(
     estimated_tokens = calculate_approx_tokens(req.message) + 1200
     await preflight_token_check(current_user.id, estimated_tokens, db)
 
-    # Build conversation messages
-    user_turn_content = req.message
-    if req.attachment_name:
-        user_turn_content += f"\n\n[Attached File: {req.attachment_name}]"
-    if req.attachment_text:
-        user_turn_content += f"\n\n--- ATTACHED CONTENT ---\n{req.attachment_text[:8000]}\n--- END ---"
+    # Build conversation messages with context efficiency
+    history = build_conversation_messages(chain, current_query=req.message)
 
-    history = build_conversation_messages(chain)
+    # Detect if user follow-up has task instruction
+    has_attachment = bool(req.attachment_text or req.attachment_name or req.attachment_data)
+    _, task_instruction = detect_task_intent(
+        req.message,
+        has_attachment=has_attachment,
+        curriculum=root.curriculum_tag,
+    )
+
+    user_turn_parts = []
+    if req.attachment_name:
+        user_turn_parts.append(f"[Attached File: '{req.attachment_name}']")
+    if req.attachment_text:
+        user_turn_parts.append(f"--- SOURCE EXCERPT ---\n{req.attachment_text.strip()[:3000]}\n--- END ---")
+    user_turn_parts.append(req.message.strip())
+    if task_instruction:
+        user_turn_parts.append(f"[Instruction: {task_instruction}]")
+
+    user_turn_content = "\n\n".join(user_turn_parts)
     messages = history + [{"role": "user", "content": user_turn_content}]
 
     async def event_stream():
         full_response = ""
-        async for delta in stream_and_filter_thinking(stream_chat(messages)):
-            full_response += delta
-            yield f"data: {json.dumps({'delta': delta})}\n\n"
+        try:
+            async for delta in stream_and_filter_thinking(stream_chat(messages, think=bool(req.think))):
+                full_response += delta
+                yield f"data: {json.dumps({'delta': delta})}\n\n"
+        except Exception:
+            if not full_response:
+                full_response = "I encountered an error continuing this note thread. Please try again."
+                yield f"data: {json.dumps({'delta': full_response})}\n\n"
 
         final = scrub_identity_leak(full_response)
         actual_tokens = calculate_approx_tokens(str(messages)) + calculate_approx_tokens(final)
-        await deduct_generation_tokens(current_user.id, actual_tokens, db)
 
-        new_turn = await save_conversation_turn(
-            root_note_id=root.id,
-            user_id=current_user.id,
-            prompt=req.message,
-            content=final,
-            db=db,
-            style="standard",
-        )
-        yield f"data: {json.dumps({'note': NoteResponse.model_validate(new_turn).model_dump(mode='json')})}\n\n"
+        try:
+            async with streaming_session_scope() as stream_db:
+                actual_balance = await deduct_generation_tokens(current_user.id, actual_tokens, stream_db)
+                new_turn = await save_conversation_turn(
+                    root_note_id=root.id,
+                    user_id=current_user.id,
+                    prompt=req.message,
+                    content=final,
+                    db=stream_db,
+                    style="standard",
+                )
+                yield f"data: {json.dumps({'note': NoteResponse.model_validate(new_turn).model_dump(mode='json'), 'token_balance': actual_balance, 'tokens_used': actual_tokens})}\n\n"
+        except Exception:
+            fallback_turn = NoteResponse(
+                id=str(datetime.now(timezone.utc).timestamp()),
+                user_id=current_user.id,
+                source_note_id=root.id,
+                title=f"Turn: {req.message[:30]}",
+                prompt=req.message,
+                content=final,
+                curriculum_tag=root.curriculum_tag,
+                style="standard",
+                is_ai_generated=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            yield f"data: {json.dumps({'note': fallback_turn.model_dump(mode='json')})}\n\n"
+
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
