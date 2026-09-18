@@ -1,6 +1,6 @@
 import { apiFetch, authenticatedFetch } from './client';
 
-export async function generateNoteApi(paramsOrTopic, curriculum = 'NCERT Class 10 History', eventId = null) {
+export async function generateNoteApi(paramsOrTopic, curriculum = 'General History', eventId = null) {
   let body = {};
   if (typeof paramsOrTopic === 'object' && paramsOrTopic !== null) {
     body = {
@@ -87,36 +87,58 @@ async function streamSseReader(res, onDelta, onNoteSaved) {
     throw error;
   }
 
+  if (!res.body) {
+    throw new Error('ReadableStream not supported by response body');
+  }
+
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop(); // preserve trailing partial line
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // preserve trailing partial line
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data: ')) continue;
-      const rawData = trimmed.slice(6);
-      if (rawData === '[DONE]') break;
-
-      try {
-        const parsed = JSON.parse(rawData);
-        if (parsed.delta && onDelta) {
-          onDelta(parsed.delta);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(':')) continue; // Skip comments, heartbeats, and empty lines
+        if (!trimmed.startsWith('data: ')) continue;
+        const rawData = trimmed.slice(6);
+        if (rawData === '[DONE]') {
+          return; // Immediate completion on [DONE]
         }
-        if (parsed.note && onNoteSaved) {
-          onNoteSaved(parsed.note);
+
+        try {
+          const parsed = JSON.parse(rawData);
+          if (parsed.delta && onDelta) {
+            onDelta(parsed.delta);
+          }
+          if (parsed.note && onNoteSaved) {
+            onNoteSaved(parsed.note, {
+              token_balance: parsed.token_balance,
+              tokens_used: parsed.tokens_used,
+            });
+          }
+        } catch (err) {
+          console.warn('Failed to parse SSE chunk:', rawData, err);
         }
-      } catch (err) {
-        console.warn('Failed to parse SSE chunk:', rawData, err);
       }
     }
+  } catch (err) {
+    // Re-throw AbortError so the caller can handle stop gracefully
+    if (err.name === 'AbortError') {
+      const abortErr = new Error('Generation stopped by user');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
+    throw err;
+  } finally {
+    try { reader.releaseLock(); } catch { /* already released */ }
   }
 }
 
