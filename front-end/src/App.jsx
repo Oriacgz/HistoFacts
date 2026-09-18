@@ -1,9 +1,10 @@
-import React, { lazy, Suspense } from 'react';
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { ChatProvider } from './contexts/ChatContext';
+import { AiNotesProvider } from './contexts/AiNotesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FeatureErrorFallback } from './components/FeatureErrorFallback';
 
@@ -83,99 +84,103 @@ export default function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            {/* Public landing page - redirects authenticated users to /home */}
-            <Route
-              path="/"
-              element={
-                <LandingRoute>
-                  <LandingPage />
-                </LandingRoute>
-              }
-            />
-            <Route
-              path="/loginpg"
-              element={
-                <PublicOnlyRoute>
-                  <LoginPage />
-                </PublicOnlyRoute>
-              }
-            />
+        <AiNotesProvider>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              {/* Public-only auth routes */}
+              <Route
+                path="/"
+                element={
+                  <LandingRoute>
+                    <LandingPage />
+                  </LandingRoute>
+                }
+              />
+              <Route
+                path="/loginpg"
+                element={
+                  <PublicOnlyRoute>
+                    <LoginPage />
+                  </PublicOnlyRoute>
+                }
+              />
 
-            {/* 
-              Protected routes inside MainLayout.
-              MainLayout renders the persistent Navbar + <Outlet />.
-              Each feature route is wrapped in its own ErrorBoundary so a bug
-              in one feature never blanks or crashes the Navbar and other features.
-            */}
-            <Route
-              element={
-                <ProtectedRoute>
-                  <MainLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/home" element={<DashboardPage />} />
+              {/* Protected app routes inside MainLayout */}
               <Route
-                path="/quiz"
                 element={
-                  <FeatureBoundary featureName="Quiz & Battle Arena">
-                    <QuizPage />
-                  </FeatureBoundary>
+                  <ProtectedRoute>
+                    <MainLayout />
+                  </ProtectedRoute>
                 }
-              />
-              <Route
-                path="/feed"
-                element={
-                  <FeatureBoundary featureName="Chronicle Community Feed">
-                    <FeedPage />
-                  </FeatureBoundary>
-                }
-              />
-              <Route
-                path="/groups"
-                element={
-                  <FeatureBoundary featureName="Study Groups">
-                    <GroupsPage />
-                  </FeatureBoundary>
-                }
-              />
-              <Route
-                path="/friends"
-                element={
-                  <FeatureBoundary featureName="Scholar Connections">
-                    <FriendsPage />
-                  </FeatureBoundary>
-                }
-              />
-              <Route
-                path="/settings"
-                element={
-                  <FeatureBoundary featureName="Profile Settings">
-                    <SettingsPage />
-                  </FeatureBoundary>
-                }
-              />
-            </Route>
-
-            {/* Notes has its own specialized layout/navbar */}
-            <Route
-              path="/notes"
-              element={
-                <ProtectedRoute>
-                  <ChatProvider>
-                    <FeatureBoundary featureName="AI Notes & Histoins">
-                      <NotesPage />
+              >
+                <Route
+                  path="/home"
+                  element={
+                    <FeatureBoundary featureName="Command Deck">
+                      <DashboardPage />
                     </FeatureBoundary>
-                  </ChatProvider>
-                </ProtectedRoute>
-              }
-            />
+                  }
+                />
+                <Route
+                  path="/quiz"
+                  element={
+                    <FeatureBoundary featureName="Battle of Wits">
+                      <QuizPage />
+                    </FeatureBoundary>
+                  }
+                />
+                <Route
+                  path="/feed"
+                  element={
+                    <FeatureBoundary featureName="Discovery Stream">
+                      <FeedPage />
+                    </FeatureBoundary>
+                  }
+                />
+                <Route
+                  path="/groups"
+                  element={
+                    <FeatureBoundary featureName="Alliances">
+                      <GroupsPage />
+                    </FeatureBoundary>
+                  }
+                />
+                <Route
+                  path="/friends"
+                  element={
+                    <FeatureBoundary featureName="Scholar Connections">
+                      <FriendsPage />
+                    </FeatureBoundary>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <FeatureBoundary featureName="Profile Settings">
+                      <SettingsPage />
+                    </FeatureBoundary>
+                  }
+                />
+              </Route>
 
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+              {/* Notes has its own specialized layout/navbar */}
+              <Route
+                path="/notes"
+                element={
+                  <ProtectedRoute>
+                    <ChatProvider>
+                      <FeatureBoundary featureName="AI Notes & Histoins">
+                        <NotesPage />
+                      </FeatureBoundary>
+                    </ChatProvider>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </AiNotesProvider>
       </AuthProvider>
     </ToastProvider>
   );
