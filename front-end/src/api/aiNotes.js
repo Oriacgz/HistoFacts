@@ -1,26 +1,24 @@
 import { apiFetch, authenticatedFetch } from './client';
 
 export async function generateNoteApi(paramsOrTopic, curriculum = 'General History', eventId = null) {
-  let body = {};
-  if (typeof paramsOrTopic === 'object' && paramsOrTopic !== null) {
-    body = {
-      topic: paramsOrTopic.topic,
-      curriculum: paramsOrTopic.curriculum || curriculum,
-      event_id: paramsOrTopic.eventId || paramsOrTopic.event_id || null,
-      attachment_name: paramsOrTopic.attachment_name || null,
-      attachment_type: paramsOrTopic.attachment_type || null,
-      attachment_text: paramsOrTopic.attachment_text || null,
-      attachment_data: paramsOrTopic.attachment_data || null,
-      style: paramsOrTopic.style || 'standard',
-    };
-  } else {
-    body = {
-      topic: paramsOrTopic,
-      curriculum,
-      event_id: eventId,
-      style: 'standard',
-    };
-  }
+  const body =
+    typeof paramsOrTopic === 'object' && paramsOrTopic !== null
+      ? {
+          topic: paramsOrTopic.topic,
+          curriculum: paramsOrTopic.curriculum || curriculum,
+          event_id: paramsOrTopic.eventId || paramsOrTopic.event_id || null,
+          attachment_name: paramsOrTopic.attachment_name || null,
+          attachment_type: paramsOrTopic.attachment_type || null,
+          attachment_text: paramsOrTopic.attachment_text || null,
+          attachment_data: paramsOrTopic.attachment_data || null,
+          style: paramsOrTopic.style || 'standard',
+        }
+      : {
+          topic: paramsOrTopic,
+          curriculum,
+          event_id: eventId,
+          style: 'standard',
+        };
 
   return apiFetch('/api/notes/generate', {
     method: 'POST',

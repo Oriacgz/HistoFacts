@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { GoogleIcon, FacebookIcon, EyeIcon, EyeOffIcon } from '../components/MotionIcons';
@@ -210,11 +210,12 @@ export default function LoginPage() {
           <motion.button
             variants={formItemVariants}
             type="submit"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-            className="w-full rounded-[2px] border border-histo-dark bg-histo-dark py-3.5 text-xs font-bold font-ui uppercase tracking-[2px] text-histo-paper transition-colors duration-300 hover:bg-histo-gold hover:text-histo-dark hover:border-histo-gold shadow-soft cursor-pointer"
+            disabled={submitting}
+            whileHover={submitting ? undefined : { scale: 1.02 }}
+            whileTap={submitting ? undefined : { scale: 0.97 }}
+            className={`w-full rounded-[2px] border border-histo-dark bg-histo-dark py-3.5 text-xs font-bold font-ui uppercase tracking-[2px] text-histo-paper transition-colors duration-300 hover:bg-histo-gold hover:text-histo-dark hover:border-histo-gold shadow-soft ${submitting ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
           >
-            Sign In
+            {submitting ? 'Signing In...' : 'Sign In'}
           </motion.button>
         </form>
 
@@ -275,11 +276,12 @@ export default function LoginPage() {
           <motion.button
             variants={formItemVariants}
             type="submit"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-            className="w-full mt-4 rounded-[2px] border border-histo-copper bg-histo-copper py-3.5 text-xs font-bold font-ui uppercase tracking-[2px] text-white transition-colors duration-300 hover:bg-histo-dark hover:border-histo-dark shadow-soft cursor-pointer"
+            disabled={submitting}
+            whileHover={submitting ? undefined : { scale: 1.02 }}
+            whileTap={submitting ? undefined : { scale: 0.97 }}
+            className={`w-full mt-4 rounded-[2px] border border-histo-copper bg-histo-copper py-3.5 text-xs font-bold font-ui uppercase tracking-[2px] text-white transition-colors duration-300 hover:bg-histo-dark hover:border-histo-dark shadow-soft ${submitting ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
           >
-            Create Account
+            {submitting ? 'Creating Account...' : 'Create Account'}
           </motion.button>
         </form>
 
