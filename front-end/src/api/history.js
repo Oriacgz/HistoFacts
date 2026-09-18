@@ -8,10 +8,12 @@ export async function getEventsByDateApi(month, day) {
   return apiFetch(`/api/events/date/${month}/${day}`);
 }
 
-export async function searchEventsApi(query, category = '', country = '') {
+export async function searchEventsApi(query, category = '', country = '', limit = 20, offset = 0) {
   const params = new URLSearchParams({ q: query });
   if (category) params.append('category', category);
   if (country) params.append('country', country);
+  if (limit) params.append('limit', String(limit));
+  if (offset) params.append('offset', String(offset));
   return apiFetch(`/api/events/search?${params.toString()}`);
 }
 
