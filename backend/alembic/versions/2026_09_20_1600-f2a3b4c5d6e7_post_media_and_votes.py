@@ -1,11 +1,11 @@
-"""Add post media, comment media_url, and post_votes
+"""Add post media, comment media_url, and post reactions
 
 Revision ID: f2a3b4c5d6e7
 Revises: e1f2a3b4c5d6
 Create Date: 2026-09-20 16:00:00.000000
 
 Idempotent: service startup also runs Base.metadata.create_all, which may have
-already created post_votes (and the media enum) without stamping alembic_version.
+already created the reaction table (post_votes, retained for compatibility) and the media enum without stamping alembic_version.
 Each step checks current schema state so either bootstrap order converges.
 """
 from typing import Sequence, Union

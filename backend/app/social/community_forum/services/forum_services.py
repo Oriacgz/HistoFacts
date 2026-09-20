@@ -132,14 +132,15 @@ class ForumService:
         await self._post_repo.set_media(post_id, media_urls, media_type)
         return await self.get_post_detail(post_id, current_user_id=user_id)
 
-    async def vote_post(self, post_id: str, user_id: str, value: int) -> tuple[int, int]:
-        """Upvote (+1), downvote (-1), or clear (0) the user's vote. Returns (score, user_vote)."""
+    async def react_to_post(self, post_id: str, user_id: str, reaction: str) -> tuple[int, int, Optional[str]]:
+        """Set or clear the user's like/dislike reaction on a post."""
         post = await self._post_repo.get_by_id(post_id)
         if not post:
             raise PostNotFoundError(post_id)
 
-        await self._interaction_repo.set_post_vote(user_id=user_id, post_id=post_id, value=value)
-        return await self._post_repo.get_vote_state(post_id, user_id)
+        value = {"like": 1, "dislike": -1, "none": 0}[reaction]
+        await self._interaction_repo.set_post_reaction(user_id=user_id, post_id=post_id, value=value)
+        return await self._post_repo.get_reaction_state(post_id, user_id)
 
     async def add_comment(
         self,

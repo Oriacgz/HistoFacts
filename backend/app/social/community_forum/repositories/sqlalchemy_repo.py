@@ -13,7 +13,7 @@ from app.social.models import (
     Comment as CommentModel,
     Like as LikeModel,
     Share as ShareModel,
-    PostVote as PostVoteModel,
+    PostReaction as PostReactionModel,
     UserSummaryCache as UserModel,
 )
 from app.social.service import _get_user_summary
@@ -140,7 +140,7 @@ class SQLAlchemyPostRepository(IPostRepository):
             )
             has_liked = like_res.scalar_one_or_none() is not None
 
-        score, user_vote = await self.get_vote_state(post_id, current_user_id)
+        likes, dislikes, user_reaction = await self.get_reaction_state(post_id, current_user_id)
 
         return PostEntity(
             id=model.id,
@@ -154,8 +154,9 @@ class SQLAlchemyPostRepository(IPostRepository):
             like_count=model.like_count or 0,
             comment_count=model.comment_count or 0,
             share_count=model.share_count or 0,
-            score=score,
-            user_vote=user_vote,
+            likes=likes,
+            dislikes=dislikes,
+            user_reaction=user_reaction,
             is_deleted=model.is_deleted,
             is_locked=model.is_locked,
             author=author,
@@ -216,24 +217,31 @@ class SQLAlchemyPostRepository(IPostRepository):
             )
             user_liked_set = set(liked_res.scalars().all())
 
-        # Batched vote aggregation: one SUM query for scores, one for the current user's votes
-        score_map: Dict[str, int] = {}
-        user_vote_map: Dict[str, int] = {}
+        # Batched reaction aggregation: one query for counts, one for the current user's reaction
+        like_map: Dict[str, int] = {}
+        dislike_map: Dict[str, int] = {}
+        user_reaction_map: Dict[str, Optional[str]] = {}
         score_res = await self._session.execute(
-            select(PostVoteModel.post_id, func.coalesce(func.sum(PostVoteModel.value), 0))
-            .where(PostVoteModel.post_id.in_(post_ids))
-            .group_by(PostVoteModel.post_id)
+            select(PostReactionModel.post_id, PostReactionModel.value, func.count())
+            .where(PostReactionModel.post_id.in_(post_ids))
+            .group_by(PostReactionModel.post_id, PostReactionModel.value)
         )
-        for row_post_id, row_score in score_res.all():
-            score_map[row_post_id] = int(row_score)
+        for row_post_id, row_value, row_count in score_res.all():
+            if row_value == 1:
+                like_map[row_post_id] = int(row_count)
+            elif row_value == -1:
+                dislike_map[row_post_id] = int(row_count)
         if current_user_id:
             uv_res = await self._session.execute(
-                select(PostVoteModel.post_id, PostVoteModel.value).where(
-                    PostVoteModel.user_id == current_user_id,
-                    PostVoteModel.post_id.in_(post_ids),
+                select(PostReactionModel.post_id, PostReactionModel.value).where(
+                    PostReactionModel.user_id == current_user_id,
+                    PostReactionModel.post_id.in_(post_ids),
                 )
             )
-            user_vote_map = {row_post_id: int(row_value) for row_post_id, row_value in uv_res.all()}
+            user_reaction_map = {
+                row_post_id: ("like" if row_value == 1 else "dislike")
+                for row_post_id, row_value in uv_res.all()
+            }
 
         entities = []
         for post_model in posts:
@@ -251,8 +259,9 @@ class SQLAlchemyPostRepository(IPostRepository):
                     like_count=post_model.like_count or 0,
                     comment_count=post_model.comment_count or 0,
                     share_count=post_model.share_count or 0,
-                    score=score_map.get(post_model.id, 0),
-                    user_vote=user_vote_map.get(post_model.id, 0),
+                    likes=like_map.get(post_model.id, 0),
+                    dislikes=dislike_map.get(post_model.id, 0),
+                    user_reaction=user_reaction_map.get(post_model.id),
                     is_deleted=post_model.is_deleted,
                     is_locked=post_model.is_locked,
                     author=_to_author_entity(user_model) if user_model else None,
@@ -281,22 +290,26 @@ class SQLAlchemyPostRepository(IPostRepository):
         )
         await self._session.commit()
 
-    async def get_vote_state(self, post_id: str, current_user_id: Optional[str] = None) -> tuple[int, int]:
-        score_res = await self._session.execute(
-            select(func.coalesce(func.sum(PostVoteModel.value), 0)).where(PostVoteModel.post_id == post_id)
+    async def get_reaction_state(self, post_id: str, current_user_id: Optional[str] = None) -> tuple[int, int, Optional[str]]:
+        count_res = await self._session.execute(
+            select(PostReactionModel.value, func.count())
+            .where(PostReactionModel.post_id == post_id)
+            .group_by(PostReactionModel.value)
         )
-        score = int(score_res.scalar_one())
-        user_vote = 0
+        counts = {int(value): int(count) for value, count in count_res.all()}
+        likes = counts.get(1, 0)
+        dislikes = counts.get(-1, 0)
+        user_reaction = None
         if current_user_id:
             uv_res = await self._session.execute(
-                select(PostVoteModel.value).where(
-                    PostVoteModel.user_id == current_user_id,
-                    PostVoteModel.post_id == post_id,
+                select(PostReactionModel.value).where(
+                    PostReactionModel.user_id == current_user_id,
+                    PostReactionModel.post_id == post_id,
                 )
             )
             existing = uv_res.scalar_one_or_none()
-            user_vote = int(existing) if existing is not None else 0
-        return score, user_vote
+            user_reaction = "like" if existing == 1 else "dislike" if existing == -1 else None
+        return likes, dislikes, user_reaction
 
     async def increment_comment_count(self, post_id: str, delta: int = 1) -> int:
         await self._session.execute(
@@ -490,10 +503,10 @@ class SQLAlchemyInteractionRepository(IInteractionRepository):
         res = await self._session.execute(stmt)
         return res.scalar_one_or_none() is not None
 
-    async def set_post_vote(self, user_id: str, post_id: str, value: int) -> None:
-        stmt = select(PostVoteModel).where(
-            PostVoteModel.user_id == user_id,
-            PostVoteModel.post_id == post_id,
+    async def set_post_reaction(self, user_id: str, post_id: str, value: int) -> None:
+        stmt = select(PostReactionModel).where(
+            PostReactionModel.user_id == user_id,
+            PostReactionModel.post_id == post_id,
         )
         existing = (await self._session.execute(stmt)).scalar_one_or_none()
 
@@ -503,7 +516,7 @@ class SQLAlchemyInteractionRepository(IInteractionRepository):
         elif existing:
             existing.value = value
         else:
-            self._session.add(PostVoteModel(user_id=user_id, post_id=post_id, value=value))
+            self._session.add(PostReactionModel(user_id=user_id, post_id=post_id, value=value))
         await self._session.commit()
 
     async def create_share(self, share: ShareEntity) -> ShareEntity:

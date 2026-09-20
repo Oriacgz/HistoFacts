@@ -4,13 +4,13 @@ import { MessageCircle, MoreVertical, Share2, Trash2, Lock } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext';
 import CommentSection from './CommentSection';
 import PostMedia from './PostMedia';
-import VoteControl from './VoteControl';
+import ReactionControl from './ReactionControl';
 import UserAvatar from '../../components/UserAvatar';
 import { formatRelativeTime } from './relativeTime';
 
-function PostActionBar({ post, onVote, onToggleComments, onOpenShare }) {
+function PostActionBar({ post, onReaction, onToggleComments, onOpenShare }) {
   return (
-    <div className="mt-3 flex max-w-md items-center justify-between text-histo-ink/60">
+    <div className="mt-4 flex max-w-lg items-center gap-2 text-histo-ink/60">
       <button
         type="button"
         onClick={onToggleComments}
@@ -31,15 +31,20 @@ function PostActionBar({ post, onVote, onToggleComments, onOpenShare }) {
         {post.share_count > 0 && <span>{post.share_count}</span>}
       </button>
 
-      {/* Upvote/downvote interaction — Reddit's model, Twitter's card */}
-      <VoteControl postId={post.id} score={post.score} userVote={post.user_vote} onVote={onVote} />
+      <ReactionControl
+        postId={post.id}
+        likes={post.likes}
+        dislikes={post.dislikes}
+        userReaction={post.user_reaction}
+        onReaction={onReaction}
+      />
     </div>
   );
 }
 
 export default function PostCard({
   post,
-  onVote,
+  onReaction,
   onAddComment,
   onDeleteComment,
   onDeletePost,
@@ -69,10 +74,11 @@ export default function PostCard({
 
   return (
     <motion.article
+      id={`post-${post.id}`}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      className="border-b border-histo-dark/10 px-4 py-3 transition-colors hover:bg-histo-paper/40"
+      className="border-b border-histo-dark/10 px-3.5 py-4 transition-colors hover:bg-white/60 sm:px-5"
     >
       <div className="flex gap-3">
         <UserAvatar user={displayAuthor} size="md" />
@@ -141,7 +147,7 @@ export default function PostCard({
 
           <PostActionBar
             post={post}
-            onVote={onVote}
+            onReaction={onReaction}
             onToggleComments={handleToggleComments}
             onOpenShare={() => onOpenShare(post)}
           />

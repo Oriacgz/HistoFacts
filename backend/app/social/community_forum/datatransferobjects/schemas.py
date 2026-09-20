@@ -54,8 +54,9 @@ class PostResponseDTO(BaseModel):
     content: str
     media_urls: Optional[List[str]] = None
     media_type: str = "none"
-    score: int = 0
-    user_vote: int = 0
+    likes: int = 0
+    dislikes: int = 0
+    user_reaction: Optional[str] = None
     like_count: int = 0
     comment_count: int = 0
     share_count: int = 0
@@ -94,13 +95,14 @@ class LikeToggleResponseDTO(BaseModel):
     new_like_count: int
 
 
-class VotePostDTO(BaseModel):
-    value: Literal[-1, 0, 1]
+class ReactionPostDTO(BaseModel):
+    reaction: Literal["like", "dislike", "none"]
 
 
-class VoteResponseDTO(BaseModel):
-    score: int
-    user_vote: int
+class ReactionResponseDTO(BaseModel):
+    likes: int
+    dislikes: int
+    user_reaction: Optional[str] = None
 
 
 class GifDTO(BaseModel):

@@ -49,10 +49,10 @@ export async function deleteCommentApi(postId, commentId) {
   });
 }
 
-export async function votePostApi(postId, value) {
-  return apiFetch(`/api/social/posts/${postId}/vote`, {
+export async function reactToPostApi(postId, reaction) {
+  return apiFetch(`/api/social/posts/${postId}/reaction`, {
     method: 'POST',
-    body: JSON.stringify({ value }),
+    body: JSON.stringify({ reaction }),
   });
 }
 

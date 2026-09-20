@@ -21,8 +21,8 @@ from app.social.community_forum.datatransferobjects.schemas import (
     SharePostDTO,
     LikeToggleResponseDTO,
     ShareResponseDTO,
-    VotePostDTO,
-    VoteResponseDTO,
+    ReactionPostDTO,
+    ReactionResponseDTO,
 )
 from app.social.community_forum.services.forum_services import ForumService
 from app.social.community_forum.repositories.sqlalchemy_repo import (
@@ -130,17 +130,17 @@ async def get_post_detail(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
 
-@router.post("/{post_id}/vote", response_model=VoteResponseDTO)
-async def vote_post(
+@router.post("/{post_id}/reaction", response_model=ReactionResponseDTO)
+async def react_to_post(
     post_id: str,
-    dto: VotePostDTO,
+    dto: ReactionPostDTO,
     current_user: CurrentUser = Depends(get_current_user),
     service: ForumService = Depends(get_forum_service),
 ):
-    """Upvote (+1), downvote (-1), or clear (0) the current user's vote on a post."""
+    """Like, dislike, or clear the current user's reaction on a post."""
     try:
-        score, user_vote = await service.vote_post(post_id, current_user.id, dto.value)
-        return VoteResponseDTO(score=score, user_vote=user_vote)
+        likes, dislikes, user_reaction = await service.react_to_post(post_id, current_user.id, dto.reaction)
+        return ReactionResponseDTO(likes=likes, dislikes=dislikes, user_reaction=user_reaction)
     except PostNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 

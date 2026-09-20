@@ -104,39 +104,40 @@ async def test_social_flow(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_post_vote_flow(client: AsyncClient):
-    """Upvote, downvote, change vote, clear vote — score and user_vote stay consistent."""
+async def test_post_reaction_flow(client: AsyncClient):
+    """Like, dislike, change reaction, clear reaction — counts stay consistent."""
     h1, post_id = await _register_and_post(client, "VoteAuthor", "voteauthor@example.com")
     h2, _ = await _register_and_post(client, "VoteReader", "votereader@example.com")
 
-    # Author upvotes own post
-    res = await client.post(f"/api/social/posts/{post_id}/vote", json={"value": 1}, headers=h1)
+    # Author likes own post
+    res = await client.post(f"/api/social/posts/{post_id}/reaction", json={"reaction": "like"}, headers=h1)
     assert res.status_code == 200
-    assert res.json() == {"score": 1, "user_vote": 1}
+    assert res.json() == {"likes": 1, "dislikes": 0, "user_reaction": "like"}
 
-    # Reader downvotes — net score 0
-    res = await client.post(f"/api/social/posts/{post_id}/vote", json={"value": -1}, headers=h2)
-    assert res.json() == {"score": 0, "user_vote": -1}
+    # Reader dislikes
+    res = await client.post(f"/api/social/posts/{post_id}/reaction", json={"reaction": "dislike"}, headers=h2)
+    assert res.json() == {"likes": 1, "dislikes": 1, "user_reaction": "dislike"}
 
-    # Reader changes vote to upvote — score 2
-    res = await client.post(f"/api/social/posts/{post_id}/vote", json={"value": 1}, headers=h2)
-    assert res.json() == {"score": 2, "user_vote": 1}
+    # Reader changes reaction to like
+    res = await client.post(f"/api/social/posts/{post_id}/reaction", json={"reaction": "like"}, headers=h2)
+    assert res.json() == {"likes": 2, "dislikes": 0, "user_reaction": "like"}
 
-    # Reader clears vote — score back to 1, feed reflects both users' state
-    res = await client.post(f"/api/social/posts/{post_id}/vote", json={"value": 0}, headers=h2)
-    assert res.json() == {"score": 1, "user_vote": 0}
+    # Reader clears reaction — feed reflects both users' state
+    res = await client.post(f"/api/social/posts/{post_id}/reaction", json={"reaction": "none"}, headers=h2)
+    assert res.json() == {"likes": 1, "dislikes": 0, "user_reaction": None}
 
     feed = await client.get("/api/social/posts/")
     feed_post = next(p for p in feed.json() if p["id"] == post_id)
-    assert feed_post["score"] == 1
-    assert feed_post["user_vote"] == 0
+    assert feed_post["likes"] == 1
+    assert feed_post["dislikes"] == 0
+    assert feed_post["user_reaction"] is None
 
     # Invalid values are rejected by schema validation
-    bad = await client.post(f"/api/social/posts/{post_id}/vote", json={"value": 5}, headers=h2)
+    bad = await client.post(f"/api/social/posts/{post_id}/reaction", json={"reaction": "love"}, headers=h2)
     assert bad.status_code == 422
 
     # Voting on a missing post 404s
-    missing = await client.post("/api/social/posts/no-such-id/vote", json={"value": 1}, headers=h2)
+    missing = await client.post("/api/social/posts/no-such-id/reaction", json={"reaction": "like"}, headers=h2)
     assert missing.status_code == 404
 
 

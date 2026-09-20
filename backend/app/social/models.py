@@ -50,8 +50,8 @@ class Comment(Base):
     updated_at = Column(DateTime(timezone=True), nullable=True)
 
 
-class PostVote(Base):
-    """Reddit-style upvote/downvote. value is +1 or -1; score is the sum over all votes."""
+class PostReaction(Base):
+    """Post reaction. value is +1 for like or -1 for dislike."""
 
     __tablename__ = "post_votes"
 

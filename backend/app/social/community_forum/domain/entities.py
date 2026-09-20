@@ -66,8 +66,9 @@ class PostEntity:
     share_count: int = 0
     media_urls: Optional[List[str]] = None
     media_type: str = "none"
-    score: int = 0
-    user_vote: int = 0
+    likes: int = 0
+    dislikes: int = 0
+    user_reaction: Optional[str] = None
     is_deleted: bool = False
     is_locked: bool = False
     author: Optional[AuthorEntity] = None

@@ -61,8 +61,8 @@ class IPostRepository(ABC):
         pass
 
     @abstractmethod
-    async def get_vote_state(self, post_id: str, current_user_id: Optional[str] = None) -> tuple[int, int]:
-        """Return (score, user_vote) for a post — score is the sum of all vote values."""
+    async def get_reaction_state(self, post_id: str, current_user_id: Optional[str] = None) -> tuple[int, int, Optional[str]]:
+        """Return like count, dislike count, and the current user's reaction."""
         pass
 
 
@@ -114,8 +114,8 @@ class IInteractionRepository(ABC):
         pass
 
     @abstractmethod
-    async def set_post_vote(self, user_id: str, post_id: str, value: int) -> None:
-        """Set a user's vote on a post: +1, -1, or 0 to remove the vote."""
+    async def set_post_reaction(self, user_id: str, post_id: str, value: int) -> None:
+        """Set a user's reaction on a post: +1 for like, -1 for dislike, or 0 to clear."""
         pass
 
 
