@@ -409,7 +409,7 @@ alembic history
 | `2026_08_24_add_wallets_and_quiz_sessions` | `user_token_wallets`, `token_ledger`, `histoin_wallets`, `histoin_ledger`, `token_packs`, `quiz_sessions` |
 | `2026_08_28_add_chat_tables` | `direct_messages`, `group_chat_messages`, `conversations`, `conversation_reads` |
 | `2026_08_29_friend_requests_and_presence` | `friend_requests`, user presence status tracking |
-| `2026_09_02_community_forum_enhancements` | Threaded discussions, upvotes, forum categories |
+| `2026_09_02_community_forum_enhancements` | Threaded discussions, likes/dislikes, forum categories |
 | `2026_09_05_index_created_at_ledger_messages` | High-performance indexes on ledger and message timestamps |
 | `2026_09_06_add_unread_count_to_conversation_reads` | Unread badge counts for chat threads |
 | `2026_09_06_add_profile_fields_to_users` | Avatars, bio sanitization, custom tags |
@@ -430,8 +430,8 @@ cd backend
 Expected: **32 passed, 1 skipped (33 total)**
 
 > [!NOTE]
-> **Why is 1 test skipped?**  
-> `tests/test_migrations.py::test_alembic_migrations` is marked with `@pytest.mark.skip(reason="Migrations designed for PostgreSQL, not SQLite-compatible")`.  
+> **Why is 1 test skipped?**
+> `tests/test_migrations.py::test_alembic_migrations` is marked with `@pytest.mark.skip(reason="Migrations designed for PostgreSQL, not SQLite-compatible")`.
 > The pytest test suite uses an ultra-fast, in-memory SQLite database for test runs. Alembic migrations use PostgreSQL-native types and dialects that cannot be applied to SQLite. In production, Alembic migrations run against PostgreSQL via `alembic upgrade head`. All **32 functional and security tests pass 100%**.
 
 | Test File | Coverage |

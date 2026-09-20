@@ -1,27 +1,40 @@
 import { useEffect, useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '../contexts/AuthContext';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  BookOpen,
+  ChevronUp,
+  Clock3,
+  Compass,
+  Flame,
+  Gamepad2,
+  HelpCircle,
+  Home,
+  PenLine,
+  Plus,
+  Search,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
 import {
   getPublicFeedApi,
   getPostDetailApi,
   createPostApi,
+  uploadPostMediaApi,
+  reactToPostApi,
   deletePostApi,
   addCommentApi,
   deleteCommentApi,
-  togglePostLikeApi,
   sharePostApi,
 } from '../api/social';
 
 import {
   PostComposer,
   PostCard,
-  FeedFilter,
   ShareModal,
   DeleteConfirmModal,
 } from '../features/community';
 
 export default function FeedPage() {
-  const { user } = useAuth();
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,6 +47,16 @@ export default function FeedPage() {
   const [sharingPost, setSharingPost] = useState(null);
   const [deletingPostId, setDeletingPostId] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showCreatePost, setShowCreatePost] = useState(false);
+
+  useEffect(() => {
+    if (!showCreatePost) return undefined;
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setShowCreatePost(false);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showCreatePost]);
 
   const loadFeed = async () => {
     setLoading(true);
@@ -53,42 +76,49 @@ export default function FeedPage() {
     loadFeed();
   }, []);
 
-  // 1. Create Post
-  const handleCreatePost = async ({ content, title }) => {
+  // 1. Create Post (then attach any staged media)
+  const handleCreatePost = async ({ content, title, files }) => {
     const created = await createPostApi(content, { title });
-    setPosts((prev) => [created, ...prev]);
+    let final = created;
+    if (files?.length) {
+      try {
+        const res = await uploadPostMediaApi(created.id, files);
+        final = { ...created, media_urls: res.media_urls, media_type: res.media_type };
+      } catch (err) {
+        // Post text is already live; surface the media failure without losing the post
+        console.error('Failed to upload post media:', err);
+        throw err;
+      }
+    }
+    setPosts((prev) => [final, ...prev]);
+    setShowCreatePost(false);
   };
 
-  // 2. Like Post (with optimistic update)
-  const handleLikePost = async (postId) => {
-    // Optimistic toggle
+  // 2. React to Post (optimistic update, server-confirmed)
+  const handlePostReaction = async (postId, reaction) => {
     setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === postId) {
-          const hasLiked = !p.has_liked;
-          return {
-            ...p,
-            has_liked: hasLiked,
-            like_count: Math.max(0, (p.like_count || 0) + (hasLiked ? 1 : -1)),
-          };
-        }
-        return p;
-      })
+      prev.map((p) =>
+        p.id === postId
+          ? {
+              ...p,
+              likes: (p.likes || 0) - (p.user_reaction === 'like' ? 1 : 0) + (reaction === 'like' ? 1 : 0),
+              dislikes: (p.dislikes || 0) - (p.user_reaction === 'dislike' ? 1 : 0) + (reaction === 'dislike' ? 1 : 0),
+              user_reaction: reaction === 'none' ? null : reaction,
+            }
+          : p
+      )
     );
 
     try {
-      const res = await togglePostLikeApi(postId);
+      const res = await reactToPostApi(postId, reaction);
       setPosts((prev) =>
         prev.map((p) =>
-          p.id === postId
-            ? { ...p, has_liked: res.liked, like_count: res.new_like_count }
-            : p
+          p.id === postId ? { ...p, ...res } : p
         )
       );
     } catch (err) {
-      console.error('Failed to toggle like:', err);
-      // Revert on failure
-      loadFeed();
+      console.error('Failed to react to post:', err);
+      loadFeed(); // revert on failure
     }
   };
 
@@ -104,10 +134,11 @@ export default function FeedPage() {
     }
   };
 
-  // 4. Add Comment / Reply
-  const handleAddComment = async (postId, content, parentCommentId = null) => {
+  // 4. Add Comment / Reply (optionally with a GIF URL attached)
+  const handleAddComment = async (postId, content, parentCommentId = null, mediaUrl = null) => {
     await addCommentApi(postId, content, {
       parentCommentId,
+      mediaUrl,
     });
 
     // Refresh post details to update threaded comments
@@ -167,9 +198,9 @@ export default function FeedPage() {
       );
     }
 
-    // Sort by tab
+    // Sort popular posts by net reaction score.
     if (activeTab === 'popular') {
-      result.sort((a, b) => (b.like_count + b.comment_count) - (a.like_count + a.comment_count));
+      result.sort((a, b) => ((b.likes || 0) - (b.dislikes || 0)) - ((a.likes || 0) - (a.dislikes || 0)) || (b.comment_count || 0) - (a.comment_count || 0));
     } else {
       result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     }
@@ -178,30 +209,102 @@ export default function FeedPage() {
   }, [posts, activeTab, searchQuery]);
 
   return (
-    <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-8 md:py-10">
-      {/* Title & Description */}
-      <div className="mb-6">
-        <h1 className="font-display text-3xl md:text-4xl font-bold text-histo-dark mb-1.5 tracking-tight">
-          Chronicle Forum
-        </h1>
-        <p className="font-body text-sm text-histo-ink/70">
-          Explore historical inquiries, publish theories, and deliberate with scholars worldwide.
-        </p>
+    <main className="relative flex-1 bg-histo-paper/70 px-3 pb-12 pt-4 sm:px-5 lg:px-8">
+      <div className="sticky top-3 z-30 mx-auto mb-7 flex max-w-7xl flex-wrap items-center justify-between gap-3 rounded-2xl border border-histo-dark/10 bg-white/95 px-3 py-2.5 shadow-medium backdrop-blur-md sm:px-4">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActiveTab('latest')}
+            className={`inline-flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-ui font-semibold transition-colors ${activeTab === 'latest' ? 'bg-histo-dark text-white shadow-sm' : 'text-histo-ink/60 hover:bg-histo-paper hover:text-histo-dark'}`}
+          >
+            <Clock3 className="h-4 w-4" /> Latest
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('popular')}
+            className={`inline-flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-ui font-semibold transition-colors ${activeTab === 'popular' ? 'bg-histo-dark text-white shadow-sm' : 'text-histo-ink/60 hover:bg-histo-paper hover:text-histo-dark'}`}
+          >
+            <Flame className="h-4 w-4" /> Trending
+          </button>
+        </div>
+
+        <div className="relative order-3 w-full sm:order-0 sm:w-auto sm:flex-1 sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-histo-ink/40" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search the chronicle"
+            aria-label="Search the chronicle"
+            className="h-9 w-full rounded-xl border border-histo-dark/10 bg-histo-paper/60 pl-9 pr-3 text-xs font-ui text-histo-dark outline-none transition-colors placeholder:text-histo-ink/40 focus:border-histo-copper focus:bg-white"
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowCreatePost(true)}
+          className="inline-flex h-9 items-center gap-2 rounded-xl bg-histo-copper px-3.5 text-xs font-ui font-semibold text-white shadow-sm transition-colors hover:bg-histo-dark"
+        >
+          <Plus className="h-4 w-4" /> Create post
+        </button>
       </div>
 
-      {/* Post Composer */}
-      <PostComposer onPostCreated={handleCreatePost} />
+      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-7 lg:grid-cols-[220px_minmax(0,680px)_260px] lg:justify-center">
+        <aside className="hidden lg:block">
+          <div className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto rounded-2xl border border-histo-dark/10 bg-white px-2.5 py-3 text-histo-ink shadow-soft">
+            <nav className="space-y-1">
+              {[
+                { label: 'Home', icon: Home, active: activeTab === 'latest', action: () => setActiveTab('latest') },
+                { label: 'Popular', icon: TrendingUp, active: activeTab === 'popular', action: () => setActiveTab('popular') },
+                { label: 'News', icon: BookOpen, active: false, action: () => {} },
+                { label: 'Explore', icon: Compass, active: false, action: () => {} },
+              ].map(({ label, icon: Icon, active, action }) => (
+                <button key={label} type="button" onClick={action} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-ui transition-colors ${active ? 'bg-histo-paper text-histo-dark shadow-soft' : 'text-histo-ink/70 hover:bg-histo-paper hover:text-histo-dark'}`}>
+                  <Icon className={`h-4 w-4 ${active ? 'text-histo-gold' : ''}`} />
+                  {label}
+                </button>
+              ))}
+              <button type="button" onClick={() => setShowCreatePost(true)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-ui text-histo-ink/70 transition-colors hover:bg-histo-paper hover:text-histo-dark">
+                <Plus className="h-4 w-4" /> Start a chronicle
+              </button>
+            </nav>
 
-      {/* Filter Tabs & Search */}
-      <FeedFilter
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-      />
+            {[
+              { label: 'GAMES ON HISTOFACTS', icon: Gamepad2, items: ['History Quiz', 'Daily Challenge'] },
+              { label: 'RECENT', icon: Clock3, items: ['Latest chronicles', 'Your discussions'] },
+              { label: 'COMMUNITIES', icon: Users, items: ['History lounge', 'Scholar circles'] },
+              { label: 'RESOURCES', icon: HelpCircle, items: ['About HistoFacts', 'Help & guidelines'] },
+            ].map(({ label, icon: Icon, items }) => (
+              <details key={label} open className="mt-3 border-t border-histo-dark/10 pt-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[10px] font-ui font-semibold tracking-[0.12em] text-histo-ink/45">
+                  {label}
+                  <ChevronUp className="h-3.5 w-3.5" />
+                </summary>
+                <div className="space-y-1">
+                  {items.map((item) => (
+                    <button key={item} type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-ui text-histo-ink/65 transition-colors hover:bg-histo-paper hover:text-histo-dark">
+                      <Icon className="h-3.5 w-3.5" /> {item}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </aside>
 
-      {/* Error Message */}
-      {error && (
+        <section className="min-w-0 lg:w-[680px]">
+          <div className="mb-4 flex items-end justify-between gap-3 px-1">
+            <div>
+              <p className="mb-1 text-[10px] font-ui font-bold uppercase tracking-[0.18em] text-histo-copper">Community forum</p>
+              <h1 className="font-display text-3xl font-bold tracking-tight text-histo-dark sm:text-4xl">Chronicle feed</h1>
+            </div>
+            <button type="button" onClick={() => setShowCreatePost(true)} className="hidden items-center gap-1.5 text-xs font-ui font-semibold text-histo-copper hover:text-histo-dark sm:inline-flex">
+              <PenLine className="h-3.5 w-3.5" /> Write
+            </button>
+          </div>
+
+          {/* Error Message */}
+          {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-ui flex justify-between items-center">
           <span>{error}</span>
           <button
@@ -213,8 +316,8 @@ export default function FeedPage() {
         </div>
       )}
 
-      {/* Posts Feed */}
-      {loading ? (
+          {/* Posts Feed */}
+          {loading ? (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
             <div
@@ -257,7 +360,7 @@ export default function FeedPage() {
               <PostCard
                 key={post.id}
                 post={post}
-                onLike={handleLikePost}
+                onReaction={handlePostReaction}
                 onAddComment={handleAddComment}
                 onDeleteComment={handleDeleteComment}
                 onDeletePost={(id) => setDeletingPostId(id)}
@@ -267,7 +370,64 @@ export default function FeedPage() {
             ))}
           </AnimatePresence>
         </div>
-      )}
+          )}
+        </section>
+
+        <aside className="hidden xl:block">
+          <div className="sticky top-24 overflow-hidden rounded-2xl border border-histo-dark/10 bg-white/75 shadow-soft">
+            <div className="flex items-center justify-between border-b border-histo-dark/10 px-4 py-3">
+              <h2 className="text-[11px] font-ui font-bold uppercase tracking-[0.12em] text-histo-dark">Recent posts</h2>
+              <span className="h-2 w-2 rounded-full bg-emerald-500" aria-label="Live" />
+            </div>
+            <div className="divide-y divide-histo-dark/10">
+              {posts.slice(0, 5).map((post) => (
+                <button
+                  key={post.id}
+                  type="button"
+                  onClick={() => document.getElementById(`post-${post.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                  className="block w-full px-4 py-3 text-left transition-colors hover:bg-histo-paper/70"
+                >
+                  <p className="line-clamp-2 text-xs font-body leading-relaxed text-histo-dark">{post.title || post.content}</p>
+                  <p className="mt-1.5 text-[10px] font-ui text-histo-ink/45">{post.author?.username || 'Scholar'} · {post.comment_count || 0} replies</p>
+                </button>
+              ))}
+              {!posts.length && <p className="px-4 py-5 text-xs font-ui text-histo-ink/45">Recent discussions will appear here.</p>}
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <AnimatePresence>
+        {showCreatePost && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#090b0d]/75 px-3 py-6 backdrop-blur-sm sm:px-6 sm:py-12"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setShowCreatePost(false);
+            }}
+            role="presentation"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              className="w-full max-w-3xl"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Create a chronicle post"
+            >
+              <PostComposer
+                modal
+                onClose={() => setShowCreatePost(false)}
+                onPostCreated={handleCreatePost}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Share Modal */}
       <ShareModal

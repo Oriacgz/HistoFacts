@@ -29,12 +29,12 @@ export default function NotesHeader({
   const navigate = useNavigate();
 
   return (
-    <header className="sticky top-0 z-40 bg-histo-dark text-white border-b border-white/10 px-4 sm:px-6 py-4 flex items-center justify-between gap-4 shrink-0 shadow-medium min-h-[72px]">
+    <header className="sticky top-0 z-40 bg-histo-dark text-white border-b border-white/10 px-4 sm:px-6 py-4 flex items-center justify-between gap-4 shrink-0 shadow-medium min-h-18">
       {/* Left: Brand Logo & Sidebar Toggle */}
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
-          className="p-2.5 rounded-[4px] bg-white/10 text-white hover:bg-histo-copper hover:text-white transition-colors flex items-center justify-center shrink-0 shadow-2xs cursor-pointer border border-white/10"
+          className="p-2.5 rounded-sm bg-white/10 text-white hover:bg-histo-copper hover:text-white transition-colors flex items-center justify-center shrink-0 shadow-2xs cursor-pointer border border-white/10"
           onClick={onToggleSidebar}
           title={sidebarOpen ? 'Hide notes library' : 'Show notes library'}
           aria-label={sidebarOpen ? 'Close sidebar' : 'Open notes library'}
@@ -51,7 +51,7 @@ export default function NotesHeader({
           </span>
         </Link>
 
-        <div className="h-5 w-[1px] bg-white/20 hidden md:block" />
+        <div className="h-5 w-px bg-white/20 hidden md:block" />
 
         <div className="hidden md:flex items-center gap-2 truncate">
           <span className="font-display text-sm font-bold text-histo-paper truncate">
@@ -68,7 +68,6 @@ export default function NotesHeader({
             { label: 'Quiz', path: '/quiz' },
             { label: 'AI Notes', path: '/notes' },
             { label: 'Feed', path: '/feed' },
-            { label: 'Groups', path: '/groups' },
             { label: 'Friends', path: '/friends' },
           ].map((item) => {
             const isActive = item.label === 'AI Notes';
@@ -124,7 +123,7 @@ export default function NotesHeader({
                 className="group-hover:ring-2 group-hover:ring-histo-gold transition-all"
               />
               <div className="hidden xl:flex flex-col">
-                <span className="text-sm font-ui font-semibold text-white group-hover:text-histo-gold transition-colors truncate max-w-[110px]">
+                <span className="text-sm font-ui font-semibold text-white group-hover:text-histo-gold transition-colors truncate max-w-27.5">
                   {user.tag ? `${user.username}#${user.tag}` : user.username}
                 </span>
                 <span className="text-[11px] font-ui text-histo-gold/80 font-medium tracking-wide">
@@ -133,22 +132,22 @@ export default function NotesHeader({
               </div>
             </button>
           ) : (
-            <Link to="/loginpg" className="px-4 py-2 rounded-[4px] bg-histo-copper text-white text-sm font-ui font-bold hover:bg-histo-dark transition-colors">
+            <Link to="/loginpg" className="px-4 py-2 rounded-sm bg-histo-copper text-white text-sm font-ui font-bold hover:bg-histo-dark transition-colors">
               Sign In
             </Link>
           )}
 
           {user && profileMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-60 bg-histo-dark text-white border border-histo-gold/30 rounded-[4px] shadow-deep p-2 z-50 animate-fade-in">
+            <div className="absolute right-0 top-full mt-2 w-60 bg-histo-dark text-white border border-histo-gold/30 rounded-sm shadow-deep p-2 z-50 animate-fade-in">
               <div className="px-3 py-2 border-b border-white/10 mb-1">
                 <p className="font-display text-sm font-bold text-histo-paper">{user.username}</p>
-                <p className="font-ui text-xs text-histo-gold/80 font-mono">#{user.tag}</p>
+                  <p className="font-mono text-xs text-histo-gold/80">#{user.tag}</p>
                 <p className="font-ui text-[10px] text-white/50 truncate mt-0.5">{user.email}</p>
               </div>
               <Link
                 to="/home"
                 onClick={onCloseProfileMenu}
-                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-xs transition-colors flex items-center gap-2.5"
               >
                 <ArrowLeft className="h-4.5 w-4.5 text-histo-gold/80" />
                 <span>Dashboard Home</span>
@@ -156,7 +155,7 @@ export default function NotesHeader({
               <Link
                 to="/quiz"
                 onClick={onCloseProfileMenu}
-                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-xs transition-colors flex items-center gap-2.5"
               >
                 <Sparkles className="h-4.5 w-4.5 text-histo-gold/80" />
                 <span>Quizzes & Lobbies</span>
@@ -164,7 +163,7 @@ export default function NotesHeader({
               <Link
                 to="/friends"
                 onClick={onCloseProfileMenu}
-                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-xs transition-colors flex items-center gap-2.5"
               >
                 <Users className="h-4.5 w-4.5 text-histo-gold/80" />
                 <span>Friends & Scholars</span>
@@ -172,7 +171,7 @@ export default function NotesHeader({
               <Link
                 to="/feed"
                 onClick={onCloseProfileMenu}
-                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-xs transition-colors flex items-center gap-2.5"
               >
                 <MessageSquare className="h-4.5 w-4.5 text-histo-gold/80" />
                 <span>Community Feed</span>
@@ -180,12 +179,12 @@ export default function NotesHeader({
               <Link
                 to="/settings"
                 onClick={onCloseProfileMenu}
-                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-[2px] transition-colors flex items-center gap-2.5"
+                className="w-full text-left px-3 py-2.5 text-sm font-ui text-histo-paper hover:bg-white/10 hover:text-histo-gold rounded-xs transition-colors flex items-center gap-2.5"
               >
                 <Settings className="h-4.5 w-4.5 text-histo-gold/80" />
                 <span>Profile & Settings</span>
               </Link>
-              <div className="h-[1px] bg-white/10 my-1" />
+              <div className="h-px bg-white/10 my-1" />
               <button
                 type="button"
                 onClick={() => {
@@ -193,7 +192,7 @@ export default function NotesHeader({
                   onCloseProfileMenu();
                   navigate('/loginpg');
                 }}
-                className="w-full text-left px-3 py-2.5 text-sm font-ui font-semibold text-red-400 hover:bg-red-500/10 rounded-[2px] transition-colors flex items-center gap-2.5 cursor-pointer"
+                className="w-full text-left px-3 py-2.5 text-sm font-ui font-semibold text-red-400 hover:bg-red-500/10 rounded-xs transition-colors flex items-center gap-2.5 cursor-pointer"
               >
                 <LogOut className="h-4.5 w-4.5 text-red-400" />
                 <span>Log Out</span>

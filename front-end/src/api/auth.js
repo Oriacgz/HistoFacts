@@ -34,6 +34,13 @@ export async function uploadAvatarApi(file) {
   });
 }
 
+export async function setAvatarSeedApi(seed) {
+  return apiFetch('/api/auth/users/me/avatar-seed', {
+    method: 'PATCH',
+    body: JSON.stringify({ seed }),
+  });
+}
+
 export async function changePasswordApi({ current_password, new_password }) {
   return apiFetch('/api/auth/users/me/change-password', {
     method: 'POST',

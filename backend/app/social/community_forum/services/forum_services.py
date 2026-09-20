@@ -113,6 +113,35 @@ class ForumService:
         if self._user_repo:
             await self._user_repo.increment_post_count(post.user_id, -1)
 
+    async def set_post_media(
+        self,
+        post_id: str,
+        user_id: str,
+        media_urls: List[str],
+        media_type: str,
+    ) -> PostEntity:
+        """Attach media to a post. Author-only, and only while the post is unlocked."""
+        post = await self._post_repo.get_by_id(post_id)
+        if not post:
+            raise PostNotFoundError(post_id)
+        if not post.can_receive_media_from(user_id):
+            raise UnauthorizedPostActionError("attach media to")
+        if post.is_locked:
+            raise PostLockedError(post_id)
+
+        await self._post_repo.set_media(post_id, media_urls, media_type)
+        return await self.get_post_detail(post_id, current_user_id=user_id)
+
+    async def react_to_post(self, post_id: str, user_id: str, reaction: str) -> tuple[int, int, Optional[str]]:
+        """Set or clear the user's like/dislike reaction on a post."""
+        post = await self._post_repo.get_by_id(post_id)
+        if not post:
+            raise PostNotFoundError(post_id)
+
+        value = {"like": 1, "dislike": -1, "none": 0}[reaction]
+        await self._interaction_repo.set_post_reaction(user_id=user_id, post_id=post_id, value=value)
+        return await self._post_repo.get_reaction_state(post_id, user_id)
+
     async def add_comment(
         self,
         post_id: str,
@@ -120,6 +149,7 @@ class ForumService:
         content: str,
         parent_comment_id: Optional[str] = None,
         mentioned_user_id: Optional[str] = None,
+        media_url: Optional[str] = None,
     ) -> CommentEntity:
         if self._user_repo:
             author = await self._user_repo.get_author_by_id(user_id)
@@ -144,6 +174,7 @@ class ForumService:
             content=content,
             parent_comment_id=parent_comment_id,
             mentioned_user_id=mentioned_user_id,
+            media_url=media_url,
         )
         created_comment = await self._comment_repo.create(comment)
         await self._post_repo.increment_comment_count(post_id, 1)

@@ -36,9 +36,11 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import UserAvatar from '../components/UserAvatar';
+import BlobatarPicker from '../components/BlobatarPicker';
 import {
   updateProfileApi,
   uploadAvatarApi,
+  setAvatarSeedApi,
   changePasswordApi,
   requestEmailChangeApi,
   confirmEmailChangeApi,
@@ -88,6 +90,7 @@ export default function SettingsPage() {
   // Avatar Upload State
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [savingSeed, setSavingSeed] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Security - Password
@@ -249,13 +252,54 @@ export default function SettingsPage() {
     setUploadingAvatar(true);
     try {
       const res = await uploadAvatarApi(file);
-      updateUser({ avatar_url: res.avatar_url });
+      // Server clears avatar_seed on upload — the two avatar paths are mutually exclusive
+      updateUser({ avatar_url: res.avatar_url, avatar_seed: null });
       toast.success('Avatar updated successfully!');
     } catch (err) {
       setAvatarPreview(null);
       toast.error(err.message || 'Failed to upload avatar');
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  // Blobatar selection — no backend call happens until a candidate is actually chosen
+  const handleSeedSelect = async (seed) => {
+    setSavingSeed(true);
+    try {
+      const res = await setAvatarSeedApi(seed);
+      updateUser({ avatar_seed: res.avatar_seed, avatar_url: res.avatar_url });
+      setAvatarPreview(null);
+      toast.success('Blobatar chosen! Your uploaded photo was replaced.');
+    } catch (err) {
+      toast.error(err.message || 'Failed to choose a Blobatar');
+    } finally {
+      setSavingSeed(false);
+    }
+  };
+
+  // Online status visibility toggle (auto-saves on change)
+  const handleToggleOnlineStatus = async (e) => {
+    const next = e.target.checked;
+    setShowOnlineStatus(next);
+    try {
+      await updateProfileApi({ show_online_status: next });
+      updateUser({ show_online_status: next });
+      toast.success(next ? 'You now appear online to friends.' : 'You now appear offline to everyone.');
+    } catch (err) {
+      setShowOnlineStatus(!next);
+      toast.error(err.message || 'Failed to update online status');
+    }
+  };
+
+  // Save timezone from the privacy tab
+  const handleSaveTimezone = async () => {
+    try {
+      const updated = await updateProfileApi({ timezone });
+      updateUser(updated);
+      toast.success('Timezone saved successfully!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save timezone');
     }
   };
 
@@ -510,14 +554,14 @@ export default function SettingsPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-wider text-histo-gold">
-                Scholar Profile & Settings
+                User Profile & Settings
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-histo-gold/20 text-histo-gold border border-histo-gold/40">
                 #{user?.tag || '0000'}
               </span>
             </div>
             <p className="font-ui text-sm text-histo-paper/70 mt-1">
-              Personalize your public academy identity, secure your credentials, and govern online visibility.
+              Personalize your public identity, secure your credentials, and edit online visibility.
             </p>
           </div>
         </div>
@@ -639,10 +683,10 @@ export default function SettingsPage() {
               </div>
 
               <div className="flex-1 text-center sm:text-left space-y-1">
-                <h3 className="font-display text-lg font-bold text-histo-paper">Academy Avatar</h3>
+                <h3 className="font-display text-lg font-bold text-histo-paper">User Avatar</h3>
                 <p className="font-ui text-xs text-histo-paper/60">
-                  Upload a custom portrait or enjoy your deterministic initial crest. Images are automatically
-                  centered, optimized, and converted to WEBP format. Max 5MB.
+                  Upload a custom portrait or pick a Blobatar crest below. Images are automatically centered,
+                  optimized, and converted to WEBP format. Max 5MB.
                 </p>
                 <div className="pt-2 flex items-center justify-center sm:justify-start gap-3">
                   <button
@@ -657,13 +701,28 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* Blobatar Picker */}
+            <div className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-3">
+              <h3 className="font-display text-base font-bold text-histo-paper">Pick a Blobatar</h3>
+              <p className="font-ui text-xs text-histo-paper/60">
+                Geometric crests generated from a seed — no upload needed. Choosing one replaces your uploaded
+                photo. Nothing is saved until you select one.
+              </p>
+              <BlobatarPicker
+                baseSeed={user?.id || 'scholar'}
+                currentSeed={user?.avatar_seed}
+                onSelect={handleSeedSelect}
+                disabled={savingSeed}
+              />
+            </div>
+
             {/* Profile Form */}
             <form onSubmit={handleSaveProfile} className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 {/* Username */}
                 <div className="space-y-1.5">
                   <label className="block font-ui text-xs font-semibold tracking-wider text-histo-gold uppercase">
-                    Scholar Username
+                    Username
                   </label>
                   <input
                     type="text"
@@ -674,6 +733,10 @@ export default function SettingsPage() {
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-histo-dark/80 border border-white/15 focus:border-histo-gold rounded-md px-3.5 py-2.5 text-sm font-ui text-histo-paper outline-none transition-colors"
                   />
+                  <p className="font-ui text-[11px] text-white/40">
+                    Your existing friends and conversations won't be affected — only new searches need your
+                    updated Name#Tag. Your #tag may re-roll if the new name is already taken with it.
+                  </p>
                 </div>
 
                 {/* Pronouns */}
@@ -696,13 +759,13 @@ export default function SettingsPage() {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <label className="block font-ui text-xs font-semibold tracking-wider text-histo-gold uppercase">
-                    Academic Biography & Field of Interest
+                    About Me
                   </label>
-                  <span className="text-[11px] font-mono text-white/40">{bio.length}/500</span>
+                  <span className="text-[11px] font-mono text-white/40">{bio.length}/300</span>
                 </div>
                 <textarea
                   rows={3}
-                  maxLength={500}
+                  maxLength={300}
                   placeholder="Share historical interests, eras of specialization, or research topics..."
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
@@ -721,7 +784,7 @@ export default function SettingsPage() {
                     onChange={(e) => setCountryCode(e.target.value)}
                     className="w-full bg-histo-dark/80 border border-white/15 focus:border-histo-gold rounded-md px-3.5 py-2.5 text-sm font-ui text-histo-paper outline-none transition-colors"
                   >
-                    <option value="">-- International Scholar --</option>
+                    <option value="">-- Select a Country --</option>
                     {allCountries.map((c) => (
                       <option key={c.code} value={c.code}>
                         {c.name} ({c.code})
@@ -1044,7 +1107,7 @@ export default function SettingsPage() {
             <div className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-4">
               <div className="flex items-center gap-2 text-histo-gold">
                 <Mail className="h-5 w-5" />
-                <h3 className="font-display text-base font-bold text-histo-paper">Primary Scholar Email</h3>
+                <h3 className="font-display text-base font-bold text-histo-paper">Primary User Email</h3>
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-md bg-histo-dark/80 border border-white/10">
@@ -1190,7 +1253,7 @@ export default function SettingsPage() {
             <div className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 text-histo-gold">
                 <Sparkles className="h-5 w-5" />
-                <h3 className="font-display text-base font-bold text-histo-paper">Display & Language Preferences</h3>
+                <h3 className="font-display text-base font-bold text-histo-paper">Display / Language Preferences</h3>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -1229,7 +1292,7 @@ export default function SettingsPage() {
                 {/* Language Selector */}
                 <div className="space-y-2">
                   <label className="block font-ui text-xs font-semibold tracking-wider text-histo-gold uppercase">
-                    Chronicle Language
+                    Interface Language
                   </label>
                   <select
                     value={language}
@@ -1250,11 +1313,11 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2 text-histo-gold">
                   <Bell className="h-4 w-4" />
                   <h4 className="font-display font-bold text-xs uppercase tracking-wider text-histo-paper">
-                    Academy Notification Subscriptions
+                    User Notification Preferences
                   </h4>
                 </div>
                 <p className="font-ui text-xs text-histo-paper/70">
-                  Select which historical events and interactions dispatch academy alerts to your scholar bell:
+                  Control which notifications you receive from the platform. You can toggle each type on or off below.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -1309,7 +1372,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between pb-2 border-b border-white/10">
                 <div className="flex items-center gap-2 text-histo-gold">
                   <UserX className="h-5 w-5" />
-                  <h3 className="font-display text-base font-bold text-histo-paper">Blocked Scholars</h3>
+                  <h3 className="font-display text-base font-bold text-histo-paper">Blocked Users</h3>
                 </div>
                 <button
                   type="button"
@@ -1323,17 +1386,17 @@ export default function SettingsPage() {
               </div>
 
               <p className="font-ui text-xs text-histo-paper/70">
-                Blocked scholars cannot view your profile, send messages, or issue friend requests.
+                Blocked users cannot view your profile, send messages, or issue friend requests.
               </p>
 
               {loadingBlocked ? (
                 <div className="py-4 text-center font-ui text-xs text-white/50 flex items-center justify-center gap-2">
                   <RefreshCw className="h-3.5 w-3.5 animate-spin text-histo-gold" />
-                  <span>Loading blocked scholars...</span>
+                  <span>Loading blocked users...</span>
                 </div>
               ) : blockedUsers.length === 0 ? (
                 <div className="py-4 text-center font-ui text-xs text-white/40 bg-histo-dark/50 rounded border border-white/5">
-                  You have not blocked any scholars.
+                  You have not blocked any users.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -1370,7 +1433,7 @@ export default function SettingsPage() {
             <div className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-4">
               <div className="flex items-center gap-2 text-histo-gold">
                 <Clock className="h-5 w-5" />
-                <h3 className="font-display text-base font-bold text-histo-paper">Academic Timezone</h3>
+                <h3 className="font-display text-base font-bold text-histo-paper">User Timezone</h3>
               </div>
 
               <p className="font-ui text-xs text-histo-paper/70">
@@ -1393,6 +1456,33 @@ export default function SettingsPage() {
                   <RefreshCw className="h-3.5 w-3.5 text-histo-gold" />
                   <span>Auto-Detect</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={handleSaveTimezone}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-histo-gold hover:bg-amber-400 text-histo-dark font-ui font-bold text-xs rounded-md shadow transition-all cursor-pointer"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  <span>Save Timezone</span>
+                </button>
+              </div>
+
+              {/* Privacy: show online status */}
+              <div className="p-3 rounded-md bg-histo-dark/70 border border-white/10 flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <p className="font-ui text-xs font-semibold text-histo-paper">Show online status</p>
+                  <p className="font-ui text-[11px] text-white/50">
+                    When off, you appear offline to everyone — regardless of your actual activity.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={showOnlineStatus}
+                    onChange={handleToggleOnlineStatus}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-histo-gold"></div>
+                </label>
               </div>
             </div>
 
@@ -1400,7 +1490,7 @@ export default function SettingsPage() {
             <div className="bg-red-950/20 border border-red-500/30 rounded-lg p-6 space-y-4">
               <div className="flex items-center gap-2 text-red-400">
                 <AlertTriangle className="h-5 w-5" />
-                <h3 className="font-display text-base font-bold text-red-200">Scholastic Archive & Account Governance</h3>
+                <h3 className="font-display text-base font-bold text-red-200">User Data & Account Management</h3>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">

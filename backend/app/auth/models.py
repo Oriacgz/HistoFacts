@@ -24,6 +24,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
     avatar_url = Column(String, nullable=True)
+    avatar_seed = Column(String, nullable=True)  # Blobatar seed — chosen string, not an image; fallback is user id
     bio = Column(Text, nullable=True)
     post_count = Column(Integer, default=0, nullable=False)
     is_banned = Column(Boolean, default=False, nullable=False)
