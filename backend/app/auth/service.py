@@ -27,6 +27,7 @@ from app.auth.schemas import (
 )
 from app.auth.utils import generate_unique_tag, validate_username
 from app.auth.friend_service import is_user_friend
+from app.core.file_storage import delete_stored_file
 from app.core.security import (
     hash_password,
     verify_password,
@@ -416,6 +417,7 @@ async def get_user_profile(
         username=user.username,
         tag=user.tag,
         avatar_url=user.avatar_url,
+        avatar_seed=user.avatar_seed,
         bio=bio,
         country_code=user.country_code,
         pronouns=user.pronouns,
@@ -641,6 +643,18 @@ async def change_username(db: AsyncSession, user: User, new_username: str) -> Us
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def set_avatar_seed(db: AsyncSession, user: User, seed: str) -> None:
+    """Choose a Blobatar seed and clear any uploaded photo, deleting its stored file.
+    Rendering precedence is avatar_url > Blobatar(avatar_seed) > Blobatar(user id), so
+    leaving avatar_url set would make the pick do nothing."""
+    user.avatar_seed = seed
+    if user.avatar_url:
+        delete_stored_file(user.avatar_url)
+        user.avatar_url = None
+    await db.commit()
+    await db.refresh(user)
 
 
 async def update_profile(db: AsyncSession, user: User, payload: ProfileUpdate) -> User:

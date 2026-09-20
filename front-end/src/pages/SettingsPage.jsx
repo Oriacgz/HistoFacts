@@ -36,9 +36,11 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import UserAvatar from '../components/UserAvatar';
+import BlobatarPicker from '../components/BlobatarPicker';
 import {
   updateProfileApi,
   uploadAvatarApi,
+  setAvatarSeedApi,
   changePasswordApi,
   requestEmailChangeApi,
   confirmEmailChangeApi,
@@ -88,6 +90,7 @@ export default function SettingsPage() {
   // Avatar Upload State
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [savingSeed, setSavingSeed] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Security - Password
@@ -249,13 +252,54 @@ export default function SettingsPage() {
     setUploadingAvatar(true);
     try {
       const res = await uploadAvatarApi(file);
-      updateUser({ avatar_url: res.avatar_url });
+      // Server clears avatar_seed on upload — the two avatar paths are mutually exclusive
+      updateUser({ avatar_url: res.avatar_url, avatar_seed: null });
       toast.success('Avatar updated successfully!');
     } catch (err) {
       setAvatarPreview(null);
       toast.error(err.message || 'Failed to upload avatar');
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  // Blobatar selection — no backend call happens until a candidate is actually chosen
+  const handleSeedSelect = async (seed) => {
+    setSavingSeed(true);
+    try {
+      const res = await setAvatarSeedApi(seed);
+      updateUser({ avatar_seed: res.avatar_seed, avatar_url: res.avatar_url });
+      setAvatarPreview(null);
+      toast.success('Blobatar chosen! Your uploaded photo was replaced.');
+    } catch (err) {
+      toast.error(err.message || 'Failed to choose a Blobatar');
+    } finally {
+      setSavingSeed(false);
+    }
+  };
+
+  // Online status visibility toggle (auto-saves on change)
+  const handleToggleOnlineStatus = async (e) => {
+    const next = e.target.checked;
+    setShowOnlineStatus(next);
+    try {
+      await updateProfileApi({ show_online_status: next });
+      updateUser({ show_online_status: next });
+      toast.success(next ? 'You now appear online to friends.' : 'You now appear offline to everyone.');
+    } catch (err) {
+      setShowOnlineStatus(!next);
+      toast.error(err.message || 'Failed to update online status');
+    }
+  };
+
+  // Save timezone from the privacy tab
+  const handleSaveTimezone = async () => {
+    try {
+      const updated = await updateProfileApi({ timezone });
+      updateUser(updated);
+      toast.success('Timezone saved successfully!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save timezone');
     }
   };
 
@@ -641,8 +685,8 @@ export default function SettingsPage() {
               <div className="flex-1 text-center sm:text-left space-y-1">
                 <h3 className="font-display text-lg font-bold text-histo-paper">Academy Avatar</h3>
                 <p className="font-ui text-xs text-histo-paper/60">
-                  Upload a custom portrait or enjoy your deterministic initial crest. Images are automatically
-                  centered, optimized, and converted to WEBP format. Max 5MB.
+                  Upload a custom portrait or pick a Blobatar crest below. Images are automatically centered,
+                  optimized, and converted to WEBP format. Max 5MB.
                 </p>
                 <div className="pt-2 flex items-center justify-center sm:justify-start gap-3">
                   <button
@@ -655,6 +699,21 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* Blobatar Picker */}
+            <div className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-3">
+              <h3 className="font-display text-base font-bold text-histo-paper">Pick a Blobatar</h3>
+              <p className="font-ui text-xs text-histo-paper/60">
+                Geometric crests generated from a seed — no upload needed. Choosing one replaces your uploaded
+                photo. Browsing costs nothing; nothing is saved until you select one.
+              </p>
+              <BlobatarPicker
+                baseSeed={user?.id || 'scholar'}
+                currentSeed={user?.avatar_seed}
+                onSelect={handleSeedSelect}
+                disabled={savingSeed}
+              />
             </div>
 
             {/* Profile Form */}
@@ -674,6 +733,10 @@ export default function SettingsPage() {
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-histo-dark/80 border border-white/15 focus:border-histo-gold rounded-md px-3.5 py-2.5 text-sm font-ui text-histo-paper outline-none transition-colors"
                   />
+                  <p className="font-ui text-[11px] text-white/40">
+                    Your existing friends and conversations won't be affected — only new searches need your
+                    updated Name#Tag. Your #tag may re-roll if the new name is already taken with it.
+                  </p>
                 </div>
 
                 {/* Pronouns */}
@@ -698,11 +761,11 @@ export default function SettingsPage() {
                   <label className="block font-ui text-xs font-semibold tracking-wider text-histo-gold uppercase">
                     Academic Biography & Field of Interest
                   </label>
-                  <span className="text-[11px] font-mono text-white/40">{bio.length}/500</span>
+                  <span className="text-[11px] font-mono text-white/40">{bio.length}/300</span>
                 </div>
                 <textarea
                   rows={3}
-                  maxLength={500}
+                  maxLength={300}
                   placeholder="Share historical interests, eras of specialization, or research topics..."
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
@@ -1393,6 +1456,33 @@ export default function SettingsPage() {
                   <RefreshCw className="h-3.5 w-3.5 text-histo-gold" />
                   <span>Auto-Detect</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={handleSaveTimezone}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-histo-gold hover:bg-amber-400 text-histo-dark font-ui font-bold text-xs rounded-md shadow transition-all cursor-pointer"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  <span>Save Timezone</span>
+                </button>
+              </div>
+
+              {/* Privacy: show online status */}
+              <div className="p-3 rounded-md bg-histo-dark/70 border border-white/10 flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <p className="font-ui text-xs font-semibold text-histo-paper">Show online status</p>
+                  <p className="font-ui text-[11px] text-white/50">
+                    When off, you appear offline to everyone — regardless of your actual activity.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={showOnlineStatus}
+                    onChange={handleToggleOnlineStatus}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-histo-gold"></div>
+                </label>
               </div>
             </div>
 
