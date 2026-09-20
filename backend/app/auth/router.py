@@ -139,6 +139,7 @@ async def get_user_summary(
         "username": user.username,
         "tag": user.tag,
         "avatar_url": user.avatar_url,
+        "avatar_seed": user.avatar_seed,
         "bio": user.bio,
         "is_banned": user.is_banned,
     }
@@ -583,8 +584,8 @@ async def request_email_change_endpoint(
     user: User = Depends(get_current_user_db),
     db: AsyncSession = Depends(get_async_session),
 ):
-    token = await request_email_change(user, payload, db)
-    return {"message": "Confirmation link sent to your new email address", "token": token}
+    await request_email_change(user, payload, db)
+    return {"message": "Confirmation link sent to your new email address"}
 
 
 @router.get("/users/me/change-email/confirm")

@@ -3,6 +3,9 @@ Tests for Profile Settings (profile update, avatar upload, password/email change
 """
 
 import io
+from urllib.parse import parse_qs, urlparse
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from PIL import Image
 from httpx import AsyncClient
@@ -227,13 +230,16 @@ async def test_email_change_confirmation_flow(client: AsyncClient):
     headers = {"Authorization": f"Bearer {token}"}
 
     # Request email change
-    req_res = await client.post(
-        "/api/auth/users/me/change-email",
-        json={"new_email": "newemail@example.com"},
-        headers=headers,
-    )
+    with patch("app.auth.service.send_email", new_callable=AsyncMock) as send_email:
+        req_res = await client.post(
+            "/api/auth/users/me/change-email",
+            json={"new_email": "newemail@example.com"},
+            headers=headers,
+        )
     assert req_res.status_code == 200
-    verify_token = req_res.json()["token"]
+    assert "token" not in req_res.json()
+    email_body = send_email.await_args.args[2]
+    verify_token = parse_qs(urlparse(email_body.split("link: ", 1)[1]).query)["confirm_email_token"][0]
 
     # Verify email hasn't changed yet
     me = await client.get("/api/auth/me", headers=headers)

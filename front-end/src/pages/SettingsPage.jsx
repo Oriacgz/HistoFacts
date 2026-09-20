@@ -554,14 +554,14 @@ export default function SettingsPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-wider text-histo-gold">
-                Scholar Profile & Settings
+                User Profile & Settings
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-histo-gold/20 text-histo-gold border border-histo-gold/40">
                 #{user?.tag || '0000'}
               </span>
             </div>
             <p className="font-ui text-sm text-histo-paper/70 mt-1">
-              Personalize your public academy identity, secure your credentials, and govern online visibility.
+              Personalize your public identity, secure your credentials, and edit online visibility.
             </p>
           </div>
         </div>
@@ -683,7 +683,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="flex-1 text-center sm:text-left space-y-1">
-                <h3 className="font-display text-lg font-bold text-histo-paper">Academy Avatar</h3>
+                <h3 className="font-display text-lg font-bold text-histo-paper">User Avatar</h3>
                 <p className="font-ui text-xs text-histo-paper/60">
                   Upload a custom portrait or pick a Blobatar crest below. Images are automatically centered,
                   optimized, and converted to WEBP format. Max 5MB.
@@ -706,7 +706,7 @@ export default function SettingsPage() {
               <h3 className="font-display text-base font-bold text-histo-paper">Pick a Blobatar</h3>
               <p className="font-ui text-xs text-histo-paper/60">
                 Geometric crests generated from a seed — no upload needed. Choosing one replaces your uploaded
-                photo. Browsing costs nothing; nothing is saved until you select one.
+                photo. Nothing is saved until you select one.
               </p>
               <BlobatarPicker
                 baseSeed={user?.id || 'scholar'}
@@ -722,7 +722,7 @@ export default function SettingsPage() {
                 {/* Username */}
                 <div className="space-y-1.5">
                   <label className="block font-ui text-xs font-semibold tracking-wider text-histo-gold uppercase">
-                    Scholar Username
+                    Username
                   </label>
                   <input
                     type="text"
@@ -759,7 +759,7 @@ export default function SettingsPage() {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <label className="block font-ui text-xs font-semibold tracking-wider text-histo-gold uppercase">
-                    Academic Biography & Field of Interest
+                    About Me
                   </label>
                   <span className="text-[11px] font-mono text-white/40">{bio.length}/300</span>
                 </div>
@@ -784,7 +784,7 @@ export default function SettingsPage() {
                     onChange={(e) => setCountryCode(e.target.value)}
                     className="w-full bg-histo-dark/80 border border-white/15 focus:border-histo-gold rounded-md px-3.5 py-2.5 text-sm font-ui text-histo-paper outline-none transition-colors"
                   >
-                    <option value="">-- International Scholar --</option>
+                    <option value="">-- Select a Country --</option>
                     {allCountries.map((c) => (
                       <option key={c.code} value={c.code}>
                         {c.name} ({c.code})
@@ -1107,7 +1107,7 @@ export default function SettingsPage() {
             <div className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-4">
               <div className="flex items-center gap-2 text-histo-gold">
                 <Mail className="h-5 w-5" />
-                <h3 className="font-display text-base font-bold text-histo-paper">Primary Scholar Email</h3>
+                <h3 className="font-display text-base font-bold text-histo-paper">Primary User Email</h3>
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-md bg-histo-dark/80 border border-white/10">
@@ -1253,7 +1253,7 @@ export default function SettingsPage() {
             <div className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-5">
               <div className="flex items-center gap-2 text-histo-gold">
                 <Sparkles className="h-5 w-5" />
-                <h3 className="font-display text-base font-bold text-histo-paper">Display & Language Preferences</h3>
+                <h3 className="font-display text-base font-bold text-histo-paper">Display / Language Preferences</h3>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -1292,7 +1292,7 @@ export default function SettingsPage() {
                 {/* Language Selector */}
                 <div className="space-y-2">
                   <label className="block font-ui text-xs font-semibold tracking-wider text-histo-gold uppercase">
-                    Chronicle Language
+                    Interface Language
                   </label>
                   <select
                     value={language}
@@ -1313,11 +1313,11 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2 text-histo-gold">
                   <Bell className="h-4 w-4" />
                   <h4 className="font-display font-bold text-xs uppercase tracking-wider text-histo-paper">
-                    Academy Notification Subscriptions
+                    User Notification Preferences
                   </h4>
                 </div>
                 <p className="font-ui text-xs text-histo-paper/70">
-                  Select which historical events and interactions dispatch academy alerts to your scholar bell:
+                  Control which notifications you receive from the platform. You can toggle each type on or off below.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -1372,7 +1372,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between pb-2 border-b border-white/10">
                 <div className="flex items-center gap-2 text-histo-gold">
                   <UserX className="h-5 w-5" />
-                  <h3 className="font-display text-base font-bold text-histo-paper">Blocked Scholars</h3>
+                  <h3 className="font-display text-base font-bold text-histo-paper">Blocked Users</h3>
                 </div>
                 <button
                   type="button"
@@ -1386,17 +1386,17 @@ export default function SettingsPage() {
               </div>
 
               <p className="font-ui text-xs text-histo-paper/70">
-                Blocked scholars cannot view your profile, send messages, or issue friend requests.
+                Blocked users cannot view your profile, send messages, or issue friend requests.
               </p>
 
               {loadingBlocked ? (
                 <div className="py-4 text-center font-ui text-xs text-white/50 flex items-center justify-center gap-2">
                   <RefreshCw className="h-3.5 w-3.5 animate-spin text-histo-gold" />
-                  <span>Loading blocked scholars...</span>
+                  <span>Loading blocked users...</span>
                 </div>
               ) : blockedUsers.length === 0 ? (
                 <div className="py-4 text-center font-ui text-xs text-white/40 bg-histo-dark/50 rounded border border-white/5">
-                  You have not blocked any scholars.
+                  You have not blocked any users.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -1433,7 +1433,7 @@ export default function SettingsPage() {
             <div className="bg-histo-medium/40 border border-white/10 rounded-lg p-6 space-y-4">
               <div className="flex items-center gap-2 text-histo-gold">
                 <Clock className="h-5 w-5" />
-                <h3 className="font-display text-base font-bold text-histo-paper">Academic Timezone</h3>
+                <h3 className="font-display text-base font-bold text-histo-paper">User Timezone</h3>
               </div>
 
               <p className="font-ui text-xs text-histo-paper/70">
@@ -1490,7 +1490,7 @@ export default function SettingsPage() {
             <div className="bg-red-950/20 border border-red-500/30 rounded-lg p-6 space-y-4">
               <div className="flex items-center gap-2 text-red-400">
                 <AlertTriangle className="h-5 w-5" />
-                <h3 className="font-display text-base font-bold text-red-200">Scholastic Archive & Account Governance</h3>
+                <h3 className="font-display text-base font-bold text-red-200">User Data & Account Management</h3>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">

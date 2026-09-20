@@ -27,7 +27,7 @@ export default function BlobatarPicker({ baseSeed, currentSeed, onSelect, disabl
               seed === currentSeed ? 'ring-2 ring-amber-400' : ''
             }`}
           >
-            <Blobatar name={seed} size={64} />
+            <Blobatar name={seed} size={64} animate="hover" />
           </button>
         ))}
       </div>

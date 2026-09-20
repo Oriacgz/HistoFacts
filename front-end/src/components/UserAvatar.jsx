@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Blobatar } from '@blobatar/react';
 
-export function getAvatarSrc(url) {
+function getAvatarSrc(url) {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) return url;
   const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -68,7 +68,7 @@ export default function UserAvatar({
       className={`relative inline-flex shrink-0 items-center justify-center rounded-full overflow-hidden shadow-sm select-none border border-white/20 ${sizeClass} ${className}`}
       title={finalUsername}
     >
-      <Blobatar name={finalSeed} size={pixelSizes[size] ?? 40} />
+      <Blobatar name={finalSeed} size={pixelSizes[size] ?? 40} animate="always" />
     </div>
   );
 }

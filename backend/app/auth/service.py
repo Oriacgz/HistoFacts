@@ -688,8 +688,9 @@ async def change_password(db: AsyncSession, user: User, payload: PasswordChange)
     await db.commit()
 
 
-async def request_email_change(user: User, payload: EmailChangeRequest, db: AsyncSession) -> str:
-    """Request email change by dispatching a verification token to the new address."""
+async def request_email_change(user: User, payload: EmailChangeRequest, db: AsyncSession) -> None:
+    """Request email change by dispatching a verification token to the new address.
+    The token is never returned to the client — only the emailed link carries it."""
     existing = await db.execute(
         select(User.id).where(func.lower(User.email) == payload.new_email.lower(), User.id != user.id)
     )
@@ -698,8 +699,7 @@ async def request_email_change(user: User, payload: EmailChangeRequest, db: Asyn
 
     token = create_verification_token(str(user.id), payload.new_email, expires_in=timedelta(hours=24))
     link = verification_link(token)
-    await send_email(payload.new_email, "Confirm your new email", f"Click the link to confirm your email: {link}")
-    return token
+    await send_email(payload.new_email, "Confirm your new email", f"Click the verification link: {link}")
 
 
 async def confirm_email_change(token: str, db: AsyncSession) -> str:
