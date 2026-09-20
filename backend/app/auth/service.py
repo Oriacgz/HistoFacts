@@ -503,7 +503,7 @@ async def _in_process_purge(db: AsyncSession, user_id: str) -> None:
     await db.execute(
         update(SocialCache)
         .where(SocialCache.user_id == user_id)
-        .values(username="Deleted User", avatar_url=None, bio=None)
+        .values(username="Deleted User", avatar_url=None, avatar_seed=None, bio=None)
     )
 
     # 2. Groups: remove memberships and anonymize cache

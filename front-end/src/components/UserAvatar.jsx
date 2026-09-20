@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Blobatar } from '@blobatar/react';
 
-function getAvatarSrc(url) {
+// Shared resolver for stored media paths (/uploads/...) — used by avatars and post media
+export function getAvatarSrc(url) {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) return url;
   const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';

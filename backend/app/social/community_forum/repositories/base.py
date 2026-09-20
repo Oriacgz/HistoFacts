@@ -55,6 +55,16 @@ class IPostRepository(ABC):
         """Increment post share counter atomically."""
         pass
 
+    @abstractmethod
+    async def set_media(self, post_id: str, media_urls: List[str], media_type: str) -> None:
+        """Attach media (up to 4 image URLs or exactly 1 video URL) to a post."""
+        pass
+
+    @abstractmethod
+    async def get_vote_state(self, post_id: str, current_user_id: Optional[str] = None) -> tuple[int, int]:
+        """Return (score, user_vote) for a post — score is the sum of all vote values."""
+        pass
+
 
 class ICommentRepository(ABC):
     @abstractmethod
@@ -101,6 +111,11 @@ class IInteractionRepository(ABC):
     @abstractmethod
     async def create_share(self, share: ShareEntity) -> ShareEntity:
         """Record a share interaction."""
+        pass
+
+    @abstractmethod
+    async def set_post_vote(self, user_id: str, post_id: str, value: int) -> None:
+        """Set a user's vote on a post: +1, -1, or 0 to remove the vote."""
         pass
 
 

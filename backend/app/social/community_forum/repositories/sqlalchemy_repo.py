@@ -3,6 +3,7 @@ Concrete SQLAlchemy implementations of the forum repository interfaces.
 Provides clean async DB operations and maps ORM models to domain entities.
 """
 
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete as sql_delete, func, and_, case
@@ -12,8 +13,10 @@ from app.social.models import (
     Comment as CommentModel,
     Like as LikeModel,
     Share as ShareModel,
+    PostVote as PostVoteModel,
     UserSummaryCache as UserModel,
 )
+from app.social.service import _get_user_summary
 from app.social.community_forum.domain.entities import (
     PostEntity,
     CommentEntity,
@@ -27,6 +30,8 @@ from app.social.community_forum.repositories.base import (
     IUserRepository,
 )
 
+_CACHE_TTL = timedelta(hours=1)
+
 
 def _to_author_entity(user: UserModel) -> AuthorEntity:
     return AuthorEntity(
@@ -34,9 +39,35 @@ def _to_author_entity(user: UserModel) -> AuthorEntity:
         username=user.username,
         tag=user.tag,
         avatar_url=user.avatar_url,
+        avatar_seed=user.avatar_seed,
         bio=user.bio,
         is_banned=user.is_banned,
     )
+
+
+async def _resolve_user_map(session: AsyncSession, user_ids: List[str]) -> Dict[str, UserModel]:
+    """Batched cache lookup; cold or stale entries sync through the shared
+    _get_user_summary helper (Auth service API, with in-process DB fallback)."""
+    ids = list(dict.fromkeys(user_ids))
+    user_map: Dict[str, UserModel] = {}
+    if not ids:
+        return user_map
+
+    rows = (await session.execute(select(UserModel).where(UserModel.user_id.in_(ids)))).scalars().all()
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        synced_at = row.synced_at
+        if synced_at.tzinfo is None:
+            synced_at = synced_at.replace(tzinfo=timezone.utc)
+        if (now - synced_at) < _CACHE_TTL:
+            user_map[row.user_id] = row
+
+    for uid in ids:
+        if uid not in user_map:
+            user = await _get_user_summary(uid, session)
+            if user:
+                user_map[uid] = user
+    return user_map
 
 
 class SQLAlchemyUserRepository(IUserRepository):
@@ -44,8 +75,7 @@ class SQLAlchemyUserRepository(IUserRepository):
         self._session = session
 
     async def get_author_by_id(self, user_id: str) -> Optional[AuthorEntity]:
-        res = await self._session.execute(select(UserModel).where(UserModel.user_id == user_id))
-        user = res.scalar_one_or_none()
+        user = await _get_user_summary(user_id, self._session)
         return _to_author_entity(user) if user else None
 
     async def increment_post_count(self, user_id: str, delta: int = 1) -> None:
@@ -64,6 +94,8 @@ class SQLAlchemyPostRepository(IPostRepository):
             event_id=post.event_id,
             title=post.title,
             content=post.content,
+            media_urls=post.media_urls,
+            media_type=post.media_type,
             like_count=post.like_count,
             comment_count=post.comment_count,
             share_count=post.share_count,
@@ -77,9 +109,8 @@ class SQLAlchemyPostRepository(IPostRepository):
         post.id = model.id
         post.created_at = model.created_at
 
-        # Hydrate author from local cache
-        u_res = await self._session.execute(select(UserModel).where(UserModel.user_id == post.user_id))
-        user = u_res.scalar_one_or_none()
+        # Hydrate author (syncs the summary cache on first post)
+        user = await _get_user_summary(post.user_id, self._session)
         if user:
             post.author = _to_author_entity(user)
 
@@ -93,9 +124,8 @@ class SQLAlchemyPostRepository(IPostRepository):
         if not model:
             return None
 
-        # Hydrate author from local cache
-        u_res = await self._session.execute(select(UserModel).where(UserModel.user_id == model.user_id))
-        user = u_res.scalar_one_or_none()
+        # Hydrate author (syncs through the shared summary helper when cold)
+        user = await _get_user_summary(model.user_id, self._session)
         author = _to_author_entity(user) if user else None
 
         # Check liked status
@@ -110,6 +140,8 @@ class SQLAlchemyPostRepository(IPostRepository):
             )
             has_liked = like_res.scalar_one_or_none() is not None
 
+        score, user_vote = await self.get_vote_state(post_id, current_user_id)
+
         return PostEntity(
             id=model.id,
             user_id=model.user_id,
@@ -117,9 +149,13 @@ class SQLAlchemyPostRepository(IPostRepository):
             event_id=model.event_id,
             title=model.title,
             content=model.content,
+            media_urls=model.media_urls,
+            media_type=model.media_type or "none",
             like_count=model.like_count or 0,
             comment_count=model.comment_count or 0,
             share_count=model.share_count or 0,
+            score=score,
+            user_vote=user_vote,
             is_deleted=model.is_deleted,
             is_locked=model.is_locked,
             author=author,
@@ -165,12 +201,8 @@ class SQLAlchemyPostRepository(IPostRepository):
         post_ids = [p.id for p in posts]
         user_ids = list({p.user_id for p in posts})
 
-        # Get authors from local cache
-        user_map = {}
-        if user_ids:
-            u_res = await self._session.execute(select(UserModel).where(UserModel.user_id.in_(user_ids)))
-            for u in u_res.scalars().all():
-                user_map[u.user_id] = u
+        # Resolve authors (batched cache hit; syncs misses via the shared helper)
+        user_map = await _resolve_user_map(self._session, user_ids)
 
         # Get liked status
         user_liked_set = set()
@@ -184,6 +216,25 @@ class SQLAlchemyPostRepository(IPostRepository):
             )
             user_liked_set = set(liked_res.scalars().all())
 
+        # Batched vote aggregation: one SUM query for scores, one for the current user's votes
+        score_map: Dict[str, int] = {}
+        user_vote_map: Dict[str, int] = {}
+        score_res = await self._session.execute(
+            select(PostVoteModel.post_id, func.coalesce(func.sum(PostVoteModel.value), 0))
+            .where(PostVoteModel.post_id.in_(post_ids))
+            .group_by(PostVoteModel.post_id)
+        )
+        for row_post_id, row_score in score_res.all():
+            score_map[row_post_id] = int(row_score)
+        if current_user_id:
+            uv_res = await self._session.execute(
+                select(PostVoteModel.post_id, PostVoteModel.value).where(
+                    PostVoteModel.user_id == current_user_id,
+                    PostVoteModel.post_id.in_(post_ids),
+                )
+            )
+            user_vote_map = {row_post_id: int(row_value) for row_post_id, row_value in uv_res.all()}
+
         entities = []
         for post_model in posts:
             user_model = user_map.get(post_model.user_id)
@@ -195,9 +246,13 @@ class SQLAlchemyPostRepository(IPostRepository):
                     event_id=post_model.event_id,
                     title=post_model.title,
                     content=post_model.content,
+                    media_urls=post_model.media_urls,
+                    media_type=post_model.media_type or "none",
                     like_count=post_model.like_count or 0,
                     comment_count=post_model.comment_count or 0,
                     share_count=post_model.share_count or 0,
+                    score=score_map.get(post_model.id, 0),
+                    user_vote=user_vote_map.get(post_model.id, 0),
                     is_deleted=post_model.is_deleted,
                     is_locked=post_model.is_locked,
                     author=_to_author_entity(user_model) if user_model else None,
@@ -217,6 +272,31 @@ class SQLAlchemyPostRepository(IPostRepository):
         await self._session.commit()
         res = await self._session.execute(select(PostModel.like_count).where(PostModel.id == post_id))
         return res.scalar_one_or_none() or 0
+
+    async def set_media(self, post_id: str, media_urls: List[str], media_type: str) -> None:
+        await self._session.execute(
+            update(PostModel)
+            .where(PostModel.id == post_id)
+            .values(media_urls=media_urls, media_type=media_type)
+        )
+        await self._session.commit()
+
+    async def get_vote_state(self, post_id: str, current_user_id: Optional[str] = None) -> tuple[int, int]:
+        score_res = await self._session.execute(
+            select(func.coalesce(func.sum(PostVoteModel.value), 0)).where(PostVoteModel.post_id == post_id)
+        )
+        score = int(score_res.scalar_one())
+        user_vote = 0
+        if current_user_id:
+            uv_res = await self._session.execute(
+                select(PostVoteModel.value).where(
+                    PostVoteModel.user_id == current_user_id,
+                    PostVoteModel.post_id == post_id,
+                )
+            )
+            existing = uv_res.scalar_one_or_none()
+            user_vote = int(existing) if existing is not None else 0
+        return score, user_vote
 
     async def increment_comment_count(self, post_id: str, delta: int = 1) -> int:
         await self._session.execute(
@@ -250,6 +330,7 @@ class SQLAlchemyCommentRepository(ICommentRepository):
             parent_comment_id=comment.parent_comment_id,
             mentioned_user_id=comment.mentioned_user_id,
             content=comment.content,
+            media_url=comment.media_url,
             like_count=comment.like_count,
             is_deleted=comment.is_deleted,
         )
@@ -260,9 +341,8 @@ class SQLAlchemyCommentRepository(ICommentRepository):
         comment.id = model.id
         comment.created_at = model.created_at
 
-        # Hydrate author from local cache
-        u_res = await self._session.execute(select(UserModel).where(UserModel.user_id == comment.user_id))
-        user = u_res.scalar_one_or_none()
+        # Hydrate author (syncs the summary cache on first comment)
+        user = await _get_user_summary(comment.user_id, self._session)
         if user:
             comment.author = _to_author_entity(user)
 
@@ -286,6 +366,7 @@ class SQLAlchemyCommentRepository(ICommentRepository):
             parent_comment_id=model.parent_comment_id,
             mentioned_user_id=model.mentioned_user_id,
             content=model.content,
+            media_url=model.media_url,
             like_count=model.like_count or 0,
             is_deleted=model.is_deleted,
             author=_to_author_entity(user) if user else None,
@@ -311,12 +392,8 @@ class SQLAlchemyCommentRepository(ICommentRepository):
         user_ids = list({c.user_id for c in comments})
         comment_ids = [c.id for c in comments]
 
-        # Get authors from local cache
-        user_map = {}
-        if user_ids:
-            u_res = await self._session.execute(select(UserModel).where(UserModel.user_id.in_(user_ids)))
-            for u in u_res.scalars().all():
-                user_map[u.user_id] = u
+        # Resolve authors (batched cache hit; syncs misses via the shared helper)
+        user_map = await _resolve_user_map(self._session, user_ids)
 
         # Get liked status
         user_liked_set = set()
@@ -342,6 +419,7 @@ class SQLAlchemyCommentRepository(ICommentRepository):
                 parent_comment_id=c_model.parent_comment_id,
                 mentioned_user_id=c_model.mentioned_user_id,
                 content=c_model.content,
+                media_url=c_model.media_url,
                 like_count=c_model.like_count or 0,
                 is_deleted=c_model.is_deleted,
                 author=_to_author_entity(user_model) if user_model else None,
@@ -411,6 +489,22 @@ class SQLAlchemyInteractionRepository(IInteractionRepository):
         )
         res = await self._session.execute(stmt)
         return res.scalar_one_or_none() is not None
+
+    async def set_post_vote(self, user_id: str, post_id: str, value: int) -> None:
+        stmt = select(PostVoteModel).where(
+            PostVoteModel.user_id == user_id,
+            PostVoteModel.post_id == post_id,
+        )
+        existing = (await self._session.execute(stmt)).scalar_one_or_none()
+
+        if value == 0:
+            if existing:
+                await self._session.delete(existing)
+        elif existing:
+            existing.value = value
+        else:
+            self._session.add(PostVoteModel(user_id=user_id, post_id=post_id, value=value))
+        await self._session.commit()
 
     async def create_share(self, share: ShareEntity) -> ShareEntity:
         model = ShareModel(

@@ -21,6 +21,7 @@ class AuthorEntity:
     username: str
     tag: str
     avatar_url: Optional[str] = None
+    avatar_seed: Optional[str] = None
     bio: Optional[str] = None
     is_banned: bool = False
 
@@ -37,6 +38,7 @@ class CommentEntity:
     id: Optional[str] = None
     parent_comment_id: Optional[str] = None
     mentioned_user_id: Optional[str] = None
+    media_url: Optional[str] = None
     like_count: int = 0
     is_deleted: bool = False
     author: Optional[AuthorEntity] = None
@@ -62,6 +64,10 @@ class PostEntity:
     like_count: int = 0
     comment_count: int = 0
     share_count: int = 0
+    media_urls: Optional[List[str]] = None
+    media_type: str = "none"
+    score: int = 0
+    user_vote: int = 0
     is_deleted: bool = False
     is_locked: bool = False
     author: Optional[AuthorEntity] = None
@@ -73,6 +79,10 @@ class PostEntity:
     def can_be_deleted_by(self, user_id: str, is_admin: bool = False) -> bool:
         """Domain logic: Check if the user is authorized to delete the post."""
         return is_admin or self.user_id == user_id
+
+    def can_receive_media_from(self, user_id: str) -> bool:
+        """Domain logic: Only the author can attach media to their own post."""
+        return not self.is_deleted and self.user_id == user_id
 
     def can_be_commented_on(self) -> bool:
         """Domain logic: Locked or deleted posts cannot receive new comments."""

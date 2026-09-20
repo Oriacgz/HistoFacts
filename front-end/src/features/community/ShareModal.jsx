@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Copy, Check, Share2, X, Send } from 'lucide-react';
+import { Copy, Check, Share2, X } from 'lucide-react';
 
 export default function ShareModal({ post, isOpen, onClose, onShare }) {
   const [copied, setCopied] = useState(false);
-  const [caption, setCaption] = useState('');
-  const [sharing, setSharing] = useState(false);
 
   if (!isOpen || !post) return null;
 
@@ -15,7 +13,7 @@ export default function ShareModal({ post, isOpen, onClose, onShare }) {
     try {
       await navigator.clipboard.writeText(postUrl);
       setCopied(true);
-      await onShare(post.id, { shareChannel: 'copy_link', caption });
+      await onShare(post.id, { shareChannel: 'copy_link', caption: null });
       setTimeout(() => setCopied(false), 2500);
     } catch (err) {
       console.error('Failed to copy URL:', err);
@@ -23,7 +21,6 @@ export default function ShareModal({ post, isOpen, onClose, onShare }) {
   };
 
   const handleNativeShare = async (channel) => {
-    setSharing(true);
     try {
       if (channel === 'twitter') {
         const text = encodeURIComponent(`Check out this historical discussion on HistoFacts: "${post.title || post.content.slice(0, 80)}..."`);
@@ -32,12 +29,10 @@ export default function ShareModal({ post, isOpen, onClose, onShare }) {
         const text = encodeURIComponent(`Historical insight on HistoFacts: ${postUrl}`);
         window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
       }
-      await onShare(post.id, { shareChannel: channel, caption });
+      await onShare(post.id, { shareChannel: channel, caption: null });
       onClose();
     } catch (err) {
       console.error('Share action failed:', err);
-    } finally {
-      setSharing(false);
     }
   };
 

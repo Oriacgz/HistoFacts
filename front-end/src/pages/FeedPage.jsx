@@ -1,14 +1,14 @@
 import { useEffect, useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '../contexts/AuthContext';
+import { AnimatePresence } from 'framer-motion';
 import {
   getPublicFeedApi,
   getPostDetailApi,
   createPostApi,
+  uploadPostMediaApi,
+  votePostApi,
   deletePostApi,
   addCommentApi,
   deleteCommentApi,
-  togglePostLikeApi,
   sharePostApi,
 } from '../api/social';
 
@@ -21,7 +21,6 @@ import {
 } from '../features/community';
 
 export default function FeedPage() {
-  const { user } = useAuth();
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -53,42 +52,43 @@ export default function FeedPage() {
     loadFeed();
   }, []);
 
-  // 1. Create Post
-  const handleCreatePost = async ({ content, title }) => {
+  // 1. Create Post (then attach any staged media)
+  const handleCreatePost = async ({ content, title, files }) => {
     const created = await createPostApi(content, { title });
-    setPosts((prev) => [created, ...prev]);
+    let final = created;
+    if (files?.length) {
+      try {
+        const res = await uploadPostMediaApi(created.id, files);
+        final = { ...created, media_urls: res.media_urls, media_type: res.media_type };
+      } catch (err) {
+        // Post text is already live; surface the media failure without losing the post
+        console.error('Failed to upload post media:', err);
+        throw err;
+      }
+    }
+    setPosts((prev) => [final, ...prev]);
   };
 
-  // 2. Like Post (with optimistic update)
-  const handleLikePost = async (postId) => {
-    // Optimistic toggle
+  // 2. Vote Post (optimistic update, server-confirmed)
+  const handleVotePost = async (postId, value) => {
     setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === postId) {
-          const hasLiked = !p.has_liked;
-          return {
-            ...p,
-            has_liked: hasLiked,
-            like_count: Math.max(0, (p.like_count || 0) + (hasLiked ? 1 : -1)),
-          };
-        }
-        return p;
-      })
+      prev.map((p) =>
+        p.id === postId
+          ? { ...p, score: (p.score || 0) - (p.user_vote || 0) + value, user_vote: value }
+          : p
+      )
     );
 
     try {
-      const res = await togglePostLikeApi(postId);
+      const res = await votePostApi(postId, value);
       setPosts((prev) =>
         prev.map((p) =>
-          p.id === postId
-            ? { ...p, has_liked: res.liked, like_count: res.new_like_count }
-            : p
+          p.id === postId ? { ...p, score: res.score, user_vote: res.user_vote } : p
         )
       );
     } catch (err) {
-      console.error('Failed to toggle like:', err);
-      // Revert on failure
-      loadFeed();
+      console.error('Failed to vote:', err);
+      loadFeed(); // revert on failure
     }
   };
 
@@ -104,10 +104,11 @@ export default function FeedPage() {
     }
   };
 
-  // 4. Add Comment / Reply
-  const handleAddComment = async (postId, content, parentCommentId = null) => {
+  // 4. Add Comment / Reply (optionally with a GIF URL attached)
+  const handleAddComment = async (postId, content, parentCommentId = null, mediaUrl = null) => {
     await addCommentApi(postId, content, {
       parentCommentId,
+      mediaUrl,
     });
 
     // Refresh post details to update threaded comments
@@ -167,9 +168,9 @@ export default function FeedPage() {
       );
     }
 
-    // Sort by tab
+    // Sort by tab — popular ranks by vote score (upvotes minus downvotes)
     if (activeTab === 'popular') {
-      result.sort((a, b) => (b.like_count + b.comment_count) - (a.like_count + a.comment_count));
+      result.sort((a, b) => (b.score || 0) - (a.score || 0) || (b.comment_count || 0) - (a.comment_count || 0));
     } else {
       result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     }
@@ -257,7 +258,7 @@ export default function FeedPage() {
               <PostCard
                 key={post.id}
                 post={post}
-                onLike={handleLikePost}
+                onVote={handleVotePost}
                 onAddComment={handleAddComment}
                 onDeleteComment={handleDeleteComment}
                 onDeletePost={(id) => setDeletingPostId(id)}

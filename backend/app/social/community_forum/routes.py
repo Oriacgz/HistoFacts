@@ -4,9 +4,13 @@ Exposes RESTful endpoints utilizing OOP services, DTOs, and Dependency Injection
 """
 
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import httpx
+
+from app.core.config import settings
+from app.core.file_storage import classify_media_content, media_extension, store_file
 from app.core.database import get_async_session
 from app.core.deps import get_current_user, get_optional_current_user, CurrentUser
 from app.social.community_forum.datatransferobjects.schemas import (
@@ -17,6 +21,8 @@ from app.social.community_forum.datatransferobjects.schemas import (
     SharePostDTO,
     LikeToggleResponseDTO,
     ShareResponseDTO,
+    VotePostDTO,
+    VoteResponseDTO,
 )
 from app.social.community_forum.services.forum_services import ForumService
 from app.social.community_forum.repositories.sqlalchemy_repo import (
@@ -35,6 +41,11 @@ from app.social.community_forum.domain.exceptions import (
 )
 
 router = APIRouter(prefix="/api/social/posts", tags=["Community Forum"])
+
+# Post media limits — one video, or up to four images, per post
+MAX_IMAGES_PER_POST = 4
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_VIDEO_BYTES = 100 * 1024 * 1024
 
 
 def get_forum_service(db: AsyncSession = Depends(get_async_session)) -> ForumService:
@@ -119,6 +130,68 @@ async def get_post_detail(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
 
+@router.post("/{post_id}/vote", response_model=VoteResponseDTO)
+async def vote_post(
+    post_id: str,
+    dto: VotePostDTO,
+    current_user: CurrentUser = Depends(get_current_user),
+    service: ForumService = Depends(get_forum_service),
+):
+    """Upvote (+1), downvote (-1), or clear (0) the current user's vote on a post."""
+    try:
+        score, user_vote = await service.vote_post(post_id, current_user.id, dto.value)
+        return VoteResponseDTO(score=score, user_vote=user_vote)
+    except PostNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+
+@router.post("/{post_id}/media")
+async def upload_post_media(
+    post_id: str,
+    files: List[UploadFile] = File(...),
+    current_user: CurrentUser = Depends(get_current_user),
+    service: ForumService = Depends(get_forum_service),
+):
+    """Attach media to your own post: up to 4 images, or exactly 1 video — never both."""
+    kinds = []
+    payloads = []
+    for f in files:
+        raw = await f.read()
+        kind = classify_media_content(raw)
+        if kind == "unknown":
+            raise HTTPException(status_code=415, detail="Unsupported file type — must be a real image or video")
+        kinds.append(kind)
+        payloads.append(raw)
+
+    if "video" in kinds:
+        if len(files) > 1:
+            raise HTTPException(status_code=400, detail="Upload either up to 4 images or exactly one video — not both")
+        if len(payloads[0]) > MAX_VIDEO_BYTES:
+            raise HTTPException(status_code=413, detail="Video too large (max 100MB)")
+        media_type = "video"
+    else:
+        if len(files) > MAX_IMAGES_PER_POST:
+            raise HTTPException(status_code=400, detail=f"Max {MAX_IMAGES_PER_POST} images per post")
+        if any(len(raw) > MAX_IMAGE_BYTES for raw in payloads):
+            raise HTTPException(status_code=413, detail="Image too large (max 10MB each)")
+        media_type = "image"
+
+    urls = [
+        store_file(raw, prefix=f"posts/{post_id}", extension=media_extension(raw))
+        for raw in payloads
+    ]
+    try:
+        updated = await service.set_post_media(post_id, current_user.id, urls, media_type)
+    except PostNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    except UnauthorizedPostActionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the author can attach media")
+    except PostLockedError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Post is locked")
+
+    return {"media_urls": updated.media_urls, "media_type": updated.media_type}
+
+
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
     post_id: str,
@@ -147,6 +220,7 @@ async def add_comment(
             content=dto.content,
             parent_comment_id=dto.parent_comment_id,
             mentioned_user_id=dto.mentioned_user_id,
+            media_url=dto.media_url,
         )
         return comment
     except PostNotFoundError:

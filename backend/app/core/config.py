@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     groq_api_key: str = ""
 
+    # ── Tenor GIF Search (community comments, chat) ───────────
+    tenor_api_key: str = ""
+
     # ── Redis ─────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
 
