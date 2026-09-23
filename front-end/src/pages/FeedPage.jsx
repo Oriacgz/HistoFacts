@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -14,7 +14,6 @@ import {
   HelpCircle,
   Layers,
   MessageCircle,
-  PenLine,
   Plus,
   RefreshCw,
   Search,
@@ -43,7 +42,7 @@ import {
 } from '../features/community';
 
 // Sidebar component reusable for both desktop sticky column and mobile slide-over drawer
-function FeedSidebarContent({
+const FeedSidebarContent = memo(function FeedSidebarContent({
   activeTab,
   onTabChange,
   onOpenCreatePost,
@@ -81,7 +80,7 @@ function FeedSidebarContent({
           }`}
         >
           <Clock3 className={`h-4 w-4 ${activeTab === 'latest' ? 'text-histo-copper' : ''}`} />
-          Latest Chronicles
+          Latest Discussions
         </button>
 
         <button
@@ -94,7 +93,7 @@ function FeedSidebarContent({
           }`}
         >
           <Flame className={`h-4 w-4 ${activeTab === 'popular' ? 'text-histo-copper' : ''}`} />
-          Trending Debates
+          Trending Topics
         </button>
 
         <button
@@ -103,7 +102,7 @@ function FeedSidebarContent({
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-ui text-histo-ink/70 transition-all hover:bg-histo-paper/60 hover:text-histo-dark cursor-pointer"
         >
           <Gamepad2 className="h-4 w-4 text-histo-gold" />
-          Battle of Wits (Quiz)
+          History Quizzes
         </button>
 
         <button
@@ -112,7 +111,7 @@ function FeedSidebarContent({
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-ui text-histo-ink/70 transition-all hover:bg-histo-paper/60 hover:text-histo-dark cursor-pointer"
         >
           <Users className="h-4 w-4 text-histo-copper" />
-          Scholar Alliances
+          Study Groups
         </button>
 
         <button
@@ -121,7 +120,7 @@ function FeedSidebarContent({
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-ui text-histo-ink/70 transition-all hover:bg-histo-paper/60 hover:text-histo-dark cursor-pointer"
         >
           <BookOpen className="h-4 w-4 text-histo-dark" />
-          AI Notes & Histoins
+          AI Study Notes
         </button>
 
         <button
@@ -129,7 +128,7 @@ function FeedSidebarContent({
           onClick={() => handleNav(onOpenCreatePost)}
           className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-histo-copper/10 px-3 py-2.5 text-xs font-ui font-semibold text-histo-copper border border-histo-copper/25 transition-all hover:bg-histo-copper hover:text-white cursor-pointer shadow-2xs"
         >
-          <Plus className="h-4 w-4" /> Start a Chronicle
+          <Plus className="h-4 w-4" /> Start a Discussion
         </button>
       </nav>
 
@@ -140,7 +139,7 @@ function FeedSidebarContent({
           onClick={() => toggleSection('eras')}
           className="flex w-full cursor-pointer items-center justify-between px-3 py-1.5 text-[10px] font-ui font-bold uppercase tracking-[0.14em] text-histo-ink/45 hover:text-histo-dark transition-colors"
         >
-          <span>CHRONICLE ERAS</span>
+          <span>HISTORICAL ERAS</span>
           {openSections.eras ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         </button>
         {openSections.eras && (
@@ -223,7 +222,7 @@ function FeedSidebarContent({
       </div>
     </div>
   );
-}
+});
 
 export default function FeedPage() {
   const toast = useToast();
@@ -243,9 +242,15 @@ export default function FeedPage() {
   const [showMobileDrawer, setShowMobileDrawer] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
+  const scrollTickRef = useRef(false);
   useEffect(() => {
     const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 400);
+      if (scrollTickRef.current) return;
+      scrollTickRef.current = true;
+      requestAnimationFrame(() => {
+        setShowScrollTop(window.scrollY > 400);
+        scrollTickRef.current = false;
+      });
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
@@ -267,7 +272,7 @@ export default function FeedPage() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [showCreatePost, showMobileDrawer]);
 
-  const loadFeed = async () => {
+  const loadFeed = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -279,7 +284,7 @@ export default function FeedPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -333,7 +338,7 @@ export default function FeedPage() {
   };
 
   // 2. React to Post (optimistic update, server-confirmed)
-  const handlePostReaction = async (postId, reaction) => {
+  const handlePostReaction = useCallback(async (postId, reaction) => {
     setPosts((prev) =>
       prev.map((p) =>
         p.id === postId
@@ -358,10 +363,10 @@ export default function FeedPage() {
       console.error('Failed to react to post:', err);
       loadFeed(); // revert on failure
     }
-  };
+  }, [loadFeed]);
 
   // 3. Load Comments for a Post
-  const handleLoadComments = async (postId) => {
+  const handleLoadComments = useCallback(async (postId) => {
     try {
       const updatedPost = await getPostDetailApi(postId);
       setPosts((prev) =>
@@ -370,25 +375,25 @@ export default function FeedPage() {
     } catch (err) {
       console.error('Failed to load post comments:', err);
     }
-  };
+  }, []);
 
   // 4. Add Comment / Reply
-  const handleAddComment = async (postId, content, parentCommentId = null, mediaUrl = null) => {
+  const handleAddComment = useCallback(async (postId, content, parentCommentId = null, mediaUrl = null) => {
     await addCommentApi(postId, content, {
       parentCommentId,
       mediaUrl,
     });
     await handleLoadComments(postId);
-  };
+  }, [handleLoadComments]);
 
   // 5. Delete Comment
-  const handleDeleteComment = async (postId, commentId) => {
+  const handleDeleteComment = useCallback(async (postId, commentId) => {
     await deleteCommentApi(postId, commentId);
     const updatedPost = await getPostDetailApi(postId);
     setPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, ...updatedPost } : p))
     );
-  };
+  }, []);
 
   // 6. Delete Post
   const handleConfirmDeletePost = async () => {
@@ -408,7 +413,7 @@ export default function FeedPage() {
   };
 
   // 7. Share Post
-  const handleSharePost = async (postId, { shareChannel, caption }) => {
+  const handleSharePost = useCallback(async (postId, { shareChannel, caption }) => {
     try {
       const res = await sharePostApi(postId, { shareChannel, caption });
       setPosts((prev) =>
@@ -419,7 +424,7 @@ export default function FeedPage() {
     } catch (err) {
       console.error('Failed to share post:', err);
     }
-  };
+  }, []);
 
   // Filtered & Sorted Posts
   const filteredPosts = useMemo(() => {
@@ -447,120 +452,7 @@ export default function FeedPage() {
   }, [posts, activeTab, searchQuery]);
 
   return (
-    <main className="relative flex-1 bg-histo-paper/70 px-3 pb-16 pt-3 sm:px-5 lg:px-8">
-      {/* Floating Feed Toolbar - Sticky docked cleanly below the navbar (top-20) */}
-      <section
-        aria-label="Feed controls"
-        role="toolbar"
-        className="sticky top-20 z-30 mx-auto mb-6 max-w-7xl rounded-2xl border border-histo-dark/10 bg-white/95 px-3 py-2.5 shadow-medium backdrop-blur-md sm:px-4"
-      >
-        <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
-          {/* Top row / Left side: Tabs */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 sm:gap-1.5" role="tablist" aria-label="Feed tabs">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'latest'}
-                onClick={() => setActiveTab('latest')}
-                className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-ui font-semibold transition-all cursor-pointer ${
-                  activeTab === 'latest'
-                    ? 'bg-histo-dark text-white shadow-xs'
-                    : 'text-histo-ink/65 hover:bg-histo-paper hover:text-histo-dark'
-                }`}
-              >
-                <Clock3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                <span>Latest</span>
-              </button>
-
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'popular'}
-                onClick={() => setActiveTab('popular')}
-                className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-ui font-semibold transition-all cursor-pointer ${
-                  activeTab === 'popular'
-                    ? 'bg-histo-dark text-white shadow-xs'
-                    : 'text-histo-ink/65 hover:bg-histo-paper hover:text-histo-dark'
-                }`}
-              >
-                <Flame className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                <span>Trending</span>
-              </button>
-            </div>
-
-            {/* Mobile/Tablet action buttons in top row for compact screens */}
-            <div className="flex items-center gap-1.5 md:hidden">
-              <button
-                type="button"
-                onClick={() => setShowMobileDrawer(true)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-histo-dark/10 bg-histo-paper/80 px-2.5 text-xs font-ui font-semibold text-histo-dark hover:bg-histo-paper cursor-pointer"
-                title="Explore Topics & Communities"
-                aria-label="Open topics and communities sidebar"
-              >
-                <Layers className="h-4 w-4 text-histo-copper" />
-                <span className="hidden xs:inline">Topics</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowCreatePost(true)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-histo-copper px-3 text-xs font-ui font-semibold text-white shadow-xs transition-colors hover:bg-histo-dark cursor-pointer"
-                aria-label="Create a post"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Post</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Search bar */}
-          <div className="relative flex-1 md:max-w-md md:mx-3">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-histo-ink/40" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search discussions, thesis, scholars..."
-              aria-label="Search the chronicle"
-              className="h-9 w-full rounded-xl border border-histo-dark/10 bg-histo-paper/60 pl-9 pr-8 text-xs font-ui text-histo-dark outline-none transition-all placeholder:text-histo-ink/40 focus:border-histo-copper focus:bg-white focus:ring-2 focus:ring-histo-copper/20"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-histo-ink/40 hover:text-histo-dark transition-colors cursor-pointer"
-                aria-label="Clear search query"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Desktop Right actions */}
-          <div className="hidden md:flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowMobileDrawer(true)}
-              className="lg:hidden inline-flex h-9 items-center gap-1.5 rounded-xl border border-histo-dark/10 bg-histo-paper/80 px-3 text-xs font-ui font-semibold text-histo-dark hover:bg-histo-paper transition-colors cursor-pointer"
-              title="Explore Topics & Communities"
-            >
-              <Layers className="h-4 w-4 text-histo-copper" />
-              <span>Topics</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowCreatePost(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-xl bg-histo-copper px-4 text-xs font-ui font-semibold text-white shadow-xs transition-colors hover:bg-histo-dark cursor-pointer active:scale-95"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Create post</span>
-            </button>
-          </div>
-        </div>
-      </section>
-
+    <main className="relative flex-1 bg-histo-paper/70 px-3 pb-16 pt-5 sm:px-5 lg:px-8">
       {/* Main Grid: Responsive 1-col on mobile/tablet, 2-col on lg (sidebar + feed), 3-col on xl (sidebar + feed + recent) */}
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,680px)_280px] xl:justify-center">
         {/* Left Desktop Sidebar (Hidden below lg, accessible via drawer on mobile/tablet) */}
@@ -583,13 +475,14 @@ export default function FeedPage() {
 
         {/* Center Chronicle Feed Column */}
         <section className="min-w-0 w-full max-w-2xl mx-auto lg:max-w-none">
+          {/* Feed Header */}
           <div className="mb-4 flex items-end justify-between gap-3 px-1">
             <div>
               <p className="mb-0.5 text-[10px] font-ui font-bold uppercase tracking-[0.18em] text-histo-copper">
-                COMMUNITY CHRONICLE
+                COMMUNITY FORUM
               </p>
               <h1 className="font-display text-2xl font-bold tracking-tight text-histo-dark sm:text-3xl">
-                Scholar Forum
+                Student Discussions
               </h1>
             </div>
 
@@ -604,13 +497,91 @@ export default function FeedPage() {
                   <X className="h-3 w-3" />
                 </button>
               )}
+
+              {/* Mobile/Tablet Topics Drawer Trigger */}
+              <button
+                type="button"
+                onClick={() => setShowMobileDrawer(true)}
+                className="lg:hidden inline-flex h-9 items-center gap-1.5 rounded-xl border border-histo-dark/10 bg-white px-3 text-xs font-ui font-semibold text-histo-dark hover:bg-histo-paper transition-colors shadow-soft cursor-pointer"
+                title="Explore Topics & Communities"
+                aria-label="Open topics and communities sidebar"
+              >
+                <Layers className="h-4 w-4 text-histo-copper" />
+                <span>Topics</span>
+              </button>
+
+              {/* Primary Create Post Action */}
               <button
                 type="button"
                 onClick={() => setShowCreatePost(true)}
-                className="hidden sm:inline-flex items-center gap-1.5 text-xs font-ui font-semibold text-histo-copper hover:text-histo-dark transition-colors cursor-pointer"
+                className="inline-flex h-9 items-center gap-2 rounded-xl bg-histo-copper px-4 text-xs font-ui font-semibold text-white shadow-xs transition-colors hover:bg-histo-dark cursor-pointer active:scale-95"
               >
-                <PenLine className="h-3.5 w-3.5" /> Write
+                <Plus className="h-4 w-4" />
+                <span>Create post</span>
               </button>
+            </div>
+          </div>
+
+          {/* Feed Controls: Tabs & Search Bar */}
+          <div
+            role="toolbar"
+            aria-label="Feed controls"
+            className="mb-5 flex flex-col gap-2.5 rounded-2xl border border-histo-dark/10 bg-white p-2.5 shadow-soft sm:flex-row sm:items-center sm:justify-between"
+          >
+            {/* Tabs */}
+            <div className="flex items-center gap-1.5" role="tablist" aria-label="Feed tabs">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'latest'}
+                onClick={() => setActiveTab('latest')}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-ui font-semibold transition-all cursor-pointer ${
+                  activeTab === 'latest'
+                    ? 'bg-histo-dark text-white shadow-xs'
+                    : 'text-histo-ink/65 hover:bg-histo-paper hover:text-histo-dark'
+                }`}
+              >
+                <Clock3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span>Latest</span>
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'popular'}
+                onClick={() => setActiveTab('popular')}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-ui font-semibold transition-all cursor-pointer ${
+                  activeTab === 'popular'
+                    ? 'bg-histo-dark text-white shadow-xs'
+                    : 'text-histo-ink/65 hover:bg-histo-paper hover:text-histo-dark'
+                }`}
+              >
+                <Flame className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span>Trending</span>
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-histo-ink/40" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search discussions, thesis, scholars..."
+                aria-label="Search the chronicle"
+                className="h-9 w-full rounded-xl border border-histo-dark/10 bg-histo-paper/60 pl-9 pr-8 text-xs font-ui text-histo-dark outline-none transition-all placeholder:text-histo-ink/40 focus:border-histo-copper focus:bg-white focus:ring-2 focus:ring-histo-copper/20"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-histo-ink/40 hover:text-histo-dark transition-colors cursor-pointer"
+                  aria-label="Clear search query"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -663,10 +634,10 @@ export default function FeedPage() {
                 <AlertCircle className="h-6 w-6" />
               </div>
               <h3 className="font-display font-bold text-lg text-histo-dark mb-1">
-                Unable to Load Chronicles
+                Unable to Load Discussions
               </h3>
               <p className="font-body text-xs md:text-sm text-histo-ink/65 max-w-sm mx-auto mb-5">
-                We could not connect to the chronicle discussions. Please check your internet connection or server status and try again.
+                We could not connect to the discussion forum. Please check your internet connection or server status and try again.
               </p>
               <button
                 type="button"
@@ -683,12 +654,12 @@ export default function FeedPage() {
                 📜
               </div>
               <h3 className="font-display font-bold text-lg text-histo-dark mb-1">
-                No Chronicles Found
+                No Discussions Found
               </h3>
               <p className="font-body text-xs md:text-sm text-histo-ink/60 max-w-sm mx-auto mb-4">
                 {searchQuery
                   ? `No discussions match "${searchQuery}". Try a different topic or clear your filter.`
-                  : 'Be the first scholar to initiate a historical thread!'}
+                  : 'Be the first to start a historical discussion!'}
               </p>
               {searchQuery ? (
                 <button
@@ -704,7 +675,7 @@ export default function FeedPage() {
                   onClick={() => setShowCreatePost(true)}
                   className="px-4 py-2 bg-histo-copper text-white rounded-xl text-xs font-ui font-semibold hover:bg-histo-dark transition-colors cursor-pointer"
                 >
-                  Start a Chronicle
+                  Start a Discussion
                 </button>
               )}
             </div>
@@ -718,8 +689,8 @@ export default function FeedPage() {
                     onReaction={handlePostReaction}
                     onAddComment={handleAddComment}
                     onDeleteComment={handleDeleteComment}
-                    onDeletePost={(id) => setDeletingPostId(id)}
-                    onOpenShare={(p) => setSharingPost(p)}
+                    onDeletePost={setDeletingPostId}
+                    onOpenShare={setSharingPost}
                     onLoadComments={handleLoadComments}
                   />
                 ))}
@@ -861,7 +832,7 @@ export default function FeedPage() {
                 <div className="flex items-center gap-2">
                   <Compass className="h-4 w-4 text-histo-copper" />
                   <span className="font-display font-bold text-base text-histo-dark">
-                    Chronicle Topics
+                    Discussion Topics
                   </span>
                 </div>
                 <button
@@ -910,7 +881,7 @@ export default function FeedPage() {
               className="w-full max-w-2xl"
               role="dialog"
               aria-modal="true"
-              aria-label="Create a chronicle post"
+              aria-label="Create a discussion post"
             >
               <PostComposer
                 modal
@@ -933,8 +904,8 @@ export default function FeedPage() {
       {/* Delete Post Confirmation Modal */}
       <DeleteConfirmModal
         isOpen={Boolean(deletingPostId)}
-        title="Delete Chronicle Post"
-        message="Are you sure you want to permanently delete this post and its comments from the chronicle?"
+        title="Delete Discussion Post"
+        message="Are you sure you want to permanently delete this post and its comments from the forum?"
         loading={isDeleting}
         onConfirm={handleConfirmDeletePost}
         onClose={() => setDeletingPostId(null)}

@@ -6,6 +6,18 @@ import UserAvatar from '../../components/UserAvatar';
 import EmojiPickerPopover from './EmojiPickerPopover';
 import GifPickerPopover from './GifPickerPopover';
 
+// Extracted outside component to avoid re-creation on every render
+function formatDate(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function CommentItem({
   comment,
   postId,
@@ -41,17 +53,6 @@ export default function CommentItem({
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const formatDate = (isoString) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    return date.toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   return (

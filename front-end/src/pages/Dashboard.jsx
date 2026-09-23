@@ -2,13 +2,10 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
-  Bell,
   BookOpen,
   Bookmark,
   Calendar,
-  MessageSquare,
   Crown,
-  Filter,
   Search,
   Clock,
   Sparkles,
@@ -18,10 +15,7 @@ import {
   RotateCcw,
   Shuffle,
   ChevronRight,
-  Layers,
-  Heart,
-  HelpCircle,
-  CheckCircle2,
+  ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -105,7 +99,7 @@ function formatEvent(ev) {
 
   // Normalize category
   let category = (ev.category || '').toLowerCase();
-  let normalizedCategory = 'World History';
+  let normalizedCategory;
   const desc = (ev.description || '').toLowerCase();
 
   if (category.includes('birth') || desc.includes('was born') || desc.includes('birth of')) {
@@ -197,11 +191,20 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [bookmarkedIds, setBookmarkedIds] = useState(new Set());
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(25);
 
   // Modal detail view state
   const [activeModalEvent, setActiveModalEvent] = useState(null);
 
   const shouldReduceMotion = useReducedMotion();
+
+  // Reset pagination when filtering or switching dates
+  const [filterKey, setFilterKey] = useState('');
+  const currentFilterKey = `${selectedCategory}-${selectedDate}-${searchQuery}`;
+  if (filterKey !== currentFilterKey) {
+    setFilterKey(currentFilterKey);
+    setVisibleCount(25);
+  }
 
   // Load Initial Data (Today's Events + Bookmarks)
   useEffect(() => {
@@ -449,6 +452,11 @@ export default function DashboardPage() {
     return list;
   }, [allEvents, selectedCategory, searchQuery, bookmarkedIds]);
 
+  // Windowed events slice for fast DOM rendering and smooth scroll performance
+  const pagedEvents = useMemo(() => {
+    return displayedEvents.slice(0, visibleCount);
+  }, [displayedEvents, visibleCount]);
+
   // Top Feature Banner (Hero Event)
   const heroEvent = useMemo(() => {
     return displayedEvents[0] || allEvents[0] || newsSeed[0];
@@ -523,7 +531,7 @@ export default function DashboardPage() {
                 <div className="border-2 border-double border-histo-gold/30 p-6 md:p-8 relative z-10 flex flex-col items-center text-center">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-[10px] uppercase tracking-[4px] text-histo-gold font-ui font-semibold">
-                      Chronicle Spotlight
+                      Today in History
                     </span>
                     <span className="text-histo-gold/40">•</span>
                     <span className="text-[10px] uppercase tracking-widest font-mono text-histo-paper/60">
@@ -569,7 +577,7 @@ export default function DashboardPage() {
                       whileTap={{ scale: 0.96 }}
                       className="inline-flex items-center gap-2 border border-histo-gold bg-histo-gold text-histo-dark hover:bg-transparent hover:text-histo-gold font-ui text-xs font-bold tracking-widest uppercase py-2.5 px-6 rounded-[2px] shadow-soft transition-colors duration-300 cursor-pointer"
                     >
-                      <span>Explore Chronicle Details</span>
+                      <span>Read Full Story</span>
                       <ChevronRight className="h-3.5 w-3.5" />
                     </motion.button>
 
@@ -581,7 +589,7 @@ export default function DashboardPage() {
                         className="inline-flex items-center gap-1.5 border border-white/20 text-histo-paper/80 hover:text-white hover:border-white/40 font-ui text-xs tracking-wider uppercase py-2.5 px-4 rounded-[2px] transition-colors duration-200"
                         title="Read full article on Wikipedia"
                       >
-                        <span>Wikipedia Archive</span>
+                        <span>Read on Wikipedia</span>
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
@@ -656,7 +664,7 @@ export default function DashboardPage() {
                   title="Jump to a landmark historical date"
                 >
                   <Shuffle className="h-3 w-3" />
-                  <span>Mystery Era</span>
+                  <span>Random Date</span>
                 </button>
               </div>
             </motion.section>
@@ -668,7 +676,7 @@ export default function DashboardPage() {
                 <Search className="absolute left-3.5 h-4 w-4 text-histo-ink/40 pointer-events-none" />
                 <input
                   type="text"
-                  placeholder="Filter or search chronicles by keyword, year, or figure..."
+                  placeholder="Search historical events by keyword, year, or figure..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-24 py-2.5 bg-white border border-histo-dark/15 rounded-[3px] text-xs font-ui text-histo-dark placeholder:text-histo-ink/40 focus:outline-none focus:border-histo-copper shadow-xs transition-colors"
@@ -697,7 +705,7 @@ export default function DashboardPage() {
               {/* Category Pills Navigation */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                 {[
-                  { key: 'All', label: 'All Chronicles', count: categoryCounts.All },
+                  { key: 'All', label: 'All Events', count: categoryCounts.All },
                   { key: 'Milestones', label: 'Milestones', count: categoryCounts.Milestones },
                   { key: 'World History', label: 'World Events', count: categoryCounts['World History'] },
                   { key: 'Births', label: 'Births', count: categoryCounts.Births },
@@ -740,14 +748,14 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-histo-copper" />
                   <h3 className="font-display text-lg md:text-xl font-bold text-histo-dark">
-                    Chronicle Archives
+                    Historical Events
                   </h3>
                   <span className="text-xs font-ui text-histo-ink/60">
                     ({displayedEvents.length} {displayedEvents.length === 1 ? 'entry' : 'entries'})
                   </span>
                 </div>
                 <span className="text-[11px] font-ui text-histo-copper font-medium">
-                  Click any card for full chronicle details
+                  Click any card to read the full story
                 </span>
               </div>
 
@@ -757,7 +765,7 @@ export default function DashboardPage() {
                   <div className="py-16 flex flex-col items-center justify-center gap-3">
                     <div className="w-8 h-8 border-2 border-histo-copper/30 border-t-histo-copper rounded-full animate-spin" />
                     <span className="text-xs font-ui text-histo-ink/60 tracking-wider uppercase">
-                      Gathering chronicles from the archives...
+                      Loading historical events...
                     </span>
                   </div>
                 ) : displayedEvents.length === 0 ? (
@@ -766,11 +774,11 @@ export default function DashboardPage() {
                       <BookOpen className="h-6 w-6" />
                     </div>
                     <h4 className="font-display text-base font-bold text-histo-dark mb-1">
-                      No Chronicles Found
+                      No Historical Events Found
                     </h4>
                     <p className="text-xs font-ui text-histo-ink/60 max-w-sm mx-auto mb-4">
                       {selectedCategory === 'Bookmarks'
-                        ? "You haven't bookmarked any chronicles yet. Click the star icon on any card to save it."
+                        ? "You haven't bookmarked any events yet. Click the bookmark icon on any card to save it."
                         : `No entries recorded under "${selectedCategory}" for this date. Try another category or date.`}
                     </p>
                     <button
@@ -783,12 +791,11 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3.5">
-                    {displayedEvents.map((item, idx) => {
+                    {pagedEvents.map((item, idx) => {
                       const isBookmarked = bookmarkedIds.has(item.id);
                       return (
                         <motion.article
                           key={item.id || idx}
-                          layout
                           onClick={() => setActiveModalEvent(item)}
                           whileHover={shouldReduceMotion ? {} : { x: 4, transition: { duration: 0.15 } }}
                           className="border-l-4 border-histo-gold bg-white/75 hover:bg-white p-4 md:p-5 shadow-soft transition-all duration-200 rounded-[2px] cursor-pointer group relative border-t border-r border-b border-histo-dark/5"
@@ -819,7 +826,7 @@ export default function DashboardPage() {
                                 type="button"
                                 onClick={(e) => handleShareEvent(e, item)}
                                 className="p-1.5 rounded-full text-histo-ink/40 hover:text-histo-dark hover:bg-histo-dark/5 transition-colors cursor-pointer"
-                                title="Share / Copy chronicle summary"
+                                title="Share or copy event summary"
                               >
                                 <Share2 className="h-3.5 w-3.5" />
                               </button>
@@ -849,7 +856,7 @@ export default function DashboardPage() {
                               <Sparkles className="h-3.5 w-3.5 text-histo-gold shrink-0 mt-0.5" />
                               <div>
                                 <span className="font-ui font-bold tracking-wider text-histo-copper uppercase text-[9px] block">
-                                  Curiosity Hook
+                                  Did You Know?
                                 </span>
                                 <p className="font-body text-xs italic text-histo-ink/90 leading-relaxed">
                                   {item.ai_hook}
@@ -866,17 +873,31 @@ export default function DashboardPage() {
                           {/* Card Footer Link */}
                           <div className="mt-3 pt-2 border-t border-histo-dark/5 flex items-center justify-between text-[11px] font-ui text-histo-copper font-semibold">
                             <span className="flex items-center gap-1 group-hover:translate-x-1 transition-transform duration-200">
-                              View Chronicle Details <ChevronRight className="h-3 w-3" />
+                              Read Story <ChevronRight className="h-3 w-3" />
                             </span>
                             {item.source_url && (
                               <span className="text-histo-ink/40 font-normal text-[10px]">
-                                Wikipedia Record Available
+                                Wikipedia Article Available
                               </span>
                             )}
                           </div>
                         </motion.article>
                       );
                     })}
+
+                    {/* Progressive Pagination Load More Button */}
+                    {visibleCount < displayedEvents.length && (
+                      <div className="pt-4 pb-2 flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() => setVisibleCount((prev) => prev + 25)}
+                          className="px-6 py-2.5 bg-histo-dark hover:bg-histo-copper text-histo-paper text-xs font-ui font-semibold uppercase tracking-wider rounded-[2px] transition-all shadow-soft hover:shadow-medium cursor-pointer flex items-center gap-2"
+                        >
+                          <span>Show More Events ({pagedEvents.length} of {displayedEvents.length})</span>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -927,7 +948,7 @@ export default function DashboardPage() {
                   }}
                   className="font-ui text-xs font-bold tracking-widest uppercase border-b-2 border-histo-copper text-histo-copper pb-0.5 hover:text-histo-dark hover:border-histo-dark transition-colors duration-200 cursor-pointer"
                 >
-                  Explore Chronicles →
+                  Explore Events →
                 </button>
               </div>
             </motion.section>
@@ -944,7 +965,7 @@ export default function DashboardPage() {
 
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-[9px] uppercase tracking-[3px] text-histo-copper font-ui font-semibold">
-                  Manuscript Snippet
+                  Historical Quote
                 </span>
                 <Bookmark className="h-3.5 w-3.5 text-histo-copper/50" />
               </div>
@@ -965,11 +986,11 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2 text-histo-gold mb-2">
                 <Sparkles className="h-4 w-4" />
                 <span className="text-[10px] font-ui tracking-[2px] uppercase font-bold">
-                  AI Scholar Assistant
+                  AI Study Assistant
                 </span>
               </div>
               <h4 className="font-display text-base font-bold mb-2">
-                Turn Chronicles Into Exam Notes
+                Turn History Into Study Notes
               </h4>
               <p className="font-body text-xs text-histo-paper/70 mb-4 leading-relaxed">
                 Generate structured, curriculum-aligned study notes (NCERT, UPSC, AP World) from any historical period with one click.
@@ -978,7 +999,7 @@ export default function DashboardPage() {
                 to="/notes"
                 className="inline-flex items-center gap-1.5 text-xs font-ui font-bold uppercase tracking-wider bg-histo-gold text-histo-dark hover:bg-white px-4 py-2 rounded-[2px] transition-colors shadow-soft"
               >
-                <span>Open Notes Studio</span>
+                <span>Open AI Notes</span>
                 <ChevronRight className="h-3.5 w-3.5" />
               </Link>
             </motion.section>
@@ -1038,7 +1059,7 @@ export default function DashboardPage() {
                   type="button"
                   onClick={() => setActiveModalEvent(null)}
                   className="p-1 rounded-full text-histo-ink/50 hover:text-histo-dark hover:bg-histo-dark/10 transition-colors cursor-pointer"
-                  title="Close Chronicle"
+                  title="Close modal"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -1054,7 +1075,7 @@ export default function DashboardPage() {
                 <div className="mb-5 p-4 rounded-[3px] bg-gradient-to-r from-amber-500/15 via-histo-gold/20 to-transparent border-l-4 border-histo-gold">
                   <div className="flex items-center gap-2 mb-1 text-histo-copper font-ui font-bold text-xs uppercase tracking-wider">
                     <Sparkles className="h-4 w-4 text-histo-gold" />
-                    <span>Historical Curiosity Hook</span>
+                    <span>Did You Know?</span>
                   </div>
                   <p className="font-body text-sm italic text-histo-dark font-medium leading-relaxed">
                     &ldquo;{activeModalEvent.ai_hook}&rdquo;
@@ -1065,7 +1086,7 @@ export default function DashboardPage() {
               {/* Full Narrative Content */}
               <div className="border-t border-b border-histo-dark/10 py-4 mb-6">
                 <span className="text-[10px] font-ui tracking-[2px] uppercase text-histo-ink/50 block mb-2 font-semibold">
-                  Historical Chronicle Record
+                  Historical Event Details
                 </span>
                 <p className="font-body text-base text-histo-dark leading-relaxed">
                   {activeModalEvent.content}
@@ -1082,7 +1103,7 @@ export default function DashboardPage() {
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 bg-histo-dark text-histo-paper hover:bg-histo-copper px-4 py-2 rounded-[2px] text-xs font-ui font-bold uppercase tracking-wider transition-colors shadow-soft"
                     >
-                      <span>Read Wikipedia Archive</span>
+                      <span>Read on Wikipedia</span>
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   )}
@@ -1110,7 +1131,7 @@ export default function DashboardPage() {
                     type="button"
                     onClick={(e) => handleShareEvent(e, activeModalEvent)}
                     className="inline-flex items-center gap-1.5 px-3 py-2 bg-white text-histo-ink border border-histo-dark/20 hover:bg-histo-dark/5 rounded-[2px] text-xs font-ui font-semibold transition-colors cursor-pointer"
-                    title="Copy chronicle summary"
+                    title="Copy event summary"
                   >
                     <Share2 className="h-3.5 w-3.5" />
                     <span>Copy</span>

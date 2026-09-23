@@ -1,13 +1,11 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuth } from './AuthContext';
 import { useConversations } from '../hooks/queries/useConversations';
 import { getOrCreateDirectApi, getOrCreateGroupChatApi, markAsReadApi } from '../api/chat';
 
 const ChatContext = createContext(null);
 
 export function ChatProvider({ children }) {
-  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -87,30 +85,47 @@ export function ChatProvider({ children }) {
     fetchConversations();
   }, [fetchConversations]);
 
+  const value = useMemo(
+    () => ({
+      isChatOpen,
+      isOpen: isChatOpen,
+      toggleSidebar,
+      toggleChat: toggleSidebar,
+      openChat,
+      closeChat,
+      conversations,
+      activeConversation,
+      selectConversation,
+      goBackToList,
+      openDirectChat,
+      openGroupChat,
+      totalUnreadCount,
+      fetchConversations,
+    }),
+    [
+      isChatOpen,
+      toggleSidebar,
+      openChat,
+      closeChat,
+      conversations,
+      activeConversation,
+      selectConversation,
+      goBackToList,
+      openDirectChat,
+      openGroupChat,
+      totalUnreadCount,
+      fetchConversations,
+    ]
+  );
+
   return (
-    <ChatContext.Provider
-      value={{
-        isChatOpen,
-        isOpen: isChatOpen,
-        toggleSidebar,
-        toggleChat: toggleSidebar,
-        openChat,
-        closeChat,
-        conversations,
-        activeConversation,
-        selectConversation,
-        goBackToList,
-        openDirectChat,
-        openGroupChat,
-        totalUnreadCount,
-        fetchConversations,
-      }}
-    >
+    <ChatContext.Provider value={value}>
       {children}
     </ChatContext.Provider>
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useChat() {
   const context = useContext(ChatContext);
   return context;

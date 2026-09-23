@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, MoreVertical, Share2, Trash2, Lock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,7 +8,7 @@ import ReactionControl from './ReactionControl';
 import UserAvatar from '../../components/UserAvatar';
 import { formatRelativeTime } from './relativeTime';
 
-function PostActionBar({ post, showComments, onReaction, onToggleComments, onOpenShare }) {
+const PostActionBar = memo(function PostActionBar({ post, showComments, onReaction, onToggleComments, onOpenShare }) {
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2 pt-2 border-t border-histo-dark/5 text-histo-ink/60">
       <button
@@ -45,9 +45,10 @@ function PostActionBar({ post, showComments, onReaction, onToggleComments, onOpe
       />
     </div>
   );
-}
+});
+PostActionBar.displayName = 'PostActionBar';
 
-export default function PostCard({
+const PostCard = memo(function PostCard({
   post,
   onReaction,
   onAddComment,
@@ -197,4 +198,7 @@ export default function PostCard({
       </div>
     </motion.article>
   );
-}
+});
+PostCard.displayName = 'PostCard';
+
+export default PostCard;
