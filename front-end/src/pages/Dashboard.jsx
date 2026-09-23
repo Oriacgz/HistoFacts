@@ -27,6 +27,15 @@ import {
   removeBookmarkApi,
   getMyBookmarksApi,
 } from '../api/history';
+import {
+  SCOPES,
+  INDIA_CATEGORIES,
+  WORLD_CATEGORIES,
+  detectEventScope,
+  classifyEventCategory,
+  deriveShortDescription,
+  getCategoryBadgeClass,
+} from '../utils/historyTaxonomy';
 
 // Famous landmark dates for "Random Historical Date" explorer
 const HISTORICAL_MYSTERY_DATES = [
@@ -36,19 +45,49 @@ const HISTORICAL_MYSTERY_DATES = [
   { month: 8, day: 15, name: 'Indian Independence Day (1947)' },
   { month: 6, day: 6, name: 'D-Day Normandy Landings (1944)' },
   { month: 10, day: 24, name: 'United Nations Founded (1945)' },
-  { month: 11, day: 4, name: 'Discovery of King Tut\'s Tomb (1922)' },
+  { month: 11, day: 4, name: "Discovery of King Tut's Tomb (1922)" },
   { month: 12, day: 10, name: 'First Nobel Prizes Awarded (1901)' },
 ];
 
-// Fallback seed when backend is starting or offline
+// Fallback seed when backend is starting or offline (comprising both INDIA and WORLD scopes)
 const newsSeed = [
+  {
+    id: 'seed-in-1',
+    date: '08-15',
+    year: '1947',
+    title: 'Indian Independence Declared',
+    description: 'India achieved independence from British colonial rule after decades of non-violent and revolutionary freedom struggles led by Mahatma Gandhi, Jawaharlal Nehru, and countless freedom fighters.',
+    country: 'India',
+    source_url: 'https://en.wikipedia.org/wiki/Indian_Independence_Act_1947',
+    ai_hook: 'Did you know? Jawaharlal Nehru delivered his iconic "Tryst with Destiny" speech to the Indian Constituent Assembly at the stroke of midnight.',
+  },
+  {
+    id: 'seed-in-2',
+    date: '01-26',
+    year: '1950',
+    title: 'Constitution of India Enacted',
+    description: 'The Constitution of India, drafted under the leadership of Dr. B. R. Ambedkar, came into official effect, establishing India as a sovereign democratic republic.',
+    country: 'India',
+    source_url: 'https://en.wikipedia.org/wiki/Republic_Day_(India)',
+    ai_hook: 'Did you know? It is the longest written national constitution of any sovereign nation in the world.',
+  },
+  {
+    id: 'seed-in-3',
+    date: '10-22',
+    year: '2008',
+    title: 'Chandrayaan-1 Lunar Mission Launch',
+    description: 'ISRO successfully launched Chandrayaan-1 from Sriharikota, India\'s inaugural lunar probe, which confirmed the landmark discovery of water molecules on the Moon.',
+    country: 'India',
+    source_url: 'https://en.wikipedia.org/wiki/Chandrayaan-1',
+    ai_hook: 'Did you know? Data from India\'s Moon Mineralogy Mapper confirmed the presence of hydroxyl and water molecules across lunar soil.',
+  },
   {
     id: 'seed-1',
     date: '09-15',
     year: '1862',
-    title: 'American Civil War: Harpers Ferry',
+    title: 'American Civil War: Battle of Harpers Ferry',
     description: 'Confederate forces under Stonewall Jackson captured the Union garrison at Harpers Ferry, Virginia, taking more than 12,000 prisoners in a major strategic victory.',
-    category: 'World History',
+    country: 'United States',
     source_url: 'https://en.wikipedia.org/wiki/Battle_of_Harpers_Ferry',
     ai_hook: 'Did you know? It was the largest surrender of U.S. troops until the Battle of Bataan in WWII 80 years later!',
   },
@@ -58,7 +97,7 @@ const newsSeed = [
     year: '1935',
     title: 'Nuremberg Laws Enacted',
     description: 'The Nazi regime enacted the Nuremberg Laws during the annual party rally, depriving German Jews of citizenship and prohibiting intermarriage.',
-    category: 'World History',
+    country: 'Germany',
     source_url: 'https://en.wikipedia.org/wiki/Nuremberg_Laws',
     ai_hook: 'Did you know? These laws formed the legal cornerstone of racial persecution leading directly to the Holocaust.',
   },
@@ -68,21 +107,21 @@ const newsSeed = [
     year: '2020',
     title: 'Signing of the Abraham Accords',
     description: 'The Abraham Accords were officially signed at the White House, establishing diplomatic relations between Israel, the UAE, and Bahrain.',
-    category: 'World History',
+    country: 'United States',
     source_url: 'https://en.wikipedia.org/wiki/Abraham_Accords',
     ai_hook: 'Did you know? This marked the first normalization agreements between Israel and Arab nations in over 26 years.',
   },
 ];
 
 /**
- * Format raw event data into clean, presentation-ready object
+ * Format raw event data into clean, presentation-ready object with scope, category, and 1-2 line summary.
  */
 function formatEvent(ev) {
   if (!ev) return null;
 
   // Clean title: replace underscores, remove trailing colons
-  let rawTitle = ev.title || 'Historical Chronicle';
-  let cleanTitle = rawTitle.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  const rawTitle = ev.title || 'Historical Chronicle';
+  const cleanTitle = rawTitle.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
 
   // Normalize Year
   let formattedYear = '';
@@ -97,22 +136,11 @@ function formatEvent(ev) {
     }
   }
 
-  // Normalize category
-  let category = (ev.category || '').toLowerCase();
-  let normalizedCategory;
-  const desc = (ev.description || '').toLowerCase();
+  // Detect Historical Scope (INDIA vs WORLD)
+  const scope = detectEventScope(ev);
 
-  if (category.includes('birth') || desc.includes('was born') || desc.includes('birth of')) {
-    normalizedCategory = 'Births';
-  } else if (category.includes('death') || desc.includes('died') || desc.includes('assassinated') || desc.includes('death of')) {
-    normalizedCategory = 'Deaths';
-  } else if (category.includes('holiday') || category.includes('observance') || desc.includes('feast day') || desc.includes('celebrated as')) {
-    normalizedCategory = 'Holidays';
-  } else if (category.includes('selected') || category.includes('milestone')) {
-    normalizedCategory = 'Milestones';
-  } else {
-    normalizedCategory = 'World History';
-  }
+  // Assign Primary Category according to scope
+  const category = classifyEventCategory(ev, scope);
 
   // Clean AI hook: remove surrounding quotes, trailing dots, think tags if any
   let cleanHook = ev.ai_hook || null;
@@ -124,14 +152,25 @@ function formatEvent(ev) {
     }
   }
 
+  // Derive concise 1-2 line short summary from stored content
+  const content = ev.description || ev.content || '';
+  const shortDescription = deriveShortDescription(
+    cleanTitle,
+    content,
+    category,
+    formattedYear || ev.year
+  );
+
   return {
     id: ev.id || `${cleanTitle}-${ev.year || Math.random()}`,
     date: ev.date || '',
     year: ev.year || '',
     formattedYear,
     title: cleanTitle,
-    content: ev.description || '',
-    category: normalizedCategory,
+    content,
+    shortDescription,
+    scope,
+    category,
     source_url: ev.source_url || null,
     ai_hook: cleanHook,
     country: ev.country || null,
@@ -179,6 +218,7 @@ export default function DashboardPage() {
 
   // Events & Filter state
   const [allEvents, setAllEvents] = useState([]);
+  const [selectedScope, setSelectedScope] = useState(SCOPES.INDIA);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
@@ -198,9 +238,9 @@ export default function DashboardPage() {
 
   const shouldReduceMotion = useReducedMotion();
 
-  // Reset pagination when filtering or switching dates
+  // Reset pagination when filtering or switching scopes, dates, or search
   const [filterKey, setFilterKey] = useState('');
-  const currentFilterKey = `${selectedCategory}-${selectedDate}-${searchQuery}`;
+  const currentFilterKey = `${selectedScope}-${selectedCategory}-${selectedDate}-${searchQuery}`;
   if (filterKey !== currentFilterKey) {
     setFilterKey(currentFilterKey);
     setVisibleCount(25);
@@ -390,7 +430,7 @@ export default function DashboardPage() {
   // Share Event Handler
   const handleShareEvent = (e, item) => {
     e?.stopPropagation?.();
-    const textToShare = `📜 HistoFacts: ${item.title} (${item.formattedYear || item.year})\n\n${item.ai_hook ? `✨ ${item.ai_hook}\n\n` : ''}${item.content}\n\nRead more: ${item.source_url || window.location.href}`;
+    const textToShare = `📜 HistoFacts: ${item.title} (${item.formattedYear || item.year})\n[${item.scope} • ${item.category}]\n\n${item.shortDescription ? `${item.shortDescription}\n\n` : ''}${item.ai_hook ? `✨ ${item.ai_hook}\n\n` : ''}${item.content}\n\nRead more: ${item.source_url || window.location.href}`;
 
     if (navigator.clipboard) {
       navigator.clipboard.writeText(textToShare);
@@ -400,57 +440,88 @@ export default function DashboardPage() {
     }
   };
 
-  // Compute Categories & Live Counts
-  const categoryCounts = useMemo(() => {
-    const counts = {
-      All: allEvents.length,
-      Milestones: 0,
-      'World History': 0,
-      Births: 0,
-      Deaths: 0,
-      Holidays: 0,
-      Bookmarks: 0,
+  // Handle Scope Switching (INDIA | WORLD)
+  const handleScopeChange = (newScope) => {
+    if (newScope === selectedScope) return;
+    setSelectedScope(newScope);
+    if (selectedCategory !== 'Bookmarks') {
+      setSelectedCategory('All');
+    }
+    setVisibleCount(25);
+  };
+
+  // Compute Scopes, Categories & Live Counts
+  const { scopeCounts, categoryCounts } = useMemo(() => {
+    const sCounts = {
+      [SCOPES.INDIA]: 0,
+      [SCOPES.WORLD]: 0,
     };
 
+    const categoriesForScope = selectedScope === SCOPES.INDIA ? INDIA_CATEGORIES : WORLD_CATEGORIES;
+    const cCounts = {
+      All: 0,
+      Bookmarks: 0,
+    };
+    categoriesForScope.forEach((cat) => {
+      cCounts[cat] = 0;
+    });
+
     allEvents.forEach((ev) => {
-      if (counts[ev.category] !== undefined) {
-        counts[ev.category]++;
+      const evScope = ev.scope || SCOPES.WORLD;
+      if (sCounts[evScope] !== undefined) {
+        sCounts[evScope]++;
       } else {
-        counts['World History']++;
+        sCounts[SCOPES.WORLD]++;
       }
+
+      // Tally categories if event matches current scope
+      if (evScope === selectedScope) {
+        cCounts.All++;
+        if (cCounts[ev.category] !== undefined) {
+          cCounts[ev.category]++;
+        } else {
+          cCounts['Politics & Governance'] = (cCounts['Politics & Governance'] || 0) + 1;
+        }
+      }
+
       if (bookmarkedIds.has(ev.id)) {
-        counts.Bookmarks++;
+        cCounts.Bookmarks++;
       }
     });
 
-    return counts;
-  }, [allEvents, bookmarkedIds]);
+    return { scopeCounts: sCounts, categoryCounts: cCounts };
+  }, [allEvents, selectedScope, bookmarkedIds]);
 
-  // Filtered Events based on Category and Search Query
+  // Filtered Events based on Scope, Category and Search Query
   const displayedEvents = useMemo(() => {
     let list = allEvents;
 
-    // Category filter
+    // 1. Filter by Scope (or show all saved bookmarks if user selected Bookmarks)
     if (selectedCategory === 'Bookmarks') {
       list = list.filter((ev) => bookmarkedIds.has(ev.id));
-    } else if (selectedCategory !== 'All') {
-      list = list.filter((ev) => ev.category === selectedCategory);
+    } else {
+      list = list.filter((ev) => (ev.scope || SCOPES.WORLD) === selectedScope);
+      if (selectedCategory !== 'All') {
+        list = list.filter((ev) => ev.category === selectedCategory);
+      }
     }
 
-    // Live search filter
+    // 2. Live search filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
         (ev) =>
           ev.title.toLowerCase().includes(q) ||
           ev.content.toLowerCase().includes(q) ||
+          (ev.shortDescription && ev.shortDescription.toLowerCase().includes(q)) ||
           (ev.formattedYear && ev.formattedYear.toLowerCase().includes(q)) ||
-          (ev.ai_hook && ev.ai_hook.toLowerCase().includes(q))
+          (ev.ai_hook && ev.ai_hook.toLowerCase().includes(q)) ||
+          (ev.category && ev.category.toLowerCase().includes(q))
       );
     }
 
     return list;
-  }, [allEvents, selectedCategory, searchQuery, bookmarkedIds]);
+  }, [allEvents, selectedScope, selectedCategory, searchQuery, bookmarkedIds]);
 
   // Windowed events slice for fast DOM rendering and smooth scroll performance
   const pagedEvents = useMemo(() => {
@@ -481,22 +552,6 @@ export default function DashboardPage() {
         : { type: 'spring', stiffness: 120, damping: 18 },
     },
   }), [shouldReduceMotion]);
-
-  // Category Tag Badge Color Helper
-  const getCategoryBadgeClass = (category) => {
-    switch (category) {
-      case 'Milestones':
-        return 'bg-amber-500/15 text-amber-700 border-amber-500/30';
-      case 'Births':
-        return 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30';
-      case 'Deaths':
-        return 'bg-rose-500/15 text-rose-700 border-rose-500/30';
-      case 'Holidays':
-        return 'bg-purple-500/15 text-purple-700 border-purple-500/30';
-      default:
-        return 'bg-histo-copper/10 text-histo-copper border-histo-copper/25';
-    }
-  };
 
   return (
     <>
@@ -544,15 +599,29 @@ export default function DashboardPage() {
                   </h2>
 
                   <div className="max-w-2xl my-3">
-                    {heroEvent.formattedYear && (
-                      <span className="inline-block px-3 py-1 bg-histo-gold/20 text-histo-gold border border-histo-gold/40 rounded-full text-xs font-mono font-bold tracking-widest uppercase mb-2">
-                        {heroEvent.formattedYear}
+                    <div className="flex items-center justify-center gap-2 mb-2.5 flex-wrap">
+                      {heroEvent.formattedYear && (
+                        <span className="inline-block px-3 py-1 bg-histo-gold/20 text-histo-gold border border-histo-gold/40 rounded-full text-xs font-mono font-bold tracking-widest uppercase">
+                          {heroEvent.formattedYear}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-ui px-2.5 py-0.5 rounded-full bg-white/10 text-histo-paper/90 border border-white/20 uppercase tracking-wider font-semibold">
+                        {heroEvent.scope === 'INDIA' ? '🇮🇳 India' : '🌍 World'}
                       </span>
-                    )}
+                      <span className="text-[10px] font-ui px-2.5 py-0.5 rounded-full bg-histo-gold/20 text-histo-gold border border-histo-gold/30 uppercase tracking-wider font-semibold">
+                        {heroEvent.category}
+                      </span>
+                    </div>
 
-                    <h3 className="font-display text-2xl md:text-3xl font-bold leading-tight text-white mb-3">
+                    <h3 className="font-display text-2xl md:text-3xl font-bold leading-tight text-white mb-2">
                       {heroEvent.title}
                     </h3>
+
+                    {heroEvent.shortDescription && (
+                      <p className="font-body text-xs md:text-sm text-histo-gold/90 font-medium italic mb-3">
+                        {heroEvent.shortDescription}
+                      </p>
+                    )}
 
                     {/* AI Curiosity Hook highlight if present */}
                     {heroEvent.ai_hook && (
@@ -564,7 +633,7 @@ export default function DashboardPage() {
                       </div>
                     )}
 
-                    <p className="font-body text-histo-paper/80 text-sm leading-relaxed mb-4 italic line-clamp-3">
+                    <p className="font-body text-histo-paper/80 text-sm leading-relaxed mb-4 line-clamp-3">
                       {heroEvent.content}
                     </p>
                   </div>
@@ -702,40 +771,131 @@ export default function DashboardPage() {
                 </button>
               </form>
 
-              {/* Category Pills Navigation */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                {[
-                  { key: 'All', label: 'All Events', count: categoryCounts.All },
-                  { key: 'Milestones', label: 'Milestones', count: categoryCounts.Milestones },
-                  { key: 'World History', label: 'World Events', count: categoryCounts['World History'] },
-                  { key: 'Births', label: 'Births', count: categoryCounts.Births },
-                  { key: 'Deaths', label: 'Deaths', count: categoryCounts.Deaths },
-                  { key: 'Holidays', label: 'Holidays', count: categoryCounts.Holidays },
-                  { key: 'Bookmarks', label: 'Saved Bookmarks', count: categoryCounts.Bookmarks },
-                ].map((cat) => {
-                  const isActive = selectedCategory === cat.key;
+              {/* Historical Scope Selector (INDIA | WORLD) */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-1.5 p-1 bg-white/80 border border-histo-dark/15 rounded-[4px] shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleScopeChange(SCOPES.INDIA)}
+                    className={`px-3.5 py-1.5 rounded-[3px] text-xs font-ui font-bold uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
+                      selectedScope === SCOPES.INDIA
+                        ? 'bg-histo-dark text-histo-paper shadow-soft'
+                        : 'text-histo-ink/70 hover:text-histo-dark hover:bg-histo-paper/60'
+                    }`}
+                  >
+                    <span>🇮🇳 India</span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                        selectedScope === SCOPES.INDIA
+                          ? 'bg-histo-gold text-histo-dark font-bold'
+                          : 'bg-histo-dark/10 text-histo-ink/60'
+                      }`}
+                    >
+                      {scopeCounts[SCOPES.INDIA]}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleScopeChange(SCOPES.WORLD)}
+                    className={`px-3.5 py-1.5 rounded-[3px] text-xs font-ui font-bold uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
+                      selectedScope === SCOPES.WORLD
+                        ? 'bg-histo-dark text-histo-paper shadow-soft'
+                        : 'text-histo-ink/70 hover:text-histo-dark hover:bg-histo-paper/60'
+                    }`}
+                  >
+                    <span>🌍 World</span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                        selectedScope === SCOPES.WORLD
+                          ? 'bg-histo-gold text-histo-dark font-bold'
+                          : 'bg-histo-dark/10 text-histo-ink/60'
+                      }`}
+                    >
+                      {scopeCounts[SCOPES.WORLD]}
+                    </span>
+                  </button>
+                </div>
+
+                <span className="text-[11px] font-ui text-histo-ink/55 italic">
+                  Viewing {selectedScope === SCOPES.INDIA ? 'Indian history chronology' : 'World historical chronology'}
+                </span>
+              </div>
+
+              {/* Responsive Category Chips Navigation */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none max-w-full">
+                {/* All Scope Events Chip */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory('All')}
+                  className={`whitespace-nowrap px-3 py-1.5 rounded-[3px] text-xs font-ui font-semibold transition-all duration-200 flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                    selectedCategory === 'All'
+                      ? 'bg-histo-dark text-histo-paper shadow-soft'
+                      : 'bg-white/70 hover:bg-white text-histo-ink/75 border border-histo-dark/10'
+                  }`}
+                >
+                  <span>All Events</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      selectedCategory === 'All'
+                        ? 'bg-histo-gold text-histo-dark font-bold'
+                        : 'bg-histo-dark/10 text-histo-ink/60'
+                    }`}
+                  >
+                    {categoryCounts.All}
+                  </span>
+                </button>
+
+                {/* Scope-Specific Category Chips */}
+                {(selectedScope === SCOPES.INDIA ? INDIA_CATEGORIES : WORLD_CATEGORIES).map((catName) => {
+                  const isActive = selectedCategory === catName;
+                  const count = categoryCounts[catName] || 0;
                   return (
                     <button
-                      key={cat.key}
+                      key={catName}
                       type="button"
-                      onClick={() => setSelectedCategory(cat.key)}
-                      className={`whitespace-nowrap px-3 py-1.5 rounded-[3px] text-xs font-ui font-semibold transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${isActive
+                      onClick={() => setSelectedCategory(catName)}
+                      className={`whitespace-nowrap px-3 py-1.5 rounded-[3px] text-xs font-ui font-semibold transition-all duration-200 flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                        isActive
                           ? 'bg-histo-dark text-histo-paper shadow-soft'
                           : 'bg-white/70 hover:bg-white text-histo-ink/75 border border-histo-dark/10'
-                        }`}
+                      }`}
                     >
-                      <span>{cat.label}</span>
+                      <span>{catName}</span>
                       <span
-                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${isActive
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                          isActive
                             ? 'bg-histo-gold text-histo-dark font-bold'
                             : 'bg-histo-dark/10 text-histo-ink/60'
-                          }`}
+                        }`}
                       >
-                        {cat.count}
+                        {count}
                       </span>
                     </button>
                   );
                 })}
+
+                {/* Saved Bookmarks Filter */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory('Bookmarks')}
+                  className={`whitespace-nowrap px-3 py-1.5 rounded-[3px] text-xs font-ui font-semibold transition-all duration-200 flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                    selectedCategory === 'Bookmarks'
+                      ? 'bg-histo-dark text-histo-paper shadow-soft'
+                      : 'bg-white/70 hover:bg-white text-histo-ink/75 border border-histo-dark/10'
+                  }`}
+                >
+                  <span>Saved Bookmarks</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      selectedCategory === 'Bookmarks'
+                        ? 'bg-histo-gold text-histo-dark font-bold'
+                        : 'bg-histo-dark/10 text-histo-ink/60'
+                    }`}
+                  >
+                    {categoryCounts.Bookmarks}
+                  </span>
+                </button>
               </div>
             </motion.div>
 
@@ -865,7 +1025,14 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          {/* Short Event Narrative */}
+                          {/* Short Description Preview */}
+                          {item.shortDescription && (
+                            <p className="font-body text-xs italic text-histo-ink/60 leading-relaxed mb-1.5">
+                              {item.shortDescription}
+                            </p>
+                          )}
+
+                          {/* Event Narrative */}
                           <p className="font-body text-sm text-histo-ink/85 leading-relaxed line-clamp-2">
                             {item.content}
                           </p>
@@ -1033,14 +1200,15 @@ export default function DashboardPage() {
               <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-histo-gold pointer-events-none" />
               <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-histo-gold pointer-events-none" />
 
-              {/* Modal Header */}
-              <div className="flex items-center justify-between border-b border-histo-dark/10 pb-3 mb-4">
+              {/* Modal Header — CATEGORY • DATE line */}
+              <div className="flex items-center justify-between pb-3 mb-3">
                 <div className="flex items-center gap-2 flex-wrap">
-                  {activeModalEvent.formattedYear && (
-                    <span className="font-mono text-xs font-bold text-histo-dark bg-histo-gold/30 border border-histo-gold/60 px-2.5 py-0.5 rounded-[2px]">
-                      {activeModalEvent.formattedYear}
-                    </span>
-                  )}
+                  {/* Scope Badge */}
+                  <span className="text-[10px] font-ui px-2 py-0.5 rounded-full bg-histo-dark/5 text-histo-ink/70 border border-histo-dark/10 uppercase tracking-wider font-semibold">
+                    {activeModalEvent.scope === 'INDIA' ? '🇮🇳 India' : '🌍 World'}
+                  </span>
+
+                  {/* Category Badge */}
                   <span
                     className={`text-[10px] font-ui tracking-widest uppercase font-semibold px-2.5 py-0.5 rounded-[2px] border ${getCategoryBadgeClass(
                       activeModalEvent.category
@@ -1048,17 +1216,22 @@ export default function DashboardPage() {
                   >
                     {activeModalEvent.category}
                   </span>
-                  {activeModalEvent.date && (
-                    <span className="text-xs font-ui text-histo-ink/60">
-                      • {activeModalEvent.date}
-                    </span>
+
+                  {/* Separator + Date/Year */}
+                  {(activeModalEvent.formattedYear || activeModalEvent.date) && (
+                    <>
+                      <span className="text-histo-ink/30 text-xs select-none">•</span>
+                      <span className="font-mono text-xs font-bold text-histo-dark">
+                        {activeModalEvent.formattedYear || activeModalEvent.date}
+                      </span>
+                    </>
                   )}
                 </div>
 
                 <button
                   type="button"
                   onClick={() => setActiveModalEvent(null)}
-                  className="p-1 rounded-full text-histo-ink/50 hover:text-histo-dark hover:bg-histo-dark/10 transition-colors cursor-pointer"
+                  className="p-1.5 rounded-full text-histo-ink/50 hover:text-histo-dark hover:bg-histo-dark/10 transition-colors cursor-pointer"
                   title="Close modal"
                 >
                   <X className="h-5 w-5" />
@@ -1066,9 +1239,19 @@ export default function DashboardPage() {
               </div>
 
               {/* Modal Title */}
-              <h2 className="font-display text-2xl md:text-3xl font-bold text-histo-dark leading-snug mb-4">
+              <h2 className="font-display text-2xl md:text-3xl font-bold text-histo-dark leading-snug mb-2">
                 {activeModalEvent.title}
               </h2>
+
+              {/* Short Description — subtle italicized 1-2 line summary */}
+              {activeModalEvent.shortDescription && (
+                <p className="font-body text-sm italic text-histo-ink/65 leading-relaxed mb-4">
+                  {activeModalEvent.shortDescription}
+                </p>
+              )}
+
+              {/* Visual Divider */}
+              <div className="border-t border-histo-dark/10 mb-5" />
 
               {/* Sparkling AI Hook Highlight */}
               {activeModalEvent.ai_hook && (
