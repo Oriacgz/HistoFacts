@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, X, ZoomIn } from 'lucide-react';
-import { getAvatarSrc } from '../../components/UserAvatar';
+import { getAvatarSrc } from '../../utils/mediaSrc';
 
 // Post media grid: one image or video renders full-width; 2-4 images render in a balanced grid.
 export default function PostMedia({ post }) {
@@ -68,6 +68,7 @@ export default function PostMedia({ post }) {
               src={getAvatarSrc(url)}
               alt={`Chronicle attachment ${i + 1}`}
               loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
               style={{
                 maxHeight: urls.length === 1 ? 480 : urls.length === 3 && i === 0 ? 280 : 220,
@@ -140,6 +141,7 @@ export default function PostMedia({ post }) {
               <img
                 src={getAvatarSrc(urls[activeImageIndex])}
                 alt={`Chronicle attachment ${activeImageIndex + 1}`}
+                decoding="async"
                 className="max-h-[80vh] max-w-[90vw] object-contain rounded-2xl"
               />
               {urls.length > 1 && (
