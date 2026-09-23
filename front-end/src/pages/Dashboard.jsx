@@ -152,13 +152,14 @@ function formatEvent(ev) {
     }
   }
 
-  // Derive concise 1-2 line short summary from stored content
+  // Derive concise 1-2 line short summary from stored content + Wikipedia extract
   const content = ev.description || ev.content || '';
   const shortDescription = deriveShortDescription(
     cleanTitle,
     content,
     category,
-    formattedYear || ev.year
+    formattedYear || ev.year,
+    ev.extract || null
   );
 
   return {

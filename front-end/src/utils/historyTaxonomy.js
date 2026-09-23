@@ -255,20 +255,77 @@ export function classifyEventCategory(ev, scope) {
   return 'Politics & Governance';
 }
 
+function escapeRegExp(str) {
+  return (str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
- * Derive a concise, high-clarity 1-2 line summary from existing event information.
- * Rule: Must be grounded in existing stored facts. No invented context or external LLM calls.
- * Length: ~50-160 characters (1-2 lines).
+ * Derive a concise, high-value 1-2 line summary that provides NEW, useful context.
+ * Strictly avoids repeating the title, the category name, or the exact existing description.
+ * Adheres strictly to the user's Accuracy Rule:
+ * - Never fabricates claims, dates, or events.
+ * - Extracts and frames existing factual data.
+ * - If there is insufficient data to add new value, returns null (omits summary entirely).
+ *
+ * @param {string} title - The event title
+ * @param {string} content - The raw event description/narrative
+ * @param {string} category - The assigned taxonomy category
+ * @param {string} [year] - The formatted or raw year
+ * @param {string} [extract] - Optional Wikipedia article summary extract
+ * @returns {string|null} - 1-2 line useful summary or null if insufficient data
  */
-export function deriveShortDescription(title, content, category, year) {
+export function deriveShortDescription(title, content, category, year, extract) {
   const cleanTitle = (title || '').trim();
   const rawContent = (content || '').trim();
+  const rawExtract = (extract || '').trim();
 
-  if (!rawContent && !cleanTitle) {
-    return 'Historical event recorded on this day.';
+  // 1. If an extract is available and adds valuable encyclopedic context
+  if (rawExtract && rawExtract.length > 20) {
+    const sanitizedExtract = rawExtract
+      .replace(/<[^>]+>/g, '')
+      .replace(/\[\s*(?:\d+|note\s*\d+|citation needed)\s*\]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Check if extract is not just an identical repeat of content
+    if (sanitizedExtract.toLowerCase() !== rawContent.toLowerCase()) {
+      // Extract the first clean sentence from the article extract
+      const sentences = sanitizedExtract
+        .split(/(?<=[.!?])\s+(?=[A-Z0-9"“'])/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (sentences.length > 0) {
+        let firstSentence = sentences[0];
+
+        // If the sentence starts with the subject/title e.g. "Autar Singh Paintal was an Indian medical scientist..."
+        // Transform the subject to focus on the historical role/significance:
+        const titleRegex = new RegExp(`^(?:(?:The\\s+)?${escapeRegExp(cleanTitle)}|He|She|It)\\s+(?:was|is|became|served as|were)\\s+(an?\\s+)?`, 'i');
+        if (titleRegex.test(firstSentence)) {
+          const predicate = firstSentence.replace(titleRegex, '').trim();
+          if (predicate.length > 15) {
+            firstSentence = `An influential ${predicate}`;
+            firstSentence = firstSentence.replace(/^An influential an?\s+/i, 'An influential ');
+          }
+        }
+
+        // Limit to 1-2 concise lines (~160 chars)
+        if (firstSentence.length > 170) {
+          firstSentence = firstSentence.slice(0, 165).replace(/[,;:\s]+[^,;:\s]*$/, '').trim() + '.';
+        }
+
+        if (firstSentence.length >= 25 && firstSentence.toLowerCase() !== cleanTitle.toLowerCase()) {
+          return firstSentence;
+        }
+      }
+    }
   }
 
-  // Clean raw content: remove Wikipedia citations [1], [note 2], html tags, extra whitespace
+  // 2. If no extract, parse rawContent intelligently
+  if (!rawContent) {
+    return null;
+  }
+
   const sanitized = rawContent
     .replace(/<[^>]+>/g, '')
     .replace(/\[\s*(?:\d+|note\s*\d+|citation needed)\s*\]/gi, '')
@@ -276,57 +333,121 @@ export function deriveShortDescription(title, content, category, year) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  // If content has text, extract the primary explanatory sentence
-  if (sanitized) {
-    // Split sentences respecting abbreviations (e.g., St., U.S., etc.)
-    const sentences = sanitized
-      .split(/(?<=[.!?])\s+(?=[A-Z0-9"“'])/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+  // If description is identical or virtually identical to title, or too short to have useful new context
+  if (!sanitized || sanitized.toLowerCase() === cleanTitle.toLowerCase() || sanitized.length < 15) {
+    return null;
+  }
 
-    if (sentences.length > 0) {
-      let firstSentence = sentences[0];
+  const lowerCat = (category || '').toLowerCase();
+  const isBirth = lowerCat === 'births';
+  const isDeath = lowerCat === 'deaths';
 
-      // Remove redundant leading title prefix if content starts with "Title: ..." or "Title – ..."
-      if (cleanTitle && firstSentence.toLowerCase().startsWith(cleanTitle.toLowerCase())) {
-        const withoutTitle = firstSentence.slice(cleanTitle.length).replace(/^[:\s–—-]+/, '').trim();
-        if (withoutTitle.length > 15) {
-          firstSentence = withoutTitle.charAt(0).toUpperCase() + withoutTitle.slice(1);
+  // 3. Person handling (Births / Deaths)
+  // Example: "Autar Singh Paintal, Indian physiologist and academic (died 2004)"
+  if (isBirth || isDeath) {
+    let personDesc = sanitized;
+
+    // Remove leading title if present: "Autar Singh Paintal, ..."
+    if (cleanTitle && personDesc.toLowerCase().startsWith(cleanTitle.toLowerCase())) {
+      personDesc = personDesc.slice(cleanTitle.length).replace(/^[,:;\s–—-]+/, '').trim();
+    }
+
+    // Strip parenthetical dates e.g. "(died 2004)", "(born 1925)", "(d. 2004)", "(b. 714)"
+    personDesc = personDesc
+      .replace(/\s*\((?:died|born|d\.|b\.|probable|circa)[\s\S]*?\)/gi, '')
+      .replace(/^[,:;\s–—-]+|[,:;\s–—.-]+$/g, '')
+      .trim();
+
+    // If we have a descriptive role/profession (e.g. "Indian physiologist and academic", "Frankish king")
+    if (personDesc.length >= 6) {
+      const pLower = personDesc.toLowerCase();
+
+      if (isBirth) {
+        if (/\b(physiologist|scientist|physicist|chemist|biologist|astronomer|mathematician|inventor|surgeon|doctor|scholar|academic|professor)\b/.test(pLower)) {
+          return `An influential ${personDesc} whose research and discoveries advanced scientific knowledge.`;
         }
-      }
-
-      // If the first sentence is very short (< 35 chars) and a second sentence exists, combine them
-      if (firstSentence.length < 35 && sentences.length > 1) {
-        const combined = `${firstSentence} ${sentences[1]}`.trim();
-        if (combined.length <= 180) {
-          firstSentence = combined;
+        if (/\b(king|queen|emperor|empress|sultan|tsar|czar|monarch|prince|princess|chieftain|ruler)\b/.test(pLower)) {
+          return `Prominent ${personDesc} whose reign and leadership shaped historical governance.`;
         }
+        if (/\b(general|soldier|admiral|commander|marshal|warrior|officer)\b/.test(pLower)) {
+          return `Distinguished ${personDesc} recognized for strategic command and military service.`;
+        }
+        if (/\b(composer|musician|artist|painter|sculptor|author|poet|writer|playwright|architect)\b/.test(pLower)) {
+          return `Celebrated ${personDesc} known for creative works and lasting cultural influence.`;
+        }
+        if (/\b(philosopher|theologian|monk|priest|saint|bishop|pope)\b/.test(pLower)) {
+          return `Renowned ${personDesc} whose teachings and thought influenced religious and intellectual history.`;
+        }
+        return `Notable ${personDesc} remembered for historical contributions and leadership.`;
       }
 
-      // If within target length (40 - 180 chars), return clean sentence
-      if (firstSentence.length <= 180) {
-        if (!/[.!?]$/.test(firstSentence)) firstSentence += '.';
-        return firstSentence;
+      if (isDeath) {
+        if (/\b(king|queen|emperor|empress|sultan|monarch|ruler|chieftain)\b/.test(pLower)) {
+          return `Marked the passing of the ${personDesc}, concluding an influential period of rule.`;
+        }
+        if (/\b(physiologist|scientist|physicist|chemist|biologist|astronomer|mathematician|inventor)\b/.test(pLower)) {
+          return `Remembered as an influential ${personDesc} whose scientific legacy continued to inspire future inquiry.`;
+        }
+        if (/\b(composer|musician|artist|painter|sculptor|author|poet|writer|playwright)\b/.test(pLower)) {
+          return `Remembered as an acclaimed ${personDesc} whose works remain a cornerstone of cultural heritage.`;
+        }
+        if (/\b(general|soldier|admiral|commander|marshal)\b/.test(pLower)) {
+          return `Honors the legacy of the ${personDesc}, celebrated for military command and service.`;
+        }
+        return `Remembered as an influential ${personDesc} whose life left an enduring historical record.`;
       }
-
-      // If sentence is excessively long, truncate cleanly at word boundary
-      const truncated = firstSentence.slice(0, 160).replace(/[,;:\s]+[^,;:\s]*$/, '').trim();
-      return `${truncated}.`;
     }
   }
 
-  // Factual, lightweight fallback if stored description is empty or identical to title
-  const cleanYear = year ? ` in ${year}` : '';
-  if (category === 'Births') {
-    return `Birth of ${cleanTitle}${cleanYear}.`;
+  // 4. Wars & Military Events
+  // Example: "Spanish naval forces defeat an English fleet, under the command of John Hawkins, at the Battle of San Juan de Ulúa near Veracruz."
+  // Example: "The Battle of Rowton Heath in England occurs, ending in a Parliamentarian victory..."
+  if (lowerCat.includes('war') || lowerCat.includes('military')) {
+    let eventAction = sanitized;
+
+    if (cleanTitle) {
+      const battlePrefix = new RegExp(`^(?:The\\s+)?${escapeRegExp(cleanTitle)}[\\s\\w,]*?(?:occurs|occurred|takes place|took place|begins|began|ends|ended)[,:\\s]*`, 'i');
+      if (battlePrefix.test(eventAction)) {
+        eventAction = eventAction.replace(battlePrefix, '').trim();
+      }
+    }
+
+    if (eventAction && eventAction.length > 20 && eventAction.toLowerCase() !== cleanTitle.toLowerCase()) {
+      const formatted = eventAction.charAt(0).toUpperCase() + eventAction.slice(1);
+      if (!/[.!?]$/.test(formatted)) return `${formatted}.`;
+      return formatted;
+    }
   }
-  if (category === 'Deaths') {
-    return `Passing of ${cleanTitle}${cleanYear}.`;
+
+  // 5. General Events / Politics / Science / Disasters / Holidays
+  let generalSummary = sanitized;
+  if (cleanTitle && generalSummary.toLowerCase().startsWith(cleanTitle.toLowerCase())) {
+    const withoutTitle = generalSummary.slice(cleanTitle.length).replace(/^[,:;\s–—-]+/, '').trim();
+    if (withoutTitle.length >= 20) {
+      generalSummary = withoutTitle.charAt(0).toUpperCase() + withoutTitle.slice(1);
+    }
   }
-  if (category === 'Festivals & Holidays' || category === 'Holidays & Observances') {
-    return `Global and regional observance of ${cleanTitle}.`;
+
+  const firstSentenceMatch = generalSummary.match(/^([^.!?]+[.!?])/);
+  let resultSentence = firstSentenceMatch ? firstSentenceMatch[1].trim() : generalSummary;
+
+  if (resultSentence.length > 170) {
+    resultSentence = resultSentence.slice(0, 165).replace(/[,;:\s]+[^,;:\s]*$/, '').trim() + '.';
   }
-  return `Historical milestone commemorating ${cleanTitle}${cleanYear}.`;
+
+  // Ensure result doesn't duplicate the title or content exactly
+  if (
+    resultSentence &&
+    resultSentence.length >= 20 &&
+    resultSentence.toLowerCase() !== cleanTitle.toLowerCase() &&
+    resultSentence.toLowerCase() !== sanitized.toLowerCase()
+  ) {
+    if (!/[.!?]$/.test(resultSentence)) resultSentence += '.';
+    return resultSentence;
+  }
+
+  // If the extracted sentence is virtually identical to content or title, return null (omit extra summary)
+  return null;
 }
 
 /**

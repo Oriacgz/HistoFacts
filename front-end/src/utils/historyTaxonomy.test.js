@@ -89,22 +89,63 @@ describe('historyTaxonomy', () => {
   });
 
   describe('deriveShortDescription', () => {
-    it('extracts concise 1-2 line summary from existing event content', () => {
+    it('uses Wikipedia extract to create distinct summary for births', () => {
+      const summary = deriveShortDescription(
+        'Autar Singh Paintal',
+        'Autar Singh Paintal, Indian physiologist and academic (died 2004)',
+        'Births',
+        '1925',
+        'Autar Singh Paintal was an Indian medical scientist who made pioneering discoveries in the area of neurosciences and respiratory sciences. He is the first Indian Physiologist to become the Fellow of the Royal Society, London.'
+      );
+      expect(summary).not.toBeNull();
+      expect(summary.length).toBeGreaterThan(20);
+      // Should NOT repeat the title or description verbatim
+      expect(summary).not.toBe('Autar Singh Paintal, Indian physiologist and academic (died 2004)');
+      expect(summary.toLowerCase()).not.toMatch(/^autar singh paintal/);
+    });
+
+    it('produces distinct summary for general historical events', () => {
       const summary = deriveShortDescription(
         'Storming of the Bastille',
         'French revolutionaries stormed the medieval armory and political prison known as the Bastille, marking a key turning point in the French Revolution.',
         'Wars & Military',
         '1789'
       );
+      expect(summary).not.toBeNull();
       expect(summary.length).toBeGreaterThan(20);
       expect(summary.length).toBeLessThanOrEqual(180);
-      expect(summary.endsWith('.')).toBe(true);
-      expect(summary).toContain('Bastille');
     });
 
-    it('provides factual concise fallback when content is empty', () => {
+    it('returns null when content is empty (insufficient data)', () => {
       const summary = deriveShortDescription('Albert Einstein', '', 'Births', '1879');
-      expect(summary).toBe('Birth of Albert Einstein in 1879.');
+      expect(summary).toBeNull();
+    });
+
+    it('returns null when content is identical to title', () => {
+      const summary = deriveShortDescription('Pope Liberius', 'Pope Liberius', 'Deaths', '366');
+      expect(summary).toBeNull();
+    });
+
+    it('returns contextual description for births with profession info', () => {
+      const summary = deriveShortDescription(
+        'Vitellius',
+        'Vitellius, Roman emperor (died 69)',
+        'Births',
+        '10s'
+      );
+      expect(summary).not.toBeNull();
+      expect(summary.toLowerCase()).toContain('roman emperor');
+    });
+
+    it('returns contextual description for deaths with profession info', () => {
+      const summary = deriveShortDescription(
+        'Pepin the Short',
+        'Pepin the Short, Frankish king (born 714)',
+        'Deaths',
+        '768'
+      );
+      expect(summary).not.toBeNull();
+      expect(summary.toLowerCase()).toContain('frankish king');
     });
   });
 
