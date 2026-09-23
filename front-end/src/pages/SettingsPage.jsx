@@ -199,7 +199,7 @@ export default function SettingsPage() {
       const data = await getBlockedUsersApi();
       setBlockedUsers(data);
     } catch (err) {
-      toast.error(err.message || 'Failed to load blocked scholars');
+      toast.error(err.message || 'Failed to load blocked users');
     } finally {
       setLoadingBlocked(false);
     }
@@ -1322,10 +1322,10 @@ export default function SettingsPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   {[
-                    { key: 'friend_requests', label: 'Friend & Peer Inquiries', desc: 'Alert when a scholar sends a request' },
-                    { key: 'quiz_challenges', label: 'Quiz & Arena Duels', desc: 'Challenges from peers or daily trivia' },
-                    { key: 'group_discussions', label: 'Guild & Group Discussions', desc: 'Mentions and new replies in forums' },
-                    { key: 'daily_fact', label: 'Daily Historical Milestone', desc: 'Morning chronicle drops and fun facts' },
+                    { key: 'friend_requests', label: 'Friend Requests', desc: 'Get notified when someone sends you a friend request' },
+                    { key: 'quiz_challenges', label: 'Quiz Challenges', desc: 'Notifications for multiplayer quizzes and trivia games' },
+                    { key: 'group_discussions', label: 'Discussions & Replies', desc: 'Mentions and replies to your forum posts' },
+                    { key: 'daily_fact', label: 'Daily History Facts', desc: 'Today in history updates and interesting facts' },
                   ].map((item) => {
                     const enabled = notificationPrefs[item.key] !== false;
                     return (
@@ -1499,11 +1499,10 @@ export default function SettingsPage() {
                   <div className="space-y-1">
                     <h4 className="font-display font-bold text-sm text-histo-paper flex items-center gap-2">
                       <Download className="h-4 w-4 text-histo-gold" />
-                      <span>Download Chronicle (ZIP)</span>
+                      <span>Download My Data (ZIP)</span>
                     </h4>
                     <p className="font-ui text-xs text-histo-paper/60">
-                      Export your comprehensive history, quiz attempts, forum posts, notes, and profile records in a
-                      portable JSON archive.
+                      Export your quiz results, discussion posts, study notes, and profile data in a portable ZIP archive.
                     </p>
                   </div>
                   <button
@@ -1525,8 +1524,8 @@ export default function SettingsPage() {
                       <span>Schedule Deletion</span>
                     </h4>
                     <p className="font-ui text-xs text-red-300/70">
-                      Initiates a 30-day grace period. Discussion posts remain intact with anonymized authorship; private
-                      notes and tokens are permanently purged.
+                      Initiates a 30-day grace period. Your discussion posts will be anonymized, and your notes and account
+                      data will be permanently deleted.
                     </p>
                   </div>
                   {deletionScheduledAt ? (

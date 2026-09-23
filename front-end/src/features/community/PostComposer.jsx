@@ -208,7 +208,7 @@ export default function PostComposer({ onPostCreated, disabled = false, modal = 
             }`}
           >
             <Hash className="w-3.5 h-3.5" />
-            {showTitleField ? 'Remove Headline' : 'Add Headline'}
+            {showTitleField ? 'Remove Title' : 'Add Title'}
           </button>
         )}
       </div>
@@ -230,7 +230,7 @@ export default function PostComposer({ onPostCreated, disabled = false, modal = 
             >
               {modal && (
                 <label htmlFor="chronicle-title" className="mb-1.5 block text-xs font-ui font-semibold text-histo-dark">
-                  Chronicle Headline / Thesis <span className="text-histo-copper">*</span>
+                  Post Title <span className="text-histo-copper">*</span>
                 </label>
               )}
               <input
@@ -239,7 +239,7 @@ export default function PostComposer({ onPostCreated, disabled = false, modal = 
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={modal ? 'State your historical question, thesis, or discovery...' : "Thread Headline or Thesis (e.g. 'The Real Impact of the Library of Alexandria')"}
+                placeholder={modal ? 'What is your question or topic title?' : "Discussion Title (e.g. 'The Real Impact of the Library of Alexandria')"}
                 maxLength={200}
                 disabled={!user || submitting}
                 className="w-full rounded-xl border border-histo-dark/15 bg-histo-paper/50 px-4 py-2.5 text-sm font-display font-semibold text-histo-dark outline-none transition-all placeholder:text-histo-ink/40 focus:border-histo-copper focus:bg-white focus:ring-2 focus:ring-histo-copper/20"
@@ -253,7 +253,7 @@ export default function PostComposer({ onPostCreated, disabled = false, modal = 
           value={content}
           onChange={(e) => setContent(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={user ? (modal ? 'Elaborate on the historical context, sources, or arguments (optional)...' : "What's happening in history?") : 'Please log in to participate in scholar discussions.'}
+          placeholder={user ? (modal ? 'Share your thoughts, historical context, or sources (optional)...' : 'What historical topic would you like to discuss?') : 'Please log in to join discussions.'}
           disabled={!user || submitting || disabled}
           rows={3}
           maxLength={maxChars}
@@ -385,7 +385,7 @@ export default function PostComposer({ onPostCreated, disabled = false, modal = 
               ) : (
                 <>
                   <Send className="w-3.5 h-3.5" />
-                  Publish Chronicle
+                  Publish Post
                 </>
               )}
             </button>
