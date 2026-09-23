@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { searchGifsApi } from '../../api/social';
 
-// Shared Tenor GIF search — the single GIF integration in the app (community feed, chat).
-// The Tenor key lives server-side; the backend proxies the search and 503s when unset.
+// Shared Tenor GIF search — responsive container clamped to viewport.
 export default function GifPickerPopover({ open, onClose, onSelect }) {
   const [query, setQuery] = useState('');
   const [gifs, setGifs] = useState([]);
@@ -16,8 +15,15 @@ export default function GifPickerPopover({ open, onClose, onSelect }) {
     const handleOutside = (e) => {
       if (ref.current && !ref.current.contains(e.target)) onClose();
     };
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
     document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
   }, [open, onClose]);
 
   useEffect(() => {
@@ -43,7 +49,7 @@ export default function GifPickerPopover({ open, onClose, onSelect }) {
   return (
     <div
       ref={ref}
-      className="absolute bottom-full left-0 z-30 mb-2 w-[340px] rounded-xl border border-histo-dark/15 bg-white shadow-deep p-2"
+      className="absolute bottom-full left-0 z-30 mb-2 w-[calc(100vw-3rem)] max-w-[340px] rounded-2xl border border-histo-dark/15 bg-white shadow-deep p-2.5"
     >
       <div className="relative mb-2">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-histo-ink/40" />
@@ -53,7 +59,7 @@ export default function GifPickerPopover({ open, onClose, onSelect }) {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search Tenor GIFs..."
           autoFocus
-          className="w-full pl-8 pr-3 py-1.5 bg-histo-paper/50 border border-histo-dark/15 rounded-lg text-xs font-body outline-none focus:border-histo-copper"
+          className="w-full pl-8 pr-3 py-1.5 bg-histo-paper/50 border border-histo-dark/15 rounded-xl text-xs font-body outline-none focus:border-histo-copper"
         />
       </div>
 
@@ -62,13 +68,13 @@ export default function GifPickerPopover({ open, onClose, onSelect }) {
       ) : status === 'loading' ? (
         <div className="py-6 text-center text-[11px] font-ui text-histo-ink/50">Searching GIFs...</div>
       ) : (
-        <div className="grid grid-cols-2 gap-1 max-h-64 overflow-y-auto">
+        <div className="grid grid-cols-2 gap-1.5 max-h-60 overflow-y-auto">
           {gifs.map((gif) => (
             <button
               key={gif.id}
               type="button"
               onClick={() => onSelect(gif.url)}
-              className="rounded-lg overflow-hidden border border-histo-dark/10 hover:border-histo-copper transition-colors cursor-pointer"
+              className="rounded-xl overflow-hidden border border-histo-dark/10 hover:border-histo-copper transition-colors cursor-pointer"
             >
               <img src={gif.preview_url} alt="GIF result" loading="lazy" className="w-full h-24 object-cover" />
             </button>
