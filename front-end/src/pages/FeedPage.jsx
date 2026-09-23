@@ -12,7 +12,6 @@ import {
   Flame,
   Gamepad2,
   HelpCircle,
-  Home,
   Layers,
   MessageCircle,
   PenLine,
@@ -20,7 +19,6 @@ import {
   RefreshCw,
   Search,
   Sparkles,
-  TrendingUp,
   Users,
   X,
 } from 'lucide-react';
@@ -284,7 +282,31 @@ export default function FeedPage() {
   };
 
   useEffect(() => {
-    loadFeed();
+    let ignore = false;
+
+    const fetchFeedOnMount = async () => {
+      try {
+        const data = await getPublicFeedApi({ limit: 50 });
+        if (!ignore) {
+          setPosts(data || []);
+        }
+      } catch (err) {
+        if (!ignore) {
+          console.error('Failed to load feed:', err);
+          setError('Unable to load chronicle discussions. Please check your connection and try again.');
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchFeedOnMount();
+
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   // 1. Create Post (then attach any staged media)
