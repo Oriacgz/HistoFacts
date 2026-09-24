@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   SCOPES,
+  COUNTRY_CATEGORIES,
   INDIA_CATEGORIES,
   WORLD_CATEGORIES,
+  getCategoriesForScope,
+  getCountryFlag,
+  doesEventMatchCountry,
+  doesEventMatchScope,
   detectEventScope,
   classifyEventCategory,
   deriveShortDescription,
@@ -10,10 +15,15 @@ import {
 } from './historyTaxonomy';
 
 describe('historyTaxonomy', () => {
-  it('defines the required INDIA categories without Other or World Events', () => {
-    expect(INDIA_CATEGORIES).not.toContain('Other');
-    expect(INDIA_CATEGORIES).not.toContain('World Events');
-    expect(INDIA_CATEGORIES).not.toContain('Milestones');
+  it('defines the required COUNTRY categories without Other or World Events', () => {
+    expect(COUNTRY_CATEGORIES).not.toContain('Other');
+    expect(COUNTRY_CATEGORIES).not.toContain('World Events');
+    expect(COUNTRY_CATEGORIES).not.toContain('Milestones');
+    expect(COUNTRY_CATEGORIES).toHaveLength(12);
+  });
+
+  it('defines the required INDIA categories as an alias of COUNTRY_CATEGORIES', () => {
+    expect(INDIA_CATEGORIES).toEqual(COUNTRY_CATEGORIES);
     expect(INDIA_CATEGORIES).toHaveLength(12);
   });
 
@@ -22,6 +32,63 @@ describe('historyTaxonomy', () => {
     expect(WORLD_CATEGORIES).not.toContain('World Events');
     expect(WORLD_CATEGORIES).not.toContain('Milestones');
     expect(WORLD_CATEGORIES).toHaveLength(13);
+  });
+
+  describe('getCategoriesForScope', () => {
+    it('returns WORLD_CATEGORIES for WORLD scope', () => {
+      expect(getCategoriesForScope('WORLD')).toEqual(WORLD_CATEGORIES);
+      expect(getCategoriesForScope('World')).toEqual(WORLD_CATEGORIES);
+      expect(getCategoriesForScope(SCOPES.WORLD)).toEqual(WORLD_CATEGORIES);
+      expect(getCategoriesForScope(null)).toEqual(WORLD_CATEGORIES);
+    });
+
+    it('returns COUNTRY_CATEGORIES (12 categories) for any country scope', () => {
+      expect(getCategoriesForScope('India')).toEqual(COUNTRY_CATEGORIES);
+      expect(getCategoriesForScope('Japan')).toEqual(COUNTRY_CATEGORIES);
+      expect(getCategoriesForScope('France')).toEqual(COUNTRY_CATEGORIES);
+      expect(getCategoriesForScope('United States')).toEqual(COUNTRY_CATEGORIES);
+    });
+  });
+
+  describe('getCountryFlag', () => {
+    it('generates correct flag emojis from ISO codes', () => {
+      expect(getCountryFlag('IN')).toBe('🇮🇳');
+      expect(getCountryFlag('JP')).toBe('🇯🇵');
+      expect(getCountryFlag('FR')).toBe('🇫🇷');
+      expect(getCountryFlag('US')).toBe('🇺🇸');
+      expect(getCountryFlag('WORLD')).toBe('🌍');
+    });
+
+    it('falls back gracefully on missing or invalid codes', () => {
+      expect(getCountryFlag('')).toBe('🌐');
+      expect(getCountryFlag(null)).toBe('🌐');
+      expect(getCountryFlag('XYZ')).toBe('🌐');
+    });
+  });
+
+  describe('doesEventMatchScope and doesEventMatchCountry', () => {
+    it('matches WORLD scope for any event', () => {
+      expect(doesEventMatchScope({ title: 'Any Event', description: 'Anywhere' }, 'WORLD')).toBe(true);
+      expect(doesEventMatchScope({ title: 'Any Event', description: 'Anywhere' }, SCOPES.WORLD)).toBe(true);
+    });
+
+    it('matches India scope using rich keywords and country field', () => {
+      expect(doesEventMatchScope({ country: 'India', title: 'Test' }, 'India')).toBe(true);
+      expect(doesEventMatchScope({ title: 'Mahatma Gandhi leads Salt March', description: 'Dandi satyagraha' }, 'India')).toBe(true);
+      expect(doesEventMatchScope({ title: 'Storming of the Bastille', description: 'Paris revolution' }, 'India')).toBe(false);
+    });
+
+    it('matches Japan scope using demonyms, cities, and country name', () => {
+      expect(doesEventMatchCountry({ country: 'Japan', title: 'Battle of Sekigahara' }, 'Japan')).toBe(true);
+      expect(doesEventMatchCountry({ title: 'Tokugawa Ieyasu unites the realm in Edo', description: 'Japanese history' }, 'Japan')).toBe(true);
+      expect(doesEventMatchCountry({ title: 'French Revolution begins', description: 'In Paris, France' }, 'Japan')).toBe(false);
+    });
+
+    it('matches France scope using demonyms, cities, and country name', () => {
+      expect(doesEventMatchCountry({ country: 'France', title: 'Treaty of Versailles' }, 'France')).toBe(true);
+      expect(doesEventMatchCountry({ title: 'Napoleon crowned emperor at Notre-Dame', description: 'French empire' }, 'France')).toBe(true);
+      expect(doesEventMatchCountry({ title: 'ISRO Chandrayaan Launch', description: 'Sriharikota' }, 'France')).toBe(false);
+    });
   });
 
   describe('detectEventScope', () => {

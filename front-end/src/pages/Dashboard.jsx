@@ -16,9 +16,12 @@ import {
   Shuffle,
   ChevronRight,
   ChevronDown,
+  Plus,
 } from 'lucide-react';
+import countries from 'country-list';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import CountryPickerPopover from '../components/CountryPickerPopover';
 import {
   getTodayEventsApi,
   getEventsByDateApi,
@@ -29,8 +32,9 @@ import {
 } from '../api/history';
 import {
   SCOPES,
-  INDIA_CATEGORIES,
-  WORLD_CATEGORIES,
+  getCategoriesForScope,
+  getCountryFlag,
+  doesEventMatchScope,
   detectEventScope,
   classifyEventCategory,
   deriveShortDescription,
@@ -217,9 +221,141 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
 
+  // Default personal country derived from user's Country of Origin profile field
+  const userPersonalCountry = useMemo(() => {
+    const code = (user?.country_code || 'IN').toUpperCase();
+    let name = 'India';
+    try {
+      const found = countries.getName(code);
+      if (found) {
+        name = found.replace(/\s*\(the\)$/i, '').replace(/,\s*Province of/i, '').trim();
+      }
+    } catch {
+      name = 'India';
+    }
+    return { code, name };
+  }, [user?.country_code]);
+
+  // Per-user storage keys to persist selected scopes and prevent cross-user leakage
+  const scopesStorageKey = user?.id
+    ? `histofacts_history_scopes_user_${user.id}`
+    : 'histofacts_history_scopes_guest';
+  const activeScopeStorageKey = user?.id
+    ? `histofacts_active_scope_user_${user.id}`
+    : 'histofacts_active_scope_guest';
+
+  // Helper to load stored countries from localStorage
+  const loadStoredCountries = (key) => {
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // Ignore storage read errors
+    }
+    return [];
+  };
+
+  // Helper to load active scope from localStorage
+  const loadStoredScope = (key, fallback) => {
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved) return saved;
+    } catch {
+      // Ignore storage read errors
+    }
+    return fallback;
+  };
+
+  // Multi-country scope persistence
+  const [prevScopesStorageKey, setPrevScopesStorageKey] = useState(scopesStorageKey);
+  const [addedCountries, setAddedCountries] = useState(() => loadStoredCountries(scopesStorageKey));
+
+  // If authenticated user switches, adjust state during render without cascading effects
+  if (prevScopesStorageKey !== scopesStorageKey) {
+    setPrevScopesStorageKey(scopesStorageKey);
+    setAddedCountries(loadStoredCountries(scopesStorageKey));
+  }
+
+  // Persist added countries to external storage when changed (pure side-effect, no setState)
+  useEffect(() => {
+    try {
+      localStorage.setItem(scopesStorageKey, JSON.stringify(addedCountries));
+    } catch {
+      // Ignore storage write errors
+    }
+  }, [addedCountries, scopesStorageKey]);
+
+  // Available scopes: [ User Country ] [ World ] [ ...added countries ]
+  const availableScopes = useMemo(() => {
+    const list = [
+      {
+        id: userPersonalCountry.name,
+        name: userPersonalCountry.name,
+        code: userPersonalCountry.code,
+        isPersonal: true,
+        isWorld: false,
+      },
+      {
+        id: 'WORLD',
+        name: 'World',
+        code: 'WORLD',
+        isPersonal: false,
+        isWorld: true,
+      },
+    ];
+
+    addedCountries.forEach((c) => {
+      const isDupPersonal = c.name.toLowerCase() === userPersonalCountry.name.toLowerCase();
+      const isDupWorld = c.name.toUpperCase() === 'WORLD';
+      if (!isDupPersonal && !isDupWorld) {
+        list.push({
+          id: c.name,
+          name: c.name,
+          code: c.code,
+          isPersonal: false,
+          isWorld: false,
+        });
+      }
+    });
+
+    return list;
+  }, [userPersonalCountry, addedCountries]);
+
   // Events & Filter state
   const [allEvents, setAllEvents] = useState([]);
-  const [selectedScope, setSelectedScope] = useState(SCOPES.INDIA);
+  const [prevActiveScopeKey, setPrevActiveScopeKey] = useState(activeScopeStorageKey);
+  const [selectedScope, setSelectedScope] = useState(() =>
+    loadStoredScope(activeScopeStorageKey, userPersonalCountry.name)
+  );
+
+  // If user switches, adjust selected scope during render
+  if (prevActiveScopeKey !== activeScopeStorageKey) {
+    setPrevActiveScopeKey(activeScopeStorageKey);
+    setSelectedScope(loadStoredScope(activeScopeStorageKey, userPersonalCountry.name));
+  }
+
+  // Ensure selected scope is valid among available scopes without an effect
+  const isSelectedScopeValid = availableScopes.some(
+    (s) => s.name.toLowerCase() === selectedScope.toLowerCase()
+  );
+  if (!isSelectedScopeValid && selectedScope !== userPersonalCountry.name) {
+    setSelectedScope(userPersonalCountry.name);
+  }
+
+  // Persist active scope to external storage when changed (pure side-effect, no setState)
+  useEffect(() => {
+    try {
+      localStorage.setItem(activeScopeStorageKey, selectedScope);
+    } catch {
+      // Ignore storage write errors
+    }
+  }, [selectedScope, activeScopeStorageKey]);
+
+  // Country Picker popover state
+  const [isCountryPickerOpen, setIsCountryPickerOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
@@ -441,7 +577,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Handle Scope Switching (INDIA | WORLD)
+  // Handle Scope Switching
   const handleScopeChange = (newScope) => {
     if (newScope === selectedScope) return;
     setSelectedScope(newScope);
@@ -451,14 +587,36 @@ export default function DashboardPage() {
     setVisibleCount(25);
   };
 
+  // Handle adding another country to scopes
+  const handleAddCountry = (country) => {
+    const exists = availableScopes.some(
+      (s) => s.name.toLowerCase() === country.name.toLowerCase()
+    );
+    if (!exists) {
+      setAddedCountries((prev) => [...prev, country]);
+    }
+    handleScopeChange(country.name);
+  };
+
+  // Handle removing a user-added country scope
+  const handleRemoveCountry = (e, countryName) => {
+    e.stopPropagation();
+    setAddedCountries((prev) =>
+      prev.filter((c) => c.name.toLowerCase() !== countryName.toLowerCase())
+    );
+    if (selectedScope.toLowerCase() === countryName.toLowerCase()) {
+      handleScopeChange(userPersonalCountry.name);
+    }
+  };
+
   // Compute Scopes, Categories & Live Counts
   const { scopeCounts, categoryCounts } = useMemo(() => {
-    const sCounts = {
-      [SCOPES.INDIA]: 0,
-      [SCOPES.WORLD]: 0,
-    };
+    const sCounts = {};
+    availableScopes.forEach((s) => {
+      sCounts[s.name] = 0;
+    });
 
-    const categoriesForScope = selectedScope === SCOPES.INDIA ? INDIA_CATEGORIES : WORLD_CATEGORIES;
+    const categoriesForScope = getCategoriesForScope(selectedScope);
     const cCounts = {
       All: 0,
       Bookmarks: 0,
@@ -468,15 +626,22 @@ export default function DashboardPage() {
     });
 
     allEvents.forEach((ev) => {
-      const evScope = ev.scope || SCOPES.WORLD;
-      if (sCounts[evScope] !== undefined) {
-        sCounts[evScope]++;
-      } else {
-        sCounts[SCOPES.WORLD]++;
-      }
+      // Tally for each scope in availableScopes
+      availableScopes.forEach((s) => {
+        if (s.isWorld) {
+          sCounts[s.name] = (sCounts[s.name] || 0) + 1;
+        } else if (doesEventMatchScope(ev, s.name)) {
+          sCounts[s.name] = (sCounts[s.name] || 0) + 1;
+        }
+      });
 
-      // Tally categories if event matches current scope
-      if (evScope === selectedScope) {
+      // Tally categories if event matches current selectedScope
+      const isMatchSelected =
+        selectedScope === 'WORLD' ||
+        selectedScope === SCOPES.WORLD ||
+        doesEventMatchScope(ev, selectedScope);
+
+      if (isMatchSelected) {
         cCounts.All++;
         if (cCounts[ev.category] !== undefined) {
           cCounts[ev.category]++;
@@ -491,7 +656,7 @@ export default function DashboardPage() {
     });
 
     return { scopeCounts: sCounts, categoryCounts: cCounts };
-  }, [allEvents, selectedScope, bookmarkedIds]);
+  }, [allEvents, availableScopes, selectedScope, bookmarkedIds]);
 
   // Filtered Events based on Scope, Category and Search Query
   const displayedEvents = useMemo(() => {
@@ -501,7 +666,10 @@ export default function DashboardPage() {
     if (selectedCategory === 'Bookmarks') {
       list = list.filter((ev) => bookmarkedIds.has(ev.id));
     } else {
-      list = list.filter((ev) => (ev.scope || SCOPES.WORLD) === selectedScope);
+      const isWorld = selectedScope === 'WORLD' || selectedScope === SCOPES.WORLD;
+      if (!isWorld) {
+        list = list.filter((ev) => doesEventMatchScope(ev, selectedScope));
+      }
       if (selectedCategory !== 'All') {
         list = list.filter((ev) => ev.category === selectedCategory);
       }
@@ -772,54 +940,82 @@ export default function DashboardPage() {
                 </button>
               </form>
 
-              {/* Historical Scope Selector (INDIA | WORLD) */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                <div className="flex items-center gap-1.5 p-1 bg-white/80 border border-histo-dark/15 rounded-[4px] shadow-xs">
-                  <button
-                    type="button"
-                    onClick={() => handleScopeChange(SCOPES.INDIA)}
-                    className={`px-3.5 py-1.5 rounded-[3px] text-xs font-ui font-bold uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
-                      selectedScope === SCOPES.INDIA
-                        ? 'bg-histo-dark text-histo-paper shadow-soft'
-                        : 'text-histo-ink/70 hover:text-histo-dark hover:bg-histo-paper/60'
-                    }`}
-                  >
-                    <span>🇮🇳 India</span>
-                    <span
-                      className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                        selectedScope === SCOPES.INDIA
-                          ? 'bg-histo-gold text-histo-dark font-bold'
-                          : 'bg-histo-dark/10 text-histo-ink/60'
-                      }`}
-                    >
-                      {scopeCounts[SCOPES.INDIA]}
-                    </span>
-                  </button>
+              {/* Historical Scope Selector ([ User Country ] [ World ] [ Added Countries... ] [ + ]) */}
+              <div className="relative z-30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <div className="relative flex items-center p-1 bg-white/80 border border-histo-dark/15 rounded-[4px] shadow-xs max-w-full">
+                  {/* Scrollable Scopes Area */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pr-1.5 max-w-full">
+                    {availableScopes.map((scopeItem) => {
+                      const isActive = selectedScope === scopeItem.name;
+                      const count = scopeCounts[scopeItem.name] ?? (scopeItem.isWorld ? allEvents.length : 0);
+                      const flag = scopeItem.isWorld ? '🌍' : getCountryFlag(scopeItem.code);
 
-                  <button
-                    type="button"
-                    onClick={() => handleScopeChange(SCOPES.WORLD)}
-                    className={`px-3.5 py-1.5 rounded-[3px] text-xs font-ui font-bold uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
-                      selectedScope === SCOPES.WORLD
-                        ? 'bg-histo-dark text-histo-paper shadow-soft'
-                        : 'text-histo-ink/70 hover:text-histo-dark hover:bg-histo-paper/60'
-                    }`}
-                  >
-                    <span>🌍 World</span>
-                    <span
-                      className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                        selectedScope === SCOPES.WORLD
-                          ? 'bg-histo-gold text-histo-dark font-bold'
-                          : 'bg-histo-dark/10 text-histo-ink/60'
-                      }`}
+                      return (
+                        <div
+                          key={scopeItem.name}
+                          onClick={() => handleScopeChange(scopeItem.name)}
+                          className={`px-3 py-1.5 rounded-[3px] text-xs font-ui font-bold uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shrink-0 select-none ${
+                            isActive
+                              ? 'bg-histo-dark text-histo-paper shadow-soft'
+                              : 'text-histo-ink/70 hover:text-histo-dark hover:bg-histo-paper/60'
+                          }`}
+                          title={scopeItem.isPersonal ? `${scopeItem.name} (Your Country of Origin)` : scopeItem.name}
+                        >
+                          <span className="text-sm">{flag}</span>
+                          <span>{scopeItem.name}</span>
+                          <span
+                            className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                              isActive
+                                ? 'bg-histo-gold text-histo-dark font-bold'
+                                : 'bg-histo-dark/10 text-histo-ink/60'
+                            }`}
+                          >
+                            {count}
+                          </span>
+                          {/* Remove button for user-added countries only */}
+                          {!scopeItem.isPersonal && !scopeItem.isWorld && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleRemoveCountry(e, scopeItem.name)}
+                              className={`p-0.5 -mr-1 rounded-full transition-colors cursor-pointer ${
+                                isActive
+                                  ? 'text-histo-paper/60 hover:text-red-300 hover:bg-white/10'
+                                  : 'text-histo-ink/40 hover:text-red-600 hover:bg-black/5'
+                              }`}
+                              title={`Remove ${scopeItem.name}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* + Explore Country Action Button (pinned, outside overflow scroll container) */}
+                  <div className="relative shrink-0 pl-1.5 border-l border-histo-dark/15">
+                    <button
+                      type="button"
+                      onClick={() => setIsCountryPickerOpen((prev) => !prev)}
+                      className="px-2.5 py-1.5 rounded-[3px] text-xs font-ui font-semibold text-histo-copper bg-histo-copper/10 hover:bg-histo-copper/20 border border-dashed border-histo-copper/35 transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                      title="Explore another country"
                     >
-                      {scopeCounts[SCOPES.WORLD]}
-                    </span>
-                  </button>
+                      <Plus className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Explore</span>
+                    </button>
+
+                    {/* Lightweight Searchable Country Picker Popover */}
+                    <CountryPickerPopover
+                      isOpen={isCountryPickerOpen}
+                      onClose={() => setIsCountryPickerOpen(false)}
+                      onSelectCountry={handleAddCountry}
+                      existingScopeNames={availableScopes.map((s) => s.name)}
+                    />
+                  </div>
                 </div>
 
-                <span className="text-[11px] font-ui text-histo-ink/55 italic">
-                  Viewing {selectedScope === SCOPES.INDIA ? 'Indian history chronology' : 'World historical chronology'}
+                <span className="text-[11px] font-ui text-histo-ink/55 italic shrink-0">
+                  Viewing {selectedScope === 'WORLD' || selectedScope === SCOPES.WORLD ? 'World historical chronology' : `${selectedScope} history chronology`}
                 </span>
               </div>
 
@@ -848,7 +1044,7 @@ export default function DashboardPage() {
                 </button>
 
                 {/* Scope-Specific Category Chips */}
-                {(selectedScope === SCOPES.INDIA ? INDIA_CATEGORIES : WORLD_CATEGORIES).map((catName) => {
+                {getCategoriesForScope(selectedScope).map((catName) => {
                   const isActive = selectedCategory === catName;
                   const count = categoryCounts[catName] || 0;
                   return (
@@ -937,18 +1133,33 @@ export default function DashboardPage() {
                     <h4 className="font-display text-base font-bold text-histo-dark mb-1">
                       No Historical Events Found
                     </h4>
-                    <p className="text-xs font-ui text-histo-ink/60 max-w-sm mx-auto mb-4">
+                    <p className="text-xs font-ui text-histo-ink/60 max-w-md mx-auto mb-4">
                       {selectedCategory === 'Bookmarks'
                         ? "You haven't bookmarked any events yet. Click the bookmark icon on any card to save it."
-                        : `No entries recorded under "${selectedCategory}" for this date. Try another category or date.`}
+                        : selectedCategory !== 'All'
+                        ? `No entries recorded under "${selectedCategory}" for this date. Try selecting "All" or choosing another date.`
+                        : selectedScope !== 'WORLD' && selectedScope !== SCOPES.WORLD
+                        ? `No recorded events found specifically for ${selectedScope} on ${dateLabel}. You can switch to World history to browse all global events for this date, or explore another landmark date.`
+                        : `No entries recorded for this date. Try another date.`}
                     </p>
-                    <button
-                      type="button"
-                      onClick={handleResetToday}
-                      className="px-4 py-2 bg-histo-copper text-white text-xs font-ui font-semibold rounded-[2px] uppercase tracking-wider hover:bg-histo-dark transition-colors cursor-pointer"
-                    >
-                      Reset to Today
-                    </button>
+                    <div className="flex items-center justify-center gap-2 flex-wrap">
+                      {selectedScope !== 'WORLD' && selectedScope !== SCOPES.WORLD && (
+                        <button
+                          type="button"
+                          onClick={() => handleScopeChange('WORLD')}
+                          className="px-4 py-2 bg-histo-dark text-white text-xs font-ui font-semibold rounded-[2px] uppercase tracking-wider hover:bg-histo-copper transition-colors cursor-pointer"
+                        >
+                          Browse World Events ({allEvents.length})
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleResetToday}
+                        className="px-4 py-2 bg-histo-copper text-white text-xs font-ui font-semibold rounded-[2px] uppercase tracking-wider hover:bg-histo-dark transition-colors cursor-pointer"
+                      >
+                        Reset to Today
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3.5">

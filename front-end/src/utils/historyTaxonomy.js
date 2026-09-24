@@ -10,7 +10,8 @@ export const SCOPES = {
   WORLD: 'WORLD',
 };
 
-export const INDIA_CATEGORIES = [
+// Standard 12 categories for any country-level historical scope (India, Japan, France, etc.)
+export const COUNTRY_CATEGORIES = [
   'Politics & Governance',
   'Wars & Military',
   'Society & Movements',
@@ -25,6 +26,10 @@ export const INDIA_CATEGORIES = [
   'Deaths',
 ];
 
+// Backwards-compatible alias for India
+export const INDIA_CATEGORIES = COUNTRY_CATEGORIES;
+
+// Standard 13 categories for the permanent World historical scope
 export const WORLD_CATEGORIES = [
   'Politics & Governance',
   'Wars & Military',
@@ -40,6 +45,96 @@ export const WORLD_CATEGORIES = [
   'Births',
   'Deaths',
 ];
+
+/**
+ * Returns the valid taxonomy categories for a given scope.
+ * World returns 13 categories; any country returns 12 categories.
+ * Strictly zero "Other" or "World Events".
+ */
+export function getCategoriesForScope(scope) {
+  if (!scope || String(scope).trim().toUpperCase() === 'WORLD') {
+    return WORLD_CATEGORIES;
+  }
+  return COUNTRY_CATEGORIES;
+}
+
+/**
+ * Generate flag emoji from 2-letter ISO country code.
+ * Falls back to 🌍 for World and 🌐 for unrecognised codes.
+ */
+export function getCountryFlag(code) {
+  if (!code || typeof code !== 'string') return '🌐';
+  const clean = code.trim().toUpperCase();
+  if (clean === 'WORLD') return '🌍';
+  if (clean.length !== 2) return '🌐';
+  const codePoints = clean
+    .split('')
+    .map((char) => 127397 + char.charCodeAt(0));
+  return String.fromCodePoint(...codePoints);
+}
+
+// Common demonyms and historical keywords for major countries to enhance matching accuracy
+const COUNTRY_DEMONYMS = {
+  'india': ['india', 'indian', 'bharat', 'hindustan', 'delhi', 'mughal', 'maratha', 'british raj'],
+  'japan': ['japan', 'japanese', 'tokyo', 'kyoto', 'osaka', 'edo', 'samurai', 'shogun', 'meiji', 'tokugawa'],
+  'france': ['france', 'french', 'paris', 'versailles', 'napoleon', 'bourbon', 'gaul', 'louis xiv', 'bastille'],
+  'united kingdom': ['united kingdom', 'britain', 'british', 'england', 'english', 'london', 'scotland', 'scottish', 'wales', 'welsh', 'uk'],
+  'united states': ['united states', 'usa', 'america', 'american', 'washington', 'congress', 'white house', 'lincoln', 'jefferson'],
+  'germany': ['germany', 'german', 'berlin', 'prussia', 'prussian', 'bavaria', 'weimar', 'reich'],
+  'italy': ['italy', 'italian', 'rome', 'roman', 'venice', 'venetian', 'florence', 'milan', 'papal states'],
+  'china': ['china', 'chinese', 'beijing', 'shanghai', 'ming', 'qing', 'han dynasty', 'tang dynasty', 'song dynasty'],
+  'russia': ['russia', 'russian', 'moscow', 'saint petersburg', 'tsar', 'czar', 'soviet', 'ussr', 'kremlin'],
+  'spain': ['spain', 'spanish', 'madrid', 'barcelona', 'castile', 'aragon', 'conquistador', 'habsburg'],
+  'greece': ['greece', 'greek', 'athens', 'athenian', 'sparta', 'spartan', 'byzantine', 'byzantium', 'hellenic', 'peloponnese'],
+  'egypt': ['egypt', 'egyptian', 'cairo', 'alexandria', 'pharaoh', 'nile', 'pyramid', 'ptolemy', 'mamluk'],
+  'australia': ['australia', 'australian', 'sydney', 'melbourne', 'canberra', 'queensland', 'new south wales'],
+  'canada': ['canada', 'canadian', 'ottawa', 'toronto', 'montreal', 'quebec', 'vancouver'],
+  'brazil': ['brazil', 'brazilian', 'rio de janeiro', 'são paulo', 'sao paulo', 'brasilia'],
+  'mexico': ['mexico', 'mexican', 'mexico city', 'aztec', 'maya', 'mayan', 'tenochtitlan'],
+  'turkey': ['turkey', 'turkish', 'ottoman', 'istanbul', 'constantinople', 'ankara', 'anatolia'],
+  'iran': ['iran', 'iranian', 'persia', 'persian', 'tehran', 'safavid', 'parthian', 'achaemenid'],
+  'south korea': ['south korea', 'korea', 'korean', 'seoul', 'joseon', 'goryeo'],
+  'netherlands': ['netherlands', 'dutch', 'holland', 'amsterdam', 'rotterdam', 'the hague'],
+  'portugal': ['portugal', 'portuguese', 'lisbon', 'porto'],
+  'sweden': ['sweden', 'swedish', 'stockholm'],
+  'norway': ['norway', 'norwegian', 'oslo'],
+  'poland': ['poland', 'polish', 'warsaw', 'krakow', 'cracow', 'gdansk', 'danzig'],
+  'austria': ['austria', 'austrian', 'vienna', 'habsburg', 'salzburg'],
+  'switzerland': ['switzerland', 'swiss', 'geneva', 'zurich', 'bern'],
+  'ireland': ['ireland', 'irish', 'dublin', 'belfast', 'ulster', 'gaelic'],
+  'south africa': ['south africa', 'south african', 'johannesburg', 'cape town', 'boer', 'apartheid', 'zulu'],
+  'ukraine': ['ukraine', 'ukrainian', 'kyiv', 'kiev', 'crimea', 'odessa', 'cossack', 'dnipro'],
+  'denmark': ['denmark', 'danish', 'copenhagen', 'jutland'],
+  'finland': ['finland', 'finnish', 'helsinki'],
+  'belgium': ['belgium', 'belgian', 'brussels', 'flanders', 'wallonia', 'antwerp', 'ghent'],
+  'pakistan': ['pakistan', 'pakistani', 'karachi', 'lahore', 'islamabad', 'rawalpindi'],
+  'bangladesh': ['bangladesh', 'bangladeshi', 'dhaka', 'bengal', 'chittagong'],
+  'nepal': ['nepal', 'nepali', 'nepalese', 'kathmandu', 'gorkha', 'gurkha', 'himalaya'],
+  'sri lanka': ['sri lanka', 'sri lankan', 'ceylon', 'colombo'],
+  'vietnam': ['vietnam', 'vietnamese', 'hanoi', 'saigon', 'ho chi minh city', 'indochina'],
+  'thailand': ['thailand', 'thai', 'siam', 'siamese', 'bangkok'],
+  'indonesia': ['indonesia', 'indonesian', 'jakarta', 'java', 'sumatra', 'bali', 'dutch east indies'],
+  'philippines': ['philippines', 'philippine', 'filipino', 'manila'],
+  'israel': ['israel', 'israeli', 'jerusalem', 'tel aviv', 'zionist', 'zionism', 'judea'],
+  'saudi arabia': ['saudi arabia', 'saudi', 'riyadh', 'mecca', 'medina', 'hejaz'],
+  'iraq': ['iraq', 'iraqi', 'baghdad', 'mesopotamia', 'babylon', 'sumer', 'tigris', 'euphrates'],
+  'argentina': ['argentina', 'argentine', 'argentinian', 'buenos aires'],
+  'colombia': ['colombia', 'colombian', 'bogota', 'medellin'],
+  'chile': ['chile', 'chilean', 'santiago'],
+  'peru': ['peru', 'peruvian', 'lima', 'inca', 'incan', 'cusco'],
+  'cuba': ['cuba', 'cuban', 'havana', 'castro'],
+  'czech republic': ['czech', 'czechia', 'czech republic', 'bohemia', 'bohemian', 'moravia', 'prague'],
+  'hungary': ['hungary', 'hungarian', 'budapest', 'magyar'],
+  'romania': ['romania', 'romanian', 'bucharest', 'transylvania', 'wallachia'],
+  'new zealand': ['new zealand', 'maori', 'auckland', 'wellington', 'christchurch'],
+  'singapore': ['singapore', 'singaporean'],
+  'malaysia': ['malaysia', 'malaysian', 'kuala lumpur', 'malaya'],
+  'nigeria': ['nigeria', 'nigerian', 'lagos', 'abuja'],
+  'kenya': ['kenya', 'kenyan', 'nairobi'],
+  'morocco': ['morocco', 'moroccan', 'rabat', 'marrakech', 'casablanca', 'fez'],
+  'algeria': ['algeria', 'algerian', 'algiers'],
+  'afghanistan': ['afghanistan', 'afghan', 'kabul', 'kandahar'],
+};
 
 // Indian geographical, historical, cultural, and political markers
 const INDIA_REGEX = new RegExp(
@@ -100,11 +195,87 @@ export function detectEventScope(ev) {
 }
 
 /**
+ * Dynamically derive demonyms and common linguistic variants for any country worldwide.
+ */
+export function deriveCountryKeywords(name) {
+  const clean = String(name || '').trim().toLowerCase();
+  if (!clean || clean.length < 3) return [clean];
+  const keywords = new Set([clean]);
+
+  if (clean.endsWith('ia')) {
+    keywords.add(clean + 'n');
+  } else if (clean.endsWith('a')) {
+    keywords.add(clean + 'n');
+  } else if (clean.endsWith('land')) {
+    keywords.add(clean.slice(0, -4) + 'ish');
+    keywords.add(clean.slice(0, -4) + 'ic');
+  } else if (clean.endsWith('y')) {
+    keywords.add(clean.slice(0, -1) + 'ian');
+  } else if (clean.endsWith('e')) {
+    keywords.add(clean + 'an');
+  } else if (clean.endsWith('stan')) {
+    keywords.add(clean + 'i');
+  } else if (clean.endsWith('desh')) {
+    keywords.add(clean + 'i');
+  }
+
+  return Array.from(keywords);
+}
+
+/**
+ * Test whether an event matches a specific country name.
+ * Uses specialized keyword regex for India, demonym mapping for common nations,
+ * dynamic demonym derivation for all other countries, and direct country property matching.
+ */
+export function doesEventMatchCountry(ev, countryName) {
+  if (!ev || !countryName) return false;
+  const target = String(countryName).trim().toLowerCase();
+
+  // If India, reuse the highly specialized INDIA_REGEX & scope detection
+  if (target === 'india' || target === 'in') {
+    return detectEventScope(ev) === SCOPES.INDIA || detectEventScope(ev) === 'INDIA';
+  }
+
+  // 1. Direct ev.country field match
+  const evCountry = (ev.country || '').trim().toLowerCase();
+  if (evCountry && (evCountry === target || evCountry.includes(target))) {
+    return true;
+  }
+
+  // 2. Demonyms & historical keywords match (explicit lookup or dynamic derivation)
+  const keywords = COUNTRY_DEMONYMS[target] || deriveCountryKeywords(target);
+  const combinedText = `${ev.title || ''} ${ev.description || ''} ${ev.content || ''} ${ev.extract || ''}`;
+
+  if (keywords && keywords.length > 0) {
+    const pattern = new RegExp(`\\b(${keywords.map(escapeRegExp).join('|')})\\b`, 'i');
+    if (pattern.test(combinedText)) {
+      return true;
+    }
+  }
+
+  // 3. Fallback: match country name as word boundary in text
+  const targetRegex = new RegExp(`\\b${escapeRegExp(countryName)}\\b`, 'i');
+  return targetRegex.test(combinedText);
+}
+
+/**
+ * Test whether an event matches a selected scope (WORLD or any country name).
+ */
+export function doesEventMatchScope(ev, scope) {
+  if (!ev || !scope) return false;
+  const sUpper = String(scope).trim().toUpperCase();
+  if (sUpper === 'WORLD' || sUpper === SCOPES.WORLD) {
+    return true; // World scope contains all global historical events
+  }
+  return doesEventMatchCountry(ev, scope);
+}
+
+/**
  * Classify raw event into one of the designated categories for its scope.
  * Guarantees zero "Other" and zero "World Events".
  */
 export function classifyEventCategory(ev, scope) {
-  const isIndia = scope === SCOPES.INDIA;
+  const isWorld = !scope || String(scope).trim().toUpperCase() === 'WORLD' || scope === SCOPES.WORLD;
   const rawCat = (ev?.category || '').toLowerCase();
   const title = (ev?.title || '').toLowerCase();
   const desc = (ev?.description || ev?.content || '').toLowerCase();
@@ -138,7 +309,7 @@ export function classifyEventCategory(ev, scope) {
     return 'Deaths';
   }
 
-  // 3. Holidays & Observances / Festivals & Holidays
+  // 3. Holidays & Observances (World) / Festivals & Holidays (Country scopes)
   if (
     rawCat.includes('holiday') ||
     rawCat.includes('observance') ||
@@ -154,7 +325,7 @@ export function classifyEventCategory(ev, scope) {
     title.includes('world day') ||
     title.includes('national day')
   ) {
-    return isIndia ? 'Festivals & Holidays' : 'Holidays & Observances';
+    return isWorld ? 'Holidays & Observances' : 'Festivals & Holidays';
   }
 
   // 4. Wars & Military
@@ -212,8 +383,8 @@ export function classifyEventCategory(ev, scope) {
   }
 
   // 10. Scope-specific categories:
-  if (isIndia) {
-    // Society & Movements (India)
+  if (!isWorld) {
+    // Society & Movements (for all country-level scopes)
     if (
       /\b(movement|satyagraha|protest|strike|reform|reformer|caste|dalit|untouchab|women's\s*rights|suffrage|peasant|labor\s*union|trade\s*union|boycott|swadeshi|demonstration|agitation|civil\s*disobedience|hartal|untouchability|bhoodan|chipko)\b/i.test(
         text
