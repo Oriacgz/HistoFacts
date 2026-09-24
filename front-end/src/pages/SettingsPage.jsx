@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import countries from 'country-list';
 import {
   User,
@@ -17,7 +17,6 @@ import {
   Save,
   RefreshCw,
   Sparkles,
-  Info,
   KeyRound,
   Smartphone,
   Laptop,
@@ -49,7 +48,6 @@ import {
   setup2FAApi,
   enable2FAApi,
   disable2FAApi,
-  getPreferencesApi,
   updatePreferencesApi,
   getBlockedUsersApi,
   unblockUserApi,
@@ -70,9 +68,8 @@ const languageOptions = [
 ];
 
 export default function SettingsPage() {
-  const { user, updateUser, logout } = useAuth();
+  const { user, updateUser } = useAuth();
   const toast = useToast();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef(null);
 
@@ -151,7 +148,9 @@ export default function SettingsPage() {
   const [deletionScheduledAt, setDeletionScheduledAt] = useState(user?.deletion_scheduled_at || null);
 
   // Sync state if user changes
-  useEffect(() => {
+  const [prevUser, setPrevUser] = useState(user);
+  if (user !== prevUser) {
+    setPrevUser(user);
     if (user) {
       setUsername(user.username || '');
       setBio(user.bio || '');
@@ -170,18 +169,9 @@ export default function SettingsPage() {
         }
       }
     }
-  }, [user]);
+  }
 
-  // Load active sessions when Security tab is active
-  useEffect(() => {
-    if (activeTab === 'security') {
-      fetchSessions();
-    } else if (activeTab === 'privacy') {
-      fetchBlockedUsers();
-    }
-  }, [activeTab]);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
       const data = await getSessionsApi();
@@ -191,19 +181,29 @@ export default function SettingsPage() {
     } finally {
       setLoadingSessions(false);
     }
-  };
+  }, [toast]);
 
-  const fetchBlockedUsers = async () => {
+  const fetchBlockedUsers = useCallback(async () => {
     setLoadingBlocked(true);
     try {
       const data = await getBlockedUsersApi();
       setBlockedUsers(data);
     } catch (err) {
-      toast.error(err.message || 'Failed to load blocked scholars');
+      toast.error(err.message || 'Failed to load blocked users');
     } finally {
       setLoadingBlocked(false);
     }
+  }, [toast]);
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    if (tabId === 'security') {
+      fetchSessions();
+    } else if (tabId === 'privacy') {
+      fetchBlockedUsers();
+    }
   };
+
 
   // Handle auto-confirmation if arrived with token in query params
   useEffect(() => {
@@ -226,6 +226,7 @@ export default function SettingsPage() {
       }
       runConfirmation();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmToken]);
 
   const detectTimezone = () => {
@@ -628,7 +629,7 @@ export default function SettingsPage() {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabChange(tab.id)}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm font-ui font-medium rounded-t-md transition-all cursor-pointer whitespace-nowrap ${
                   isActive
                     ? 'bg-white/10 text-histo-gold border-b-2 border-histo-gold shadow-sm'
@@ -1322,10 +1323,10 @@ export default function SettingsPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   {[
-                    { key: 'friend_requests', label: 'Friend & Peer Inquiries', desc: 'Alert when a scholar sends a request' },
-                    { key: 'quiz_challenges', label: 'Quiz & Arena Duels', desc: 'Challenges from peers or daily trivia' },
-                    { key: 'group_discussions', label: 'Guild & Group Discussions', desc: 'Mentions and new replies in forums' },
-                    { key: 'daily_fact', label: 'Daily Historical Milestone', desc: 'Morning chronicle drops and fun facts' },
+                    { key: 'friend_requests', label: 'Friend Requests', desc: 'Get notified when someone sends you a friend request' },
+                    { key: 'quiz_challenges', label: 'Quiz Challenges', desc: 'Notifications for multiplayer quizzes and trivia games' },
+                    { key: 'group_discussions', label: 'Discussions & Replies', desc: 'Mentions and replies to your forum posts' },
+                    { key: 'daily_fact', label: 'Daily History Facts', desc: 'Today in history updates and interesting facts' },
                   ].map((item) => {
                     const enabled = notificationPrefs[item.key] !== false;
                     return (
@@ -1499,11 +1500,10 @@ export default function SettingsPage() {
                   <div className="space-y-1">
                     <h4 className="font-display font-bold text-sm text-histo-paper flex items-center gap-2">
                       <Download className="h-4 w-4 text-histo-gold" />
-                      <span>Download Chronicle (ZIP)</span>
+                      <span>Download My Data (ZIP)</span>
                     </h4>
                     <p className="font-ui text-xs text-histo-paper/60">
-                      Export your comprehensive history, quiz attempts, forum posts, notes, and profile records in a
-                      portable JSON archive.
+                      Export your quiz results, discussion posts, study notes, and profile data in a portable ZIP archive.
                     </p>
                   </div>
                   <button
@@ -1525,8 +1525,8 @@ export default function SettingsPage() {
                       <span>Schedule Deletion</span>
                     </h4>
                     <p className="font-ui text-xs text-red-300/70">
-                      Initiates a 30-day grace period. Discussion posts remain intact with anonymized authorship; private
-                      notes and tokens are permanently purged.
+                      Initiates a 30-day grace period. Your discussion posts will be anonymized, and your notes and account
+                      data will be permanently deleted.
                     </p>
                   </div>
                   {deletionScheduledAt ? (

@@ -1,14 +1,11 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   SparklesIcon,
   SearchIcon,
   BookOpenIcon,
-  CheckCircleIcon,
   XCircleIcon,
   ShieldIcon,
-  ClockIcon,
-  RightArrowIcon,
 } from '../../../components/MotionIcons';
 import ScoreRulesBadge from '../components/ScoreRulesBadge';
 import { generateQuizApi } from '../../../api/quiz';

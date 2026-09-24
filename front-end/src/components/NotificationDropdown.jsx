@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUnreadNotificationsCount } from '../hooks/queries/useUnreadNotificationsCount';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -106,6 +107,7 @@ function formatTimeAgo(dateString) {
 export default function NotificationDropdown() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -117,7 +119,7 @@ export default function NotificationDropdown() {
   const { data: unreadCount = 0 } = useUnreadNotificationsCount();
 
   // 2. Fetch notifications when dropdown opens or filter changes
-  const fetchList = useCallback(async (isLoadMore = false) => {
+  const fetchList = useCallback(async (isLoadMore = false, filterUnread = unreadOnly) => {
     if (!user) return;
     setLoading(true);
     try {
@@ -126,7 +128,7 @@ export default function NotificationDropdown() {
         : null;
 
       const items = await getNotifications({
-        unreadOnly,
+        unreadOnly: filterUnread,
         limit: 15,
         before: beforeId,
       });
@@ -144,11 +146,18 @@ export default function NotificationDropdown() {
     }
   }, [user, unreadOnly, notifications]);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchList(false);
+  const handleToggle = () => {
+    const nextState = !isOpen;
+    setIsOpen(nextState);
+    if (nextState) {
+      fetchList(false, unreadOnly);
     }
-  }, [isOpen, unreadOnly]);
+  };
+
+  const handleFilterChange = (filterUnread) => {
+    setUnreadOnly(filterUnread);
+    fetchList(false, filterUnread);
+  };
 
   // 3. Click outside listener
   useEffect(() => {
@@ -169,10 +178,10 @@ export default function NotificationDropdown() {
       setNotifications((prev) =>
         prev.map((item) => (item.id === notif.id ? { ...item, is_read: true } : item))
       );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
 
       try {
         await markNotificationRead(notif.id);
+        queryClient.invalidateQueries({ queryKey: ['unreadNotificationsCount'] });
       } catch (err) {
         console.error('Failed to mark read:', err);
       }
@@ -189,13 +198,13 @@ export default function NotificationDropdown() {
     if (unreadCount === 0) return;
 
     setNotifications((prev) => prev.map((item) => ({ ...item, is_read: true })));
-    setUnreadCount(0);
 
     try {
       await markAllNotificationsRead();
+      queryClient.invalidateQueries({ queryKey: ['unreadNotificationsCount'] });
     } catch (err) {
       console.error('Failed to mark all read:', err);
-      fetchCount();
+      queryClient.invalidateQueries({ queryKey: ['unreadNotificationsCount'] });
     }
   };
 
@@ -207,7 +216,7 @@ export default function NotificationDropdown() {
       <button
         type="button"
         id="notification-bell-btn"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         aria-label="Notifications"
         className={`group relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border transition-all duration-300 bg-transparent ${
           isOpen
@@ -279,7 +288,7 @@ export default function NotificationDropdown() {
             <div className="flex border-b border-white/10 bg-histo-dark/80 px-4 py-1.5 gap-2">
               <button
                 type="button"
-                onClick={() => setUnreadOnly(false)}
+                onClick={() => handleFilterChange(false)}
                 className={`rounded-[2px] px-3 py-1 text-xs font-ui uppercase tracking-wider transition-colors cursor-pointer border-none ${
                   !unreadOnly
                     ? 'bg-histo-gold text-histo-dark font-bold shadow-xs'
@@ -290,7 +299,7 @@ export default function NotificationDropdown() {
               </button>
               <button
                 type="button"
-                onClick={() => setUnreadOnly(true)}
+                onClick={() => handleFilterChange(true)}
                 className={`rounded-[2px] px-3 py-1 text-xs font-ui uppercase tracking-wider transition-colors cursor-pointer border-none ${
                   unreadOnly
                     ? 'bg-histo-gold text-histo-dark font-bold shadow-xs'

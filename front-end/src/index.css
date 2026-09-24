@@ -153,7 +153,7 @@
 
 @layer utilities {
   .format-tool {
-    @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-white/60 transition-colors hover:bg-white/10 hover:text-white;
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-histo-ink/65 transition-colors hover:bg-histo-paper hover:text-histo-dark cursor-pointer disabled:opacity-40;
   }
 
   .histo-paper-texture {
@@ -167,5 +167,70 @@
     color: #162a45;
     letter-spacing: 0.012em;
     line-height: 1.75;
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 1.8s infinite;
+  }
+}
+
+/* Smooth Navbar Profile Username Ticker */
+@keyframes profileTicker {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.profile-ticker-track {
+  display: flex !important;
+  width: max-content !important;
+  will-change: transform;
+  animation: profileTicker 9s linear infinite;
+}
+
+.group:hover .profile-ticker-track,
+.group:focus-visible .profile-ticker-track,
+.group:focus-within .profile-ticker-track,
+.profile-ticker-track:hover {
+  animation-play-state: paused;
+}
+
+.profile-ticker-mask {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 6px,
+    black calc(100% - 6px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 6px,
+    black calc(100% - 6px),
+    transparent 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-ticker-track {
+    animation: none !important;
+    transform: none !important;
+  }
+  .profile-ticker-clone {
+    display: none !important;
+  }
+  .profile-ticker-mask {
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
   }
 }
