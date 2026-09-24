@@ -125,11 +125,13 @@ def main():
     print("    Press Ctrl+C to stop all services.")
     print("=" * 70)
 
+    reported_exits = set()
     try:
         while running:
             for name, proc in processes:
                 ret = proc.poll()
-                if ret is not None and running:
+                if ret is not None and running and name not in reported_exits:
+                    reported_exits.add(name)
                     print(f"[*] Service '{name}' exited with code {ret}")
             time.sleep(1)
     except KeyboardInterrupt:
