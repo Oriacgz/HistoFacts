@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   TrophyIcon,
@@ -20,7 +20,7 @@ const GLOBAL_RULES = {
   questionsCount: 40,
 };
 
-export default function GlobalQuizEntry({ user, onBackToHub, onOpenLeaderboard }) {
+export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -158,7 +158,7 @@ export default function GlobalQuizEntry({ user, onBackToHub, onOpenLeaderboard }
   // 1. Results View
   if (isFinished) {
     const { score, correctCount, wrongCount } = calculateGlobalScore();
-    const timeSpent = Math.round(((endTime || Date.now()) - (startTime || Date.now())) / 1000);
+    const timeSpent = (endTime && startTime) ? Math.round((endTime - startTime) / 1000) : 0;
 
     return (
       <div className="max-w-3xl mx-auto py-4">

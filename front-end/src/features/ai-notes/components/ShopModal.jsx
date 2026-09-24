@@ -3,7 +3,6 @@ import {
   ShoppingBag,
   Coins,
   Zap,
-  HelpCircle,
   Loader2,
   X,
 } from 'lucide-react';
@@ -35,7 +34,7 @@ function PackCard({ pack, featured, onClick, disabled }) {
       )}
       <h3 className="text-base font-semibold text-slate-800">{pack.name}</h3>
       <p className="mt-1 text-2xl font-bold text-blue-600">+{pack.token_amount.toLocaleString()}</p>
-      <p className="mb-4 text-xs text-slate-500">tokens</p>
+      <p className="mb-4 text-xs text-slate-500">AI study credits</p>
       <button
         type="button"
         onClick={onClick}
@@ -43,7 +42,7 @@ function PackCard({ pack, featured, onClick, disabled }) {
         className={`mt-auto flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 py-2.5 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed`}
       >
         <Coins className="h-4 w-4" />
-        {pack.histoin_cost}
+        {pack.histoin_cost} Histoins
       </button>
     </div>
   );
@@ -52,10 +51,10 @@ function PackCard({ pack, featured, onClick, disabled }) {
 function EarnHistoinsDisclosure() {
   return (
     <details className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
-      <summary className="cursor-pointer font-medium text-slate-600">How to earn Histoins</summary>
+      <summary className="cursor-pointer font-medium text-slate-600">How to earn free Histoins (Coins)</summary>
       <ul className="mt-2 list-disc space-y-1 pl-4">
-        <li>Daily login: +10 Histoins on first activity each day</li>
-        <li>History quizzes: +20 Histoins per quiz (max 3/day)</li>
+        <li>Daily login: +10 Histoins on your first visit each day</li>
+        <li>History quizzes: +20 Histoins per quiz completed (up to 3 per day)</li>
       </ul>
     </details>
   );
@@ -98,8 +97,8 @@ export default function ShopModal({
                     <ShoppingBag className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="font-display text-lg font-bold">Histoins Token Shop</h3>
-                    <p className="font-ui text-xs text-histo-cream/80">Exchange Histoins for AI Generation Tokens</p>
+                    <h3 className="font-display text-lg font-bold">Study Credits Shop</h3>
+                    <p className="font-ui text-xs text-histo-cream/80">Exchange earned quiz coins (Histoins) for AI study credits</p>
                   </div>
                 </div>
                 <button
@@ -115,13 +114,13 @@ export default function ShopModal({
               <div className="p-4 bg-white border-b border-histo-dark/10 flex gap-3">
                 <StatChip
                   icon={<Coins className="h-5 w-5 text-amber-500" />}
-                  label="Your Histoins"
+                  label="Your Histoins (Coins)"
                   value={wallet.histoin_balance.toLocaleString()}
                   accent="amber"
                 />
                 <StatChip
                   icon={<Zap className="h-5 w-5 text-blue-500" />}
-                  label="Current Tokens"
+                  label="AI Study Credits (Tokens)"
                   value={wallet.token_balance.toLocaleString()}
                   accent="blue"
                 />

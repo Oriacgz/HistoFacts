@@ -1,4 +1,3 @@
-import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircleIcon, XCircleIcon } from '../../../components/MotionIcons';
 import ScoreRulesBadge from './ScoreRulesBadge';
@@ -80,7 +79,6 @@ export default function QuestionCard({
           const isSelected = selectedOption === optIdx;
           const isCorrect = correctAnswer === optIdx;
           const isUserWrong = showCorrectAnswer && isSelected && !isCorrect;
-          const isUserCorrect = showCorrectAnswer && isSelected && isCorrect;
           const isRevealedCorrect = showCorrectAnswer && isCorrect;
 
           let cardStyle = 'border-histo-dark/15 bg-white/80 hover:bg-white hover:border-histo-gold text-histo-ink shadow-soft';

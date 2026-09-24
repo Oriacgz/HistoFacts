@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { ChevronLeft, Clock, Sparkles, CheckCircle, XCircle, Trophy, ArrowRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronLeft, Clock, Sparkles, XCircle, Trophy } from 'lucide-react';
 import { getQuizQuestionsApi, generateQuizApi, saveQuizSessionApi } from '../../../api/quiz';
-import { QuestionCard, Countdown, ProgressIndicator, ResultsSummary } from '../components';
+import { QuestionCard, Countdown, ProgressIndicator } from '../components';
 
 const cardVariants = {
   hidden: { opacity: 0, scale: 0.95 },
@@ -11,13 +11,11 @@ const cardVariants = {
 };
 
 export default function GlobalQuizPlay({ onFinish, onBack }) {
-  const shouldReduceMotion = useReducedMotion();
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [userAnswers, setUserAnswers] = useState([]);
-  const [quizStartTime, setQuizStartTime] = useState(0);
-  const [quizEndTime, setQuizEndTime] = useState(0);
+  const [userAnswers, setUserAnswers] = useState(() => Array(40).fill(null));
+  const [quizStartTime] = useState(() => Date.now());
   const [timerText, setTimerText] = useState('00:00');
   const [errorMessage, setErrorMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -48,13 +46,6 @@ export default function GlobalQuizPlay({ onFinish, onBack }) {
   }, []);
 
   useEffect(() => {
-    if (currentQuestion === 0 && quizStartTime === 0) {
-      setQuizStartTime(Date.now());
-      setUserAnswers(Array(40).fill(null));
-    }
-  }, [currentQuestion]);
-
-  useEffect(() => {
     if (loading) return;
     const updateTimer = () => {
       const elapsed = Math.floor((Date.now() - quizStartTime) / 1000);
@@ -67,10 +58,6 @@ export default function GlobalQuizPlay({ onFinish, onBack }) {
     return () => window.clearInterval(interval);
   }, [quizStartTime, loading]);
 
-  const totalTime = useMemo(() => {
-    if (!quizStartTime || !quizEndTime) return 0;
-    return Math.floor((quizEndTime - quizStartTime) / 1000);
-  }, [quizStartTime, quizEndTime]);
 
   const showError = (message) => {
     setErrorMessage(message);
@@ -121,7 +108,6 @@ export default function GlobalQuizPlay({ onFinish, onBack }) {
         })),
       });
 
-      setQuizEndTime(Date.now());
       setSubmitted(true);
       onFinish();
     } catch (err) {
@@ -134,8 +120,6 @@ export default function GlobalQuizPlay({ onFinish, onBack }) {
   const handlePrev = () => {
     if (currentQuestion > 0) setCurrentQuestion(v => v - 1);
   };
-
-  const progressWidth = totalQuestions > 0 ? ((currentQuestion + 1) / totalQuestions) * 100 : 0;
 
   if (loading) {
     return (

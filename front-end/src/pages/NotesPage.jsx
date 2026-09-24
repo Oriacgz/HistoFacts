@@ -2,26 +2,19 @@ import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useAiNotes } from '../contexts/AiNotesContext';
-import {
-  getShopPacksApi,
-  purchasePackApi,
-  getNoteThreadApi,
-} from '../api/aiNotes';
+import { getNoteThreadApi } from '../api/aiNotes';
 
 // Modular feature imports
 import ShopModal from '../features/ai-notes/components/ShopModal';
 import NotesSidebar from '../features/ai-notes/components/NotesSidebar';
-import NotesHeader from '../features/ai-notes/components/NotesHeader';
 import WelcomeCanvas from '../features/ai-notes/components/WelcomeCanvas';
 import PromptInputArea from '../features/ai-notes/components/PromptInputArea';
 import NoteThread from '../features/ai-notes/components/NoteThread';
 import SharePickerModal from '../features/chat/SharePickerModal';
 
 export default function NotesPage() {
-  const { user, logout } = useAuth();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const sharedNoteId = searchParams.get('note');
@@ -46,9 +39,19 @@ export default function NotesPage() {
     streamingAttachments,
     streamingText,
     wallet,
-    setWallet,
     isInsufficient,
     isRestylingId,
+    sidebarOpen,
+    setSidebarOpen,
+    shopOpen,
+    openShop,
+    closeShop,
+    shopPacks,
+    confirmPack,
+    setConfirmPack,
+    handleBuyPack,
+    confirmPurchase,
+    isPurchasing,
     handleSendMessage,
     handleStopGenerating,
     handleNewChat,
@@ -57,21 +60,11 @@ export default function NotesPage() {
     handleConvertToHandwritten,
   } = useAiNotes();
 
-  // Local Page Layout & Modal State
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Local Page Layout State
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedNoteId, setCopiedNoteId] = useState(null);
   const [shareNoteId, setShareNoteId] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-
-  // Shop Modal State
-  const [shopOpen, setShopOpen] = useState(false);
-  const [shopPacks, setShopPacks] = useState([]);
-  const [confirmPack, setConfirmPack] = useState(null);
-  const [isPurchasing, setIsPurchasing] = useState(false);
-
-  // User Profile Menu State
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   const fileInputRef = useRef(null);
   const scrollContainerRef = useRef(null);
@@ -103,52 +96,7 @@ export default function NotesPage() {
     };
   }, [sharedNoteId, setSearchParams, toast, setActiveNoteId, setActiveThread]);
 
-  // Open Shop & Load Packs
-  const handleOpenShop = async () => {
-    setShopOpen(true);
-    try {
-      const packs = await getShopPacksApi();
-      setShopPacks(packs || []);
-    } catch {
-      setShopPacks([
-        { id: 'p-1', name: 'Starter Pack', token_amount: 50000, histoin_cost: 100, is_active: true },
-        { id: 'p-2', name: 'Popular Pack', token_amount: 150000, histoin_cost: 250, is_active: true },
-        { id: 'p-3', name: 'Mega Pack', token_amount: 350000, histoin_cost: 500, is_active: true },
-      ]);
-    }
-  };
 
-  // Buy Token Pack
-  const handleBuyPack = async (pack) => {
-    if (wallet.histoin_balance < pack.histoin_cost) {
-      toast.error(`Insufficient Histoins! Need ${pack.histoin_cost} 🪙`);
-      return;
-    }
-    const idempotencyKey =
-      typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    setConfirmPack({ ...pack, idempotencyKey });
-  };
-
-  const confirmPurchase = async () => {
-    if (!confirmPack) return;
-    setIsPurchasing(true);
-    try {
-      const res = await purchasePackApi(confirmPack.id, confirmPack.idempotencyKey);
-      setWallet((prev) => ({
-        ...prev,
-        token_balance: res.token_balance,
-        histoin_balance: res.histoin_balance,
-      }));
-      toast.success(`Purchased ${confirmPack.name}! +${res.tokens_credited?.toLocaleString()} tokens.`);
-      setConfirmPack(null);
-    } catch (err) {
-      toast.error(err.message || 'Purchase failed');
-    } finally {
-      setIsPurchasing(false);
-    }
-  };
 
   // Handle File Input Selection
   const handleFileSelect = async (e) => {
@@ -192,7 +140,7 @@ export default function NotesPage() {
 
   return (
     <div
-      className="h-screen bg-histo-paper text-histo-ink font-body histo-paper-texture flex flex-col overflow-hidden"
+      className="flex-1 flex flex-col min-h-0 overflow-hidden bg-histo-paper text-histo-ink font-body histo-paper-texture"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -230,7 +178,7 @@ export default function NotesPage() {
       {/* Shop Modal */}
       <ShopModal
         isOpen={shopOpen}
-        onClose={() => setShopOpen(false)}
+        onClose={closeShop}
         wallet={wallet}
         shopPacks={shopPacks}
         onBuyPack={handleBuyPack}
@@ -238,19 +186,6 @@ export default function NotesPage() {
         onConfirmPurchase={confirmPurchase}
         onCancelConfirm={() => setConfirmPack(null)}
         isPurchasing={isPurchasing}
-      />
-
-      {/* Persistent Full-Width Top Header Bar */}
-      <NotesHeader
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        wallet={wallet}
-        onOpenShop={handleOpenShop}
-        user={user}
-        profileMenuOpen={profileMenuOpen}
-        onToggleProfileMenu={() => setProfileMenuOpen(!profileMenuOpen)}
-        onCloseProfileMenu={() => setProfileMenuOpen(false)}
-        logout={logout}
       />
 
       {/* Content Area Below Header */}
@@ -322,7 +257,7 @@ export default function NotesPage() {
             streamingPrompt={streamingPrompt}
             streamingText={streamingText}
             streamingAttachments={streamingAttachments}
-            onOpenShop={handleOpenShop}
+            onOpenShop={openShop}
           />
         </main>
       </div>
