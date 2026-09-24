@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -80,18 +80,29 @@ export default function QuizHub() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const initialMode = searchParams.get('tab') || null;
+  const joinCodeParam = searchParams.get('join') || '';
+  const initialMode = joinCodeParam ? 'lobby' : (searchParams.get('tab') || null);
   const [activeMode, setActiveMode] = useState(initialMode);
 
   // Personalized State
   const [activePersonalizedQuiz, setActivePersonalizedQuiz] = useState(null);
 
   // Lobby Sub-mode State: 'hub' | 'host' | 'join' | 'joined_play'
-  const [lobbySubMode, setLobbySubMode] = useState('hub');
-  const [lobbyJoinCode, setLobbyJoinCode] = useState(searchParams.get('join') || '');
+  const [lobbySubMode, setLobbySubMode] = useState(() => (joinCodeParam ? 'joined_play' : 'hub'));
+  const [lobbyJoinCode, setLobbyJoinCode] = useState(() => joinCodeParam);
 
   // Global Sub-mode State: 'entry' | 'leaderboard'
   const [globalSubMode, setGlobalSubMode] = useState('entry');
+
+  const [prevJoinCode, setPrevJoinCode] = useState(joinCodeParam);
+  if (joinCodeParam !== prevJoinCode) {
+    setPrevJoinCode(joinCodeParam);
+    if (joinCodeParam) {
+      setActiveMode('lobby');
+      setLobbyJoinCode(joinCodeParam);
+      setLobbySubMode('joined_play');
+    }
+  }
 
   // Player Lobby Socket Hook
   const playerSocket = useLobbySocket({
@@ -99,15 +110,6 @@ export default function QuizHub() {
     user,
     role: 'player',
   });
-
-  useEffect(() => {
-    const joinCode = searchParams.get('join');
-    if (joinCode) {
-      setActiveMode('lobby');
-      setLobbyJoinCode(joinCode);
-      setLobbySubMode('joined_play');
-    }
-  }, [searchParams]);
 
   const handleSelectMode = (modeId) => {
     setActiveMode(modeId);
