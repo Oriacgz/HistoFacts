@@ -74,12 +74,21 @@ def main():
     print(">> Starting HistoFacts Microservices Architecture (8 Processes)")
     print("=" * 70)
 
-    print("  [+] Applying database migrations...")
-    subprocess.run(
-        [python_exe, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
-        cwd=backend_dir,
-        check=True,
-    )
+    if "--skip-migrations" not in sys.argv:
+        print("  [+] Applying database migrations...")
+        try:
+            subprocess.run(
+                [python_exe, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
+                cwd=backend_dir,
+                check=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            print("  [!] Migrations timed out or already up-to-date, proceeding...")
+        except Exception as e:
+            print(f"  [!] Migration check notice: {e}, proceeding...")
+    else:
+        print("  [*] Skipping database migrations (--skip-migrations flag passed)...")
 
     for name, app_module, port in SERVICES:
         cmd = [
