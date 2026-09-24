@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Copy, Check, Share2, X } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
