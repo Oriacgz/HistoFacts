@@ -26,6 +26,7 @@ export function useLobbySocket({ code, user, role = 'player' }) {
   const isUnmountedRef = useRef(false);
   /** Tracks consecutive failed connections for backoff calculation. */
   const attemptRef = useRef(0);
+  const connectRef = useRef(null);
 
   const getWsUrl = useCallback(() => {
     const loc = window.location;
@@ -146,7 +147,7 @@ export function useLobbySocket({ code, user, role = 'player' }) {
         const jitter = Math.random() * 600 - 300; // ±300ms
         attemptRef.current += 1;
         reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
+          connectRef.current?.();
         }, delay + jitter);
       }
     };
@@ -155,6 +156,10 @@ export function useLobbySocket({ code, user, role = 'player' }) {
       ws.close();
     };
   }, [code, user, role, getWsUrl]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   useEffect(() => {
     isUnmountedRef.current = false;

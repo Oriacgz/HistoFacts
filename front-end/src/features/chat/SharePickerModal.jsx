@@ -20,22 +20,17 @@ export default function SharePickerModal({ noteId, onClose }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [fallbackConversations, setFallbackConversations] = useState([]);
-  const [fetchingConversations, setFetchingConversations] = useState(false);
 
   // If outside ChatProvider, fetch conversations directly
   useEffect(() => {
     if (!chatContext?.conversations) {
       let cancelled = false;
-      setFetchingConversations(true);
       getConversationsApi()
         .then((data) => {
           if (!cancelled) setFallbackConversations(data || []);
         })
         .catch((err) => {
           console.error('Failed to load conversations for sharing:', err);
-        })
-        .finally(() => {
-          if (!cancelled) setFetchingConversations(false);
         });
       return () => {
         cancelled = true;

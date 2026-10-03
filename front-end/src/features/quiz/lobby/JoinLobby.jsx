@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import jsQR from 'jsqr';
 import {
@@ -11,6 +11,7 @@ import {
 export default function JoinLobby({ onJoinCode, initialCode = '' }) {
   const [joinTab, setJoinTab] = useState('code'); // 'code' | 'link' | 'qr'
   const [code, setCode] = useState(initialCode || '');
+  const [prevInitialCode, setPrevInitialCode] = useState(initialCode);
   const [linkInput, setLinkInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -19,26 +20,25 @@ export default function JoinLobby({ onJoinCode, initialCode = '' }) {
   const streamRef = useRef(null);
   const animFrameRef = useRef(null);
 
-  useEffect(() => {
-    if (initialCode) {
-      setCode(initialCode);
-    }
-  }, [initialCode]);
+  if (initialCode !== prevInitialCode) {
+    setPrevInitialCode(initialCode);
+    setCode(initialCode);
+  }
 
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
     setIsScanning(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, [stopCamera]);
 
   const startCamera = async () => {
     setErrorMsg('');

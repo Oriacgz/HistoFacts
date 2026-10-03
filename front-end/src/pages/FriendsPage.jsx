@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -23,26 +23,13 @@ export default function FriendsPage() {
   const [friendsList, setFriendsList] = useState([]);
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [pendingUserIds, setPendingUserIds] = useState(new Set());
-  const [loadingFriends, setLoadingFriends] = useState(true);
+  const [loadingFriends, setLoadingFriends] = useState(() => Boolean(user));
   const [searchTag, setSearchTag] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      loadFriends();
-      loadIncomingRequests();
-      loadOutgoingRequests();
-    } else {
-      setFriendsList([]);
-      setIncomingRequests([]);
-      setPendingUserIds(new Set());
-      setLoadingFriends(false);
-    }
-  }, [user]);
-
-  const loadFriends = async () => {
+  const loadFriends = useCallback(async () => {
     setLoadingFriends(true);
     try {
       const data = await getFriendsApi();
@@ -52,26 +39,39 @@ export default function FriendsPage() {
     } finally {
       setLoadingFriends(false);
     }
-  };
+  }, []);
 
-  const loadIncomingRequests = async () => {
+  const loadIncomingRequests = useCallback(async () => {
     try {
       const reqs = await getIncomingFriendRequestsApi();
       setIncomingRequests(reqs || []);
     } catch (err) {
       console.error('Failed to load incoming requests:', err);
     }
-  };
+  }, []);
 
-  const loadOutgoingRequests = async () => {
-    try {
-      const reqs = await getOutgoingFriendRequestsApi();
-      const ids = new Set((reqs || []).map(r => r.addressee_id));
-      setPendingUserIds(ids);
-    } catch (err) {
-      console.error('Failed to load outgoing requests:', err);
-    }
-  };
+
+  useEffect(() => {
+    let ignore = false;
+    if (!user) return;
+
+    Promise.all([
+      getFriendsApi().catch(() => []),
+      getIncomingFriendRequestsApi().catch(() => []),
+      getOutgoingFriendRequestsApi().catch(() => []),
+    ]).then(([friends, incoming, outgoing]) => {
+      if (!ignore) {
+        setFriendsList(friends || []);
+        setIncomingRequests(incoming || []);
+        setPendingUserIds(new Set((outgoing || []).map((r) => r.addressee_id)));
+        setLoadingFriends(false);
+      }
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [user]);
 
   const handleSearch = async (e) => {
     e?.preventDefault();
@@ -234,7 +234,11 @@ export default function FriendsPage() {
       {/* TAB 1: My Friends */}
       {activeTab === 'my-friends' && (
         <div className="flex flex-col gap-4">
-          {friendsList.length === 0 ? (
+          {loadingFriends ? (
+            <div className="bg-white border border-histo-dark/10 p-12 text-center rounded-[4px]">
+              <p className="font-body text-xs text-histo-ink/60">Loading fellow scholars...</p>
+            </div>
+          ) : friendsList.length === 0 ? (
             <div className="bg-white border border-histo-dark/10 p-12 text-center rounded-[4px]">
               <Users className="h-10 w-10 text-histo-copper mx-auto mb-3 opacity-60" />
               <p className="font-display text-lg font-bold text-histo-dark mb-1">No friends added yet</p>

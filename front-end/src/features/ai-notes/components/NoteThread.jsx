@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Fragment, useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sparkles,
   Copy,
   CheckCircle2,
   PenTool,
-  Loader2,
   Paperclip,
   Share2,
   ArrowDown,
@@ -21,8 +20,8 @@ export default function NoteThread({
   streamingPrompt = '',
   streamingText = '',
   streamingAttachments = [],
-  onConvertToHandwritten,
-  isRestylingId = null,
+  _onConvertToHandwritten,
+  _isRestylingId = null,
   onCopyNote,
   copiedNoteId = null,
   onShare,
@@ -87,7 +86,7 @@ export default function NoteThread({
       {chain.map((turn, i) => {
         const isLatest = i === chain.length - 1 && !isStreaming;
         return (
-          <React.Fragment key={turn.id || `turn-${i}`}>
+          <Fragment key={turn.id || `turn-${i}`}>
             {turn.prompt && (
               <UserTurn
                 text={turn.prompt}
@@ -101,7 +100,7 @@ export default function NoteThread({
               isCopied={copiedNoteId === turn.id}
               onShare={onShare}
             />
-          </React.Fragment>
+          </Fragment>
         );
       })}
 
@@ -280,7 +279,7 @@ function AiAvatar({ isHandwritten = false }) {
 
 function MessageActions({
   note,
-  isLatest,
+  _isLatest,
   isHandwritten,
   onToggleHandwritten,
   onCopy,

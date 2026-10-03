@@ -3,8 +3,8 @@ Data Transfer Objects (DTOs) and Pydantic Schemas for Community Forum API.
 """
 
 from datetime import datetime
-from typing import Optional, List
-from pydantic import BaseModel, Field
+from typing import Optional, List, Literal
+from pydantic import BaseModel, Field, model_validator
 
 
 class AuthorDTO(BaseModel):
@@ -12,6 +12,7 @@ class AuthorDTO(BaseModel):
     username: str
     tag: str
     avatar_url: Optional[str] = None
+    avatar_seed: Optional[str] = None
     bio: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -32,6 +33,7 @@ class CommentResponseDTO(BaseModel):
     parent_comment_id: Optional[str] = None
     mentioned_user_id: Optional[str] = None
     content: str
+    media_url: Optional[str] = None
     like_count: int = 0
     has_liked: bool = False
     is_deleted: bool = False
@@ -50,6 +52,11 @@ class PostResponseDTO(BaseModel):
     event_id: Optional[str] = None
     title: Optional[str] = None
     content: str
+    media_urls: Optional[List[str]] = None
+    media_type: str = "none"
+    likes: int = 0
+    dislikes: int = 0
+    user_reaction: Optional[str] = None
     like_count: int = 0
     comment_count: int = 0
     share_count: int = 0
@@ -64,9 +71,18 @@ class PostResponseDTO(BaseModel):
 
 
 class CreateCommentDTO(BaseModel):
-    content: str = Field(..., min_length=1, max_length=1500)
+    content: str = Field(default="", max_length=1500)
+    media_url: Optional[str] = Field(None, max_length=2048, description="Single image/GIF URL (e.g. from Tenor search)")
     parent_comment_id: Optional[str] = None
     mentioned_user_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_content_or_media(self):
+        if not self.content.strip() and not self.media_url:
+            raise ValueError("Comment requires text or media")
+        if self.media_url and not self.media_url.startswith(("http://", "https://")):
+            raise ValueError("media_url must be an absolute http(s) URL")
+        return self
 
 
 class SharePostDTO(BaseModel):
@@ -77,6 +93,22 @@ class SharePostDTO(BaseModel):
 class LikeToggleResponseDTO(BaseModel):
     liked: bool
     new_like_count: int
+
+
+class ReactionPostDTO(BaseModel):
+    reaction: Literal["like", "dislike", "none"]
+
+
+class ReactionResponseDTO(BaseModel):
+    likes: int
+    dislikes: int
+    user_reaction: Optional[str] = None
+
+
+class GifDTO(BaseModel):
+    id: str
+    url: str
+    preview_url: str
 
 
 class ShareResponseDTO(BaseModel):

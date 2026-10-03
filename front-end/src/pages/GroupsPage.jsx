@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { MessageCircle, Users, UserPlus, Info, Check, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,7 +12,6 @@ export default function GroupsPage() {
   const { user } = useAuth();
   const { openGroupChat } = useChat();
   const toast = useToast();
-  const navigate = useNavigate();
 
   const [groups, setGroups] = useState([]);
   const [friends, setFriends] = useState([]);
@@ -21,28 +20,32 @@ export default function GroupsPage() {
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState(null);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [groupsData, friendsData] = await Promise.all([
-        getMyGroupsApi(),
-        getFriendsApi().catch(() => []),
-      ]);
-      setGroups(groupsData || []);
-      setFriends(friendsData || []);
-    } catch (err) {
-      console.error('Failed to load groups data:', err);
-      setError('Unable to load study groups. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    let ignore = false;
+    Promise.all([
+      getMyGroupsApi(),
+      getFriendsApi().catch(() => []),
+    ])
+      .then(([groupsData, friendsData]) => {
+        if (!ignore) {
+          setGroups(groupsData || []);
+          setFriends(friendsData || []);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error('Failed to load groups data:', err);
+          toast.error('Unable to load study groups. Please try again.');
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [toast]);
 
   const toggleFriendSelection = (friendId) => {
     setSelectedFriendIds((prev) => {

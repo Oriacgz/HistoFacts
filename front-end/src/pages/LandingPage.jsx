@@ -9,7 +9,6 @@ import {
   ArrowRight,
   Clock,
   Search,
-  Shield,
   Globe,
   Menu,
   X,
@@ -73,7 +72,7 @@ export default function LandingPage() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
   const shouldReduceMotion = useReducedMotion();
-  const [scrolled, setScrolled] = useState(false);
+  const [scrolled, setScrolled] = useState(() => (typeof window !== 'undefined' ? window.scrollY > 20 : false));
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -82,10 +81,9 @@ export default function LandingPage() {
     }
   }, [user, loading, navigate]);
 
-  const handleScroll = () => setScrolled(window.scrollY > 20);
   useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handleScroll);
-    handleScroll();
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 

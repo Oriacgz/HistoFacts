@@ -1,6 +1,5 @@
-import React from 'react';
 import { motion } from 'framer-motion';
-import { ClockIcon, CheckCircleIcon } from '../../../components/MotionIcons';
+import { CheckCircleIcon } from '../../../components/MotionIcons';
 import QuestionCard from '../components/QuestionCard';
 import Countdown from '../components/Countdown';
 import MiniLeaderboard from '../components/MiniLeaderboard';
@@ -15,7 +14,6 @@ export default function LobbyPlay({ socket, user, onExit }) {
     currentQuestion,
     timeRemaining,
     participants,
-    miniLeaderboard,
     finalLeaderboard,
     myAnswerResult,
     hasAnsweredCurrent,

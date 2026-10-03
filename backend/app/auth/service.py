@@ -27,6 +27,7 @@ from app.auth.schemas import (
 )
 from app.auth.utils import generate_unique_tag, validate_username
 from app.auth.friend_service import is_user_friend
+from app.core.file_storage import delete_stored_file
 from app.core.security import (
     hash_password,
     verify_password,
@@ -416,6 +417,7 @@ async def get_user_profile(
         username=user.username,
         tag=user.tag,
         avatar_url=user.avatar_url,
+        avatar_seed=user.avatar_seed,
         bio=bio,
         country_code=user.country_code,
         pronouns=user.pronouns,
@@ -501,7 +503,7 @@ async def _in_process_purge(db: AsyncSession, user_id: str) -> None:
     await db.execute(
         update(SocialCache)
         .where(SocialCache.user_id == user_id)
-        .values(username="Deleted User", avatar_url=None, bio=None)
+        .values(username="Deleted User", avatar_url=None, avatar_seed=None, bio=None)
     )
 
     # 2. Groups: remove memberships and anonymize cache
@@ -643,6 +645,18 @@ async def change_username(db: AsyncSession, user: User, new_username: str) -> Us
     return user
 
 
+async def set_avatar_seed(db: AsyncSession, user: User, seed: str) -> None:
+    """Choose a Blobatar seed and clear any uploaded photo, deleting its stored file.
+    Rendering precedence is avatar_url > Blobatar(avatar_seed) > Blobatar(user id), so
+    leaving avatar_url set would make the pick do nothing."""
+    user.avatar_seed = seed
+    if user.avatar_url:
+        delete_stored_file(user.avatar_url)
+        user.avatar_url = None
+    await db.commit()
+    await db.refresh(user)
+
+
 async def update_profile(db: AsyncSession, user: User, payload: ProfileUpdate) -> User:
     """Update user profile fields including profile_visibility."""
     if payload.username is not None and payload.username.strip() != user.username:
@@ -674,8 +688,9 @@ async def change_password(db: AsyncSession, user: User, payload: PasswordChange)
     await db.commit()
 
 
-async def request_email_change(user: User, payload: EmailChangeRequest, db: AsyncSession) -> str:
-    """Request email change by dispatching a verification token to the new address."""
+async def request_email_change(user: User, payload: EmailChangeRequest, db: AsyncSession) -> None:
+    """Request email change by dispatching a verification token to the new address.
+    The token is never returned to the client — only the emailed link carries it."""
     existing = await db.execute(
         select(User.id).where(func.lower(User.email) == payload.new_email.lower(), User.id != user.id)
     )
@@ -684,8 +699,7 @@ async def request_email_change(user: User, payload: EmailChangeRequest, db: Asyn
 
     token = create_verification_token(str(user.id), payload.new_email, expires_in=timedelta(hours=24))
     link = verification_link(token)
-    await send_email(payload.new_email, "Confirm your new email", f"Click the link to confirm your email: {link}")
-    return token
+    await send_email(payload.new_email, "Confirm your new email", f"Click the verification link: {link}")
 
 
 async def confirm_email_change(token: str, db: AsyncSession) -> str:

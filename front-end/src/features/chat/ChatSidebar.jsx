@@ -40,17 +40,22 @@ export default function ChatSidebar() {
 
   const [tab, setTab] = useState('direct');
   const [messages, setMessages] = useState([]);
+  const [prevActiveConvId, setPrevActiveConvId] = useState(activeConversation?.id);
   const [hasMore, setHasMore] = useState(true);
   const [sending, setSending] = useState(false);
   const [friends, setFriends] = useState([]);
-  const [loadingFriends, setLoadingFriends] = useState(false);
   const [showFriendsPicker, setShowFriendsPicker] = useState(false);
   const [panelWidth, setPanelWidth] = useState(() => Math.min(DEFAULT_PANEL_WIDTH, window.innerWidth || DEFAULT_PANEL_WIDTH));
   const [isResizing, setIsResizing] = useState(false);
   const pollRef = useRef(null);
   const loadingMoreRef = useRef(false);
   const resizeRef = useRef(null);
-  const panelRef = useRef(null);
+
+  if (activeConversation?.id !== prevActiveConvId) {
+    setPrevActiveConvId(activeConversation?.id);
+    setMessages([]);
+    setHasMore(true);
+  }
 
   const handleResizeStart = (event) => {
     event.preventDefault();
@@ -83,17 +88,13 @@ export default function ChatSidebar() {
   useEffect(() => {
     if (!isChatOpen || !user) return;
     let cancelled = false;
-    (async () => {
-      setLoadingFriends(true);
-      try {
-        const data = await getFriendsApi();
+    getFriendsApi()
+      .then((data) => {
         if (!cancelled) setFriends(data || []);
-      } catch (err) {
+      })
+      .catch((err) => {
         console.error('Failed to load friends for chat:', err);
-      } finally {
-        if (!cancelled) setLoadingFriends(false);
-      }
-    })();
+      });
     return () => { cancelled = true; };
   }, [isChatOpen, user]);
 
@@ -103,24 +104,19 @@ export default function ChatSidebar() {
 
   // Load initial messages when a conversation is selected
   useEffect(() => {
-    if (!activeConversation) {
-      setMessages([]);
-      setHasMore(true);
-      return;
-    }
+    if (!activeConversation) return;
 
     let cancelled = false;
-    (async () => {
-      try {
-        const msgs = await getMessagesApi(activeConversation.id);
+    getMessagesApi(activeConversation.id)
+      .then((msgs) => {
         if (!cancelled) {
           setMessages(msgs || []);
           setHasMore((msgs || []).length >= 30);
         }
-      } catch {
+      })
+      .catch(() => {
         if (!cancelled) setMessages([]);
-      }
-    })();
+      });
 
     return () => { cancelled = true; };
   }, [activeConversation]);

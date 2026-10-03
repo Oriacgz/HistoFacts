@@ -1,70 +1,23 @@
-import { useEffect, useRef } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
-import { Chart } from 'chart.js/auto';
-import { RotateCcw, Sparkles, ArrowRight, Trophy, BarChart3, Award, ChevronRight } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Trophy, BarChart3, Award, CheckCircle, XCircle } from 'lucide-react';
 import { DIFFICULTY_CONFIG } from '../constants';
 import { ResultsSummary } from '../components';
-
-function PerformanceChart({ score, totalQuestions, chartRef }) {
-  const shouldReduceMotion = useReducedMotion();
-  const correct = score;
-  const incorrect = totalQuestions - score;
-
-  useEffect(() => {
-    if (!chartRef.current) return;
-    new Chart(chartRef.current, {
-      type: 'doughnut',
-      data: {
-        labels: ['Correct', 'Incorrect'],
-        datasets: [{
-          data: [correct, incorrect],
-          backgroundColor: ['rgba(16, 185, 129, 0.85)', 'rgba(239, 68, 68, 0.65)'],
-          borderColor: ['rgba(16, 185, 129, 1)', 'rgba(239, 68, 68, 1)'],
-          borderWidth: 2,
-          hoverOffset: 8,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '65%',
-        plugins: {
-          title: { display: true, text: 'Accuracy', color: '#e2e8f0', font: { size: 14, family: 'Poppins' } },
-          legend: { position: 'bottom', labels: { color: '#94a3b8', font: { family: 'Poppins' }, padding: 16 } },
-        },
-        animation: shouldReduceMotion ? false : { animateRotate: true, animateScale: true },
-      },
-    });
-  }, [score, totalQuestions, chartRef, shouldReduceMotion]);
-
-  return <canvas ref={chartRef} className="w-full h-48" />;
-}
 
 export default function PersonalizedQuizResults({
   quizData,
   difficulty,
   userAnswers,
-  totalTime,
   onRetry,
   onTryHarder,
   onNewTopic,
   onBackToHub,
 }) {
-  const shouldReduceMotion = useReducedMotion();
-  const performanceChartRef = useRef(null);
   const totalQuestions = quizData.questions.length;
   const score = quizData.questions.reduce((count, item, index) => count + (userAnswers[index] === item.correct_answer ? 1 : 0), 0);
   const wrongCount = totalQuestions - score;
-  const scorePercentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
-  const difficultyConfig = DIFFICULTY_CONFIG[difficulty];
+  const difficultyConfig = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.medium;
   const nextDifficulty = difficulty === 'easy' ? 'medium' : difficulty === 'medium' ? 'hard' : null;
   const histoinsEarned = 20;
-
-  const formatTime = (timeInSeconds) => {
-    const minutes = String(Math.floor(timeInSeconds / 60)).padStart(2, '0');
-    const seconds = String(timeInSeconds % 60).padStart(2, '0');
-    return `${minutes}:${seconds}`;
-  };
 
   return (
     <div className="relative min-h-screen overflow-x-hidden font-ui text-[1rem] leading-6">

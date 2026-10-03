@@ -55,6 +55,16 @@ class IPostRepository(ABC):
         """Increment post share counter atomically."""
         pass
 
+    @abstractmethod
+    async def set_media(self, post_id: str, media_urls: List[str], media_type: str) -> None:
+        """Attach media (up to 4 image URLs or exactly 1 video URL) to a post."""
+        pass
+
+    @abstractmethod
+    async def get_reaction_state(self, post_id: str, current_user_id: Optional[str] = None) -> tuple[int, int, Optional[str]]:
+        """Return like count, dislike count, and the current user's reaction."""
+        pass
+
 
 class ICommentRepository(ABC):
     @abstractmethod
@@ -101,6 +111,11 @@ class IInteractionRepository(ABC):
     @abstractmethod
     async def create_share(self, share: ShareEntity) -> ShareEntity:
         """Record a share interaction."""
+        pass
+
+    @abstractmethod
+    async def set_post_reaction(self, user_id: str, post_id: str, value: int) -> None:
+        """Set a user's reaction on a post: +1 for like, -1 for dislike, or 0 to clear."""
         pass
 
 

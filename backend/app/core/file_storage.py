@@ -34,21 +34,59 @@ _WEBP_PREFIX = b"RIFF"
 _WEBP_MAGIC = b"WEBP"
 
 
+def _is_image(raw: bytes) -> bool:
+    is_jpeg = raw[:3] == b"\xff\xd8\xff"
+    is_png = raw[:8] == b"\x89PNG\r\n\x1a\n"
+    is_gif = raw[:6] in (b"GIF87a", b"GIF89a")
+    is_webp = raw[:4] == _WEBP_PREFIX and raw[8:12] == _WEBP_MAGIC
+    return is_jpeg or is_png or is_gif or is_webp
+
+
+def _is_video(raw: bytes) -> bool:
+    is_mp4_mov = raw[4:8] == b"ftyp"                       # MP4 and QuickTime containers
+    is_webm = raw[:4] == b"\x1a\x45\xdf\xa3"               # EBML header (WebM/MKV)
+    is_avi = raw[:4] == b"RIFF" and raw[8:12] == b"AVI "   # checked after WEBP (both RIFF)
+    return is_mp4_mov or is_webm or is_avi
+
+
+def classify_media_content(raw: bytes) -> str:
+    """
+    Classify *raw* bytes by content inspection — never the client-declared MIME type.
+    Returns "image", "video", or "unknown". One classifier for every upload path.
+    """
+    if len(raw) < 12:
+        return "unknown"
+    if _is_image(raw):
+        return "image"
+    if _is_video(raw):
+        return "video"
+    return "unknown"
+
+
+def media_extension(raw: bytes) -> str:
+    """Return the file extension matching the inspected content, for store_file()."""
+    if raw[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if raw[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if raw[:4] == _WEBP_PREFIX and raw[8:12] == _WEBP_MAGIC:
+        return "webp"
+    if raw[:4] == b"\x1a\x45\xdf\xa3":
+        return "webm"
+    if raw[4:8] == b"ftyp":
+        return "mp4"
+    return "bin"
+
+
 def validate_image_content(raw: bytes) -> None:
     """
     Raise HTTP 415 if *raw* is not a supported image format.
     Detection is by magic-byte inspection, not by the client-declared MIME type.
     Supported: JPEG, PNG, GIF, WEBP.
     """
-    if len(raw) < 12:
-        raise HTTPException(status_code=415, detail="Unsupported file type")
-
-    is_jpeg = raw[:3] == b"\xff\xd8\xff"
-    is_png = raw[:8] == b"\x89PNG\r\n\x1a\n"
-    is_gif = raw[:6] in (b"GIF87a", b"GIF89a")
-    is_webp = raw[:4] == _WEBP_PREFIX and raw[8:12] == _WEBP_MAGIC
-
-    if not (is_jpeg or is_png or is_gif or is_webp):
+    if not _is_image(raw):
         raise HTTPException(status_code=415, detail="Unsupported file type — must be JPEG, PNG, GIF, or WEBP")
 
 

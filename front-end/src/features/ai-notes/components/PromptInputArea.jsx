@@ -168,7 +168,9 @@ export default function PromptInputArea({
                     ? 'bg-violet-100 text-violet-700 border border-violet-300 shadow-xs'
                     : 'text-histo-ink/40 hover:text-histo-ink/60 hover:bg-histo-cream/60'
                 }`}
-                title={thinkEnabled ? 'Think mode ON — deeper reasoning' : 'Think mode OFF — fast response'}
+                title={thinkEnabled ? 'Think Mode ON: Deeper reasoning for difficult questions. May take a bit longer.' : 'Think Mode OFF: Fast responses. Turn ON for step-by-step reasoning on complex questions.'}
+                aria-label={thinkEnabled ? 'Think Mode ON: Deeper reasoning for difficult questions.' : 'Think Mode OFF: Click to turn on deeper reasoning.'}
+                aria-pressed={thinkEnabled}
               >
                 <Brain className={`h-3.5 w-3.5 ${thinkEnabled ? 'text-violet-600' : ''}`} />
                 <span className="hidden sm:inline">Think</span>
@@ -218,7 +220,8 @@ export default function PromptInputArea({
             type="button"
             onClick={onOpenShop}
             className="flex items-center gap-1.5 hover:text-histo-dark transition-colors group cursor-pointer text-left py-0.5"
-            title="Click to view token details or refill quota"
+            title="Daily AI Study Credits: Your daily reading and generation quota. Click to view details or refill with Histoins."
+            aria-label="Daily AI study credit usage. Click to open Token Shop"
           >
             {isGenerating ? (
               <span className="relative flex h-2 w-2 shrink-0">

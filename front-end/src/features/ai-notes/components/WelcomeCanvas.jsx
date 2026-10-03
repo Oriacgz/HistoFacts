@@ -19,7 +19,7 @@ export default function WelcomeCanvas({ onSelectPrompt, onTriggerFileInput }) {
         Your AI History Tutor
       </h2>
       <p className="font-body text-histo-ink/70 mb-8 max-w-lg leading-relaxed text-sm sm:text-base">
-        Ask any historical question, request exam breakdowns, or attach PDFs, documents, and images to generate structured study notes.
+        Ask any historical question, request exam breakdowns, or upload class notes and PDFs to generate organized study notes.
       </p>
 
       {/* Drag and Drop Zone */}
@@ -33,10 +33,10 @@ export default function WelcomeCanvas({ onSelectPrompt, onTriggerFileInput }) {
           </div>
           <div>
             <h4 className="font-display text-sm font-bold text-histo-dark group-hover:text-histo-copper transition-colors">
-              Attach PDFs, Docs, or Images to Synthesize
+              Upload Notes, PDFs, or Images
             </h4>
             <p className="font-ui text-xs text-histo-ink/60 mt-0.5">
-              Supports PDF, Word (.docx), Markdown (.md), Text (.txt), and Images (PNG, JPG, WebP)
+              Turn textbook chapters, class slides, and readings into structured notes. Supports PDF, Word (.docx), Markdown, Text, and Images.
             </p>
           </div>
           <button

@@ -27,7 +27,7 @@ export default MarkdownBlockViewer;
 
 /* ── Custom component overrides ──────────────────────────────────────────── */
 
-function CodeBlock({ children, className, node, ...props }) {
+function CodeBlock({ children, className, _node, ...props }) {
   const [copied, setCopied] = useState(false);
   const isInline = !className && typeof children === 'string' && !children.includes('\n');
 

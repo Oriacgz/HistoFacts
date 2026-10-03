@@ -1,12 +1,7 @@
-import React from 'react';
 import { motion } from 'framer-motion';
 import {
   TrophyIcon,
-  CrownIcon,
-  CheckCircleIcon,
-  XCircleIcon,
   RightArrowIcon,
-  ClockIcon,
 } from '../../../components/MotionIcons';
 
 /**
@@ -23,7 +18,7 @@ export default function ResultsSummary({
   timeSpentSeconds = 0,
   rank = null,
   quizType = 'personalized', // 'personalized' | 'lobby' | 'global'
-  topic = 'History Trivia',
+  _topic = 'History Trivia',
   difficulty = 'medium',
   onRetry,
   onTryHarder,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   ChevronLeftIcon,
@@ -28,7 +28,7 @@ export default function PersonalizedQuizPlay({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState(Array(totalQuestions).fill(null));
   const [lockedAnswers, setLockedAnswers] = useState(Array(totalQuestions).fill(false));
-  const [startTime] = useState(Date.now());
+  const [startTime] = useState(() => Date.now());
   const [endTime, setEndTime] = useState(null);
   const [isFinished, setIsFinished] = useState(false);
 
@@ -126,7 +126,7 @@ export default function PersonalizedQuizPlay({
 
   if (isFinished) {
     const { score, correctCount, wrongCount } = calculateScore();
-    const timeSpent = Math.round(((endTime || Date.now()) - startTime) / 1000);
+    const timeSpent = endTime ? Math.round((endTime - startTime) / 1000) : 0;
 
     return (
       <div className="max-w-4xl mx-auto py-4">

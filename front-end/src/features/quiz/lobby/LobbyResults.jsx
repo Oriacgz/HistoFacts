@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Chart } from 'chart.js/auto';
-import { ChevronLeft, Trophy, Users, Award, ArrowRight, RotateCcw, Sparkles } from 'lucide-react';
-import { useToast } from '../../contexts/ToastContext';
+import { ChevronLeft, Trophy, Award, ArrowRight, RotateCcw } from 'lucide-react';
 import { ResultsSummary, MiniLeaderboard } from '../components';
 
 export default function LobbyResults({
@@ -12,7 +11,6 @@ export default function LobbyResults({
   onPlayAgain,
   onBackToHub,
 }) {
-  const { toast } = useToast();
   const shouldReduceMotion = useReducedMotion();
   const performanceChartRef = useRef(null);
   const currentPlayer = leaderboard.find(p => p.id === playerId);

@@ -14,6 +14,8 @@ import {
   getMyNotesApi,
   deleteNoteApi,
   getWalletApi,
+  getShopPacksApi,
+  purchasePackApi,
   getNoteThreadApi,
   streamGenerateNoteApi,
   streamContinueConversationApi,
@@ -96,6 +98,69 @@ export function AiNotesProvider({ children }) {
       // Keep cached/default wallet
     }
   }, [setWallet]);
+
+  // ── Layout & UI Navigation State ───────────────────────────────
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), []);
+
+  // ── Shop Modal & Token Pack State ─────────────────────────────
+  const [shopOpen, setShopOpen] = useState(false);
+  const [shopPacks, setShopPacks] = useState([]);
+  const [confirmPack, setConfirmPack] = useState(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+
+  const openShop = useCallback(async () => {
+    setShopOpen(true);
+    try {
+      const packs = await getShopPacksApi();
+      setShopPacks(packs || []);
+    } catch {
+      setShopPacks([
+        { id: 'p-1', name: 'Starter Pack', token_amount: 50000, histoin_cost: 100, is_active: true },
+        { id: 'p-2', name: 'Popular Pack', token_amount: 150000, histoin_cost: 250, is_active: true },
+        { id: 'p-3', name: 'Mega Pack', token_amount: 350000, histoin_cost: 500, is_active: true },
+      ]);
+    }
+  }, []);
+
+  const closeShop = useCallback(() => {
+    setShopOpen(false);
+    setConfirmPack(null);
+  }, []);
+
+  const handleBuyPack = useCallback(
+    (pack) => {
+      if (wallet.histoin_balance < pack.histoin_cost) {
+        toast.error(`Insufficient Histoins! Need ${pack.histoin_cost} 🪙`);
+        return;
+      }
+      const idempotencyKey =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      setConfirmPack({ ...pack, idempotencyKey });
+    },
+    [wallet.histoin_balance, toast]
+  );
+
+  const confirmPurchase = useCallback(async () => {
+    if (!confirmPack) return;
+    setIsPurchasing(true);
+    try {
+      const res = await purchasePackApi(confirmPack.id, confirmPack.idempotencyKey);
+      setWallet((prev) => ({
+        ...prev,
+        token_balance: res.token_balance,
+        histoin_balance: res.histoin_balance,
+      }));
+      toast.success(`Purchased ${confirmPack.name}! +${res.tokens_credited?.toLocaleString()} tokens.`);
+      setConfirmPack(null);
+    } catch (err) {
+      toast.error(err.message || 'Purchase failed');
+    } finally {
+      setIsPurchasing(false);
+    }
+  }, [confirmPack, setWallet, toast]);
 
   // ── Core Sessions & Conversation Thread State ──────────────────
   const [notes, setNotes] = useState([]);
@@ -820,6 +885,21 @@ export function AiNotesProvider({ children }) {
       isInsufficient,
       isRestylingId,
 
+      // Layout & Shop UI
+      sidebarOpen,
+      setSidebarOpen,
+      toggleSidebar,
+      shopOpen,
+      setShopOpen,
+      openShop,
+      closeShop,
+      shopPacks,
+      confirmPack,
+      setConfirmPack,
+      handleBuyPack,
+      confirmPurchase,
+      isPurchasing,
+
       // Actions
       loadData,
       handleSendMessage,
@@ -852,6 +932,16 @@ export function AiNotesProvider({ children }) {
       estimatedTokens,
       isInsufficient,
       isRestylingId,
+      sidebarOpen,
+      toggleSidebar,
+      shopOpen,
+      openShop,
+      closeShop,
+      shopPacks,
+      confirmPack,
+      handleBuyPack,
+      confirmPurchase,
+      isPurchasing,
       loadData,
       handleSendMessage,
       handleStopGenerating,
