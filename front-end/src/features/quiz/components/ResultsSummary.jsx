@@ -18,7 +18,8 @@ export default function ResultsSummary({
   timeSpentSeconds = 0,
   rank = null,
   quizType = 'personalized', // 'personalized' | 'lobby' | 'global'
-  _topic = 'History Trivia',
+  details = [],
+  isBusy = false,
   difficulty = 'medium',
   onRetry,
   onTryHarder,
@@ -64,7 +65,7 @@ export default function ResultsSummary({
       {quizType === 'global' && (
         <div className="mb-6 rounded-histo bg-emerald-50 border border-emerald-300 p-4 flex items-center justify-between gap-3 text-xs font-ui text-emerald-950 shadow-soft">
           <span><strong>Global Challenge Completed!</strong> Score submitted to the monthly ranked ladder.</span>
-          <span className="font-bold text-emerald-800 shrink-0 font-mono">+20 🪙 Histoins</span>
+          <span className="font-bold text-emerald-800 shrink-0 font-mono">+{Math.max(score, 0)} 🪙 Histoins</span>
         </div>
       )}
 
@@ -144,16 +145,32 @@ export default function ResultsSummary({
           <span className="text-xl sm:text-2xl font-display font-bold text-histo-dark">
             {formatTime(timeSpentSeconds)}
           </span>
-          <span className="text-xs text-histo-ink/40 font-ui block mt-0.5">Self-paced</span>
+          <span className="text-xs text-histo-ink/40 font-ui block mt-0.5">{quizType === 'lobby' ? 'Live match' : 'Self-paced'}</span>
         </div>
       </div>
 
+      {details.length > 0 && (
+        <details className="mb-6 text-sm font-body">
+          <summary className="cursor-pointer font-bold text-histo-dark">Review answers</summary>
+          <ol className="space-y-4 mt-4">
+            {details.map((item, index) => (
+              <li key={item.question_id} className="rounded-histo bg-white border border-histo-dark/10 p-4">
+                <p className="font-semibold mb-2">{index + 1}. {item.question}</p>
+                <p>Your answer: {item.selected_option == null ? 'Unanswered' : item.options[item.selected_option]}</p>
+                <p className="text-emerald-700">Correct answer: {item.options[item.correct_answer]}</p>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+      {isBusy && <p role="status" className="text-center mb-4">Generating your next quiz...</p>}
       {/* CTA Action Buttons */}
       <div className="flex flex-wrap items-center justify-center gap-3.5 pt-2">
         {onRetry && (
           <button
             type="button"
             onClick={onRetry}
+            disabled={isBusy}
             className="px-5 py-3 rounded-[4px] border border-histo-dark/20 bg-white text-xs font-ui font-bold tracking-wider uppercase text-histo-dark hover:border-histo-gold hover:bg-histo-paper transition-all shadow-soft cursor-pointer"
           >
             Retry Same Topic
@@ -164,6 +181,7 @@ export default function ResultsSummary({
           <button
             type="button"
             onClick={onTryHarder}
+            disabled={isBusy}
             className="px-5 py-3 rounded-[4px] bg-histo-copper text-white text-xs font-ui font-bold tracking-wider uppercase shadow-soft hover:bg-histo-dark transition-all cursor-pointer"
           >
             Try Harder Difficulty

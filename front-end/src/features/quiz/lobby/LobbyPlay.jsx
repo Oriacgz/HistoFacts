@@ -8,6 +8,10 @@ import ResultsSummary from '../components/ResultsSummary';
 export default function LobbyPlay({ socket, user, onExit }) {
   const {
     roomState,
+    result,
+    scoringRules,
+    currentUserId,
+    errorMessage,
     topic,
     currentQuestionIndex,
     totalQuestions,
@@ -21,12 +25,13 @@ export default function LobbyPlay({ socket, user, onExit }) {
     isReconnecting,
   } = socket;
 
-  const currentParticipant = participants.find((p) => p.username === user?.username) || {};
+  const currentParticipant = participants.find((p) => p.user_id === (user?.id || currentUserId)) || {};
 
   // 1. Question Active View
   if (roomState === 'question_active') {
     return (
       <div className="max-w-3xl mx-auto">
+        {errorMessage && <p role="alert" className="text-red-600 mb-4">{errorMessage}</p>}
         {/* Silent Reconnect Banner */}
         {isReconnecting && (
           <div className="mb-4 rounded-histo bg-amber-50 border border-amber-300 p-2.5 flex items-center justify-between text-xs font-ui text-amber-900 animate-pulse">
@@ -60,17 +65,17 @@ export default function LobbyPlay({ socket, user, onExit }) {
           <QuestionCard
             index={currentQuestionIndex}
             total={totalQuestions}
+            scoringRules={scoringRules}
             question={currentQuestion.question}
             options={currentQuestion.options}
-            selectedOption={currentParticipant.answers?.[currentQuestionIndex]}
+            selectedOption={myAnswerResult?.selected_option}
             onSelect={(optIdx) => {
               if (!hasAnsweredCurrent) {
                 submitAnswer(optIdx);
               }
             }}
-            disabled={hasAnsweredCurrent}
-            showCorrectAnswer={hasAnsweredCurrent}
-            correctAnswer={myAnswerResult?.correct_answer ?? currentQuestion.correct_answer}
+            disabled={hasAnsweredCurrent || timeRemaining <= 0}
+            showCorrectAnswer={false}
           />
         )}
 
@@ -93,7 +98,7 @@ export default function LobbyPlay({ socket, user, onExit }) {
 
             <div className="mt-4 flex items-center justify-center gap-4 text-xs font-ui">
               <span className="text-histo-copper font-bold">
-                Your Score: {currentParticipant.score || 0} pts
+                Your Score: {myAnswerResult?.score ?? currentParticipant.score ?? 0} pts
               </span>
               {(currentParticipant.streak || 0) > 1 && (
                 <span className="text-amber-800 font-bold bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
@@ -108,7 +113,7 @@ export default function LobbyPlay({ socket, user, onExit }) {
   }
 
   // 2. Mini-Leaderboard Between Questions
-  if (roomState === 'mini_leaderboard') {
+  if (roomState === 'question_results') {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-6">
@@ -118,9 +123,12 @@ export default function LobbyPlay({ socket, user, onExit }) {
           <h2 className="text-2xl font-display font-bold text-histo-dark">Live Match Standings</h2>
         </div>
 
+        {currentQuestion && <QuestionCard question={currentQuestion.question} options={currentQuestion.options}
+          index={currentQuestionIndex} total={totalQuestions} selectedOption={myAnswerResult?.selected_option ?? null}
+          correctAnswer={currentQuestion.correct_answer} scoringRules={scoringRules} showCorrectAnswer disabled className="mb-6" />}
         <MiniLeaderboard
           participants={participants}
-          currentUserId={user?.id}
+          currentUserId={user?.id || currentUserId}
           title="Top Scholars This Match"
           className="shadow-medium mb-6"
         />
@@ -139,18 +147,23 @@ export default function LobbyPlay({ socket, user, onExit }) {
       ? finalLeaderboard
       : [...participants].sort((a, b) => b.score - a.score);
 
-    const myRank = sorted.findIndex((p) => p.username === user?.username) + 1 || null;
+    const finalParticipant = sorted.find((p) => p.user_id === (user?.id || currentUserId)) || currentParticipant;
+    const myRank = sorted.findIndex((p) => p.user_id === (user?.id || currentUserId)) + 1 || null;
 
     return (
       <div className="max-w-3xl mx-auto">
+        {socket.endedByHost && <p role="status" className="mb-4 rounded-histo bg-amber-50 border border-amber-300 p-4 text-amber-900">Quiz ended by host. Final scores include answers submitted before the quiz ended.</p>}
+        <MiniLeaderboard participants={sorted} currentUserId={user?.id || currentUserId} title="Final Leaderboard" className="mb-6" />
         <ResultsSummary
-          score={currentParticipant.score || 0}
-          maxScore={totalQuestions * 150}
-          correctCount={Object.keys(currentParticipant.answers || {}).length}
-          wrongCount={totalQuestions - Object.keys(currentParticipant.answers || {}).length}
+          score={result?.score ?? finalParticipant.score ?? 0}
+          maxScore={result?.max_score ?? totalQuestions * 2}
+          correctCount={result?.correct_count ?? finalParticipant.correct_count ?? 0}
+          wrongCount={result?.wrong_count ?? finalParticipant.wrong_count ?? 0}
           totalQuestions={totalQuestions}
-          timeSpentSeconds={totalQuestions * 20}
-          rank={myRank}
+          timeSpentSeconds={result?.total_time_seconds ?? 0}
+          rank={result?.rank ?? myRank}
+          details={result?.details}
+          difficulty={result?.difficulty}
           quizType="lobby"
           topic={topic}
           onBackToHub={onExit}

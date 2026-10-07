@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import jsQR from 'jsqr';
+import { resolveLobbyCode } from './resolveLobbyCode';
+import { getLobbyInfoApi } from '../../../api/quiz';
 import {
   RightArrowIcon,
   XCircleIcon,
@@ -24,6 +26,18 @@ export default function JoinLobby({ onJoinCode, initialCode = '' }) {
     setPrevInitialCode(initialCode);
     setCode(initialCode);
   }
+
+  const joinRoom = async (input) => {
+    const roomCode = resolveLobbyCode(input);
+    if (!roomCode) { setErrorMsg('Enter a six-digit code or a valid lobby invite link.'); return; }
+    setErrorMsg('');
+    try {
+      await getLobbyInfoApi(roomCode);
+      onJoinCode(roomCode);
+    } catch (error) {
+      setErrorMsg(error.message || 'Could not join this lobby.');
+    }
+  };
 
   const stopCamera = useCallback(() => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -51,7 +65,7 @@ export default function JoinLobby({ onJoinCode, initialCode = '' }) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
         setIsScanning(true);
-        requestAnimationFrame(scanQRCode);
+        animFrameRef.current = requestAnimationFrame(scanQRCode);
       }
     } catch (err) {
       console.warn('Camera access error:', err);
@@ -77,15 +91,10 @@ export default function JoinLobby({ onJoinCode, initialCode = '' }) {
     const qrCode = jsQR(imageData.data, imageData.width, imageData.height);
 
     if (qrCode && qrCode.data) {
-      let detectedCode = qrCode.data.trim();
-      const match = detectedCode.match(/join=([0-9]{6})/i) || detectedCode.match(/\b([0-9]{6})\b/);
-      if (match && match[1]) {
-        detectedCode = match[1];
-      }
-
-      if (detectedCode.length === 6 && /^\d+$/.test(detectedCode)) {
+      const detectedCode = resolveLobbyCode(qrCode.data);
+      if (detectedCode) {
         stopCamera();
-        onJoinCode(detectedCode);
+        joinRoom(detectedCode);
         return;
       }
     }
@@ -101,22 +110,45 @@ export default function JoinLobby({ onJoinCode, initialCode = '' }) {
       setErrorMsg('Please enter a valid 6-digit lobby code (numbers only).');
       return;
     }
-    onJoinCode(clean);
+    joinRoom(clean);
   };
 
   const handleLinkSubmit = (e) => {
     e?.preventDefault();
     setErrorMsg('');
-    const match = linkInput.match(/join=([0-9]{6})/i) || linkInput.match(/\b([0-9]{6})\b/);
-    if (match && match[1]) {
-      onJoinCode(match[1]);
-    } else {
-      setErrorMsg('Could not find a valid 6-digit lobby code in this link.');
-    }
+    joinRoom(linkInput);
+  };
+
+  const handleQrUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setErrorMsg('QR images must be at most 5 MB.'); return; }
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      image.src = objectUrl;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 1200 / Math.max(image.width, image.height));
+      canvas.width = Math.ceil(image.width * scale);
+      canvas.height = Math.ceil(image.height * scale);
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+      const decoded = jsQR(pixels.data, pixels.width, pixels.height);
+      if (!decoded) { setErrorMsg('No readable QR code found in this image.'); return; }
+      stopCamera();
+      await joinRoom(decoded.data);
+    } catch { setErrorMsg('Could not read this QR image. Try another image or enter the code.'); }
+    finally { URL.revokeObjectURL(objectUrl); event.target.value = ''; }
   };
 
   return (
     <div className="max-w-xl mx-auto">
+      <label className="block mb-4 text-sm font-ui text-histo-dark">
+        Join with a QR image
+        <input type="file" accept="image/*" onChange={handleQrUpload} className="block mt-2" />
+      </label>
       <div className="text-center mb-8">
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-histo-copper/10 border border-histo-copper/20 text-histo-copper text-xs font-ui font-semibold uppercase tracking-wider mb-3">
           <CrownIcon className="h-3.5 w-3.5" /> Player Entry

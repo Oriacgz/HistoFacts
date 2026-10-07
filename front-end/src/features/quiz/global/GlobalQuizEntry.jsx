@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   TrophyIcon,
@@ -11,7 +11,7 @@ import {
 import ScoreRulesBadge from '../components/ScoreRulesBadge';
 import QuestionCard from '../components/QuestionCard';
 import ResultsSummary from '../components/ResultsSummary';
-import { getQuizQuestionsApi, saveQuizSessionApi } from '../../../api/quiz';
+import { startGlobalQuizApi, completeQuizApi, getCurrentGlobalQuizApi } from '../../../api/quiz';
 
 const GLOBAL_RULES = {
   correct: 2,
@@ -21,14 +21,38 @@ const GLOBAL_RULES = {
 };
 
 export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
+  const [sessionId, setSessionId] = useState(null);
+  const [result, setResult] = useState(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState([]);
   const [startTime, setStartTime] = useState(null);
-  const [endTime, setEndTime] = useState(null);
-  const [isFinished, setIsFinished] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [poolStatus, setPoolStatus] = useState('checking');
+
+  const checkPool = async () => {
+    setPoolStatus('checking');
+    setErrorMsg('');
+    try {
+      await getCurrentGlobalQuizApi();
+      setPoolStatus('ready');
+    } catch (error) {
+      setPoolStatus(error.status === 503 ? 'unavailable' : 'error');
+      if (error.status !== 503) setErrorMsg(error.message || 'Could not check this month’s challenge.');
+    }
+  };
+  useEffect(() => {
+    let active = true;
+    getCurrentGlobalQuizApi().then(() => { if (active) setPoolStatus('ready'); }).catch((error) => {
+      if (!active) return;
+      setPoolStatus(error.status === 503 ? 'unavailable' : 'error');
+      if (error.status !== 503) setErrorMsg(error.message || 'Could not check this month’s challenge.');
+    });
+    return () => { active = false; };
+  }, []);
 
   const getDaysRemainingInMonth = () => {
     const now = new Date();
@@ -41,41 +65,27 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
   const handleStartChallenge = async () => {
     setIsLoading(true);
     try {
-      const q = await getQuizQuestionsApi('');
-      let pool = q && q.length > 0 ? q : [];
-      const final40 = [];
-      for (let i = 0; i < 40; i++) {
-        const sourceQ = pool[i % pool.length] || {
-          question: `Global Challenge Question #${i + 1}: Which major historical event redefined global political boundaries?`,
-          options: [
-            'Treaty of Westphalia (1648)',
-            'Congress of Vienna (1815)',
-            'Treaty of Versailles (1919)',
-            'United Nations Charter (1945)',
-          ],
-          correct_answer: (i % 4),
-        };
-        final40.push({
-          id: `global-q-${i + 1}`,
-          question: sourceQ.question,
-          options: sourceQ.options,
-          correct_answer: sourceQ.correct_answer,
-          difficulty: 'standard',
-        });
-      }
-      setQuestions(final40);
-      setUserAnswers(Array(40).fill(null));
+      const res = await startGlobalQuizApi();
+      setSessionId(res.session_id);
+      setQuestions(res.questions);
+      setUserAnswers(Array(res.questions.length).fill(null));
+      setResult(null);
+      setErrorMsg('');
       setCurrentIndex(0);
       setStartTime(Date.now());
       setIsPlaying(true);
     } catch (e) {
-      console.error('Could not load global questions:', e);
+      if (e.status === 503) {
+        setPoolStatus('unavailable');
+        setErrorMsg('');
+      } else setErrorMsg(e.message || 'Could not load global quiz');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSelectOption = (optionIndex) => {
+    if (isSaving) return;
     const newAnswers = [...userAnswers];
     newAnswers[currentIndex] = optionIndex;
     setUserAnswers(newAnswers);
@@ -95,84 +105,39 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
     }
   };
 
-  const calculateGlobalScore = () => {
-    let score = 0;
-    let correctCount = 0;
-    let wrongCount = 0;
-
-    questions.forEach((q, idx) => {
-      const chosen = userAnswers[idx];
-      if (chosen !== null && chosen !== undefined) {
-        if (chosen === q.correct_answer) {
-          score += GLOBAL_RULES.correct;
-          correctCount += 1;
-        } else {
-          score += GLOBAL_RULES.wrong;
-          wrongCount += 1;
-        }
-      }
-    });
-
-    return {
-      score: Math.max(0, score),
-      correctCount,
-      wrongCount,
-    };
-  };
-
   const finishGlobalQuiz = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setErrorMsg('');
     const end = Date.now();
-    setEndTime(end);
-    setIsFinished(true);
-
-    const { score, correctCount, wrongCount } = calculateGlobalScore();
-    const duration = Math.round((end - (startTime || Date.now())) / 1000);
-
-    const details = questions.map((q, idx) => ({
-      question_id: q.id,
-      question: q.question,
-      options: q.options,
-      selected_option: userAnswers[idx],
-      correct_answer: q.correct_answer,
-      is_correct: userAnswers[idx] === q.correct_answer,
-      difficulty: 'standard',
-    }));
-
     try {
-      await saveQuizSessionApi({
-        quiz_type: 'global',
-        topic: 'Global Ranked Challenge',
-        difficulty: 'standard',
-        score,
-        max_score: GLOBAL_RULES.maxScore,
-        correct_count: correctCount,
-        wrong_count: wrongCount,
-        total_time_seconds: duration,
-        details,
-      });
+      const saved = await completeQuizApi(sessionId, questions, userAnswers, Math.round((end - startTime) / 1000));
+      setResult(saved);
     } catch (e) {
-      console.warn('Could not save global session:', e);
+      setErrorMsg(e.message || 'Could not save quiz. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   // 1. Results View
-  if (isFinished) {
-    const { score, correctCount, wrongCount } = calculateGlobalScore();
-    const timeSpent = (endTime && startTime) ? Math.round((endTime - startTime) / 1000) : 0;
-
+  if (result) {
     return (
       <div className="max-w-3xl mx-auto py-4">
+        {errorMsg && <p role="alert" className="text-red-600 mb-4">{errorMsg}</p>}
+        {isSaving && <p role="status">Saving results...</p>}
         <ResultsSummary
-          score={score}
-          maxScore={GLOBAL_RULES.maxScore}
-          correctCount={correctCount}
-          wrongCount={wrongCount}
+          score={result.score}
+          maxScore={result.max_score}
+          correctCount={result.correct_count}
+          wrongCount={result.wrong_count}
           totalQuestions={questions.length}
-          timeSpentSeconds={timeSpent}
+          timeSpentSeconds={result.total_time_seconds}
           quizType="global"
           topic="Global Ranked Challenge"
           difficulty="standard"
-          onRetry={handleStartChallenge}
+          rank={result.rank}
+          details={result.details}
           onBackToHub={onBackToHub}
         />
       </div>
@@ -187,6 +152,8 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
 
     return (
       <div className="max-w-3xl mx-auto">
+        {errorMsg && <p role="alert" className="text-red-600 mb-4">{errorMsg}</p>}
+        {isSaving && <p role="status">Saving results...</p>}
         {/* Header Bar */}
         <div className="flex items-center justify-between gap-4 mb-4">
           <div className="flex items-center gap-3">
@@ -232,6 +199,7 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
             options={currentQ.options}
             selectedOption={userAnswers[currentIndex]}
             onSelect={handleSelectOption}
+            disabled={isSaving}
             scoringRules={{ correct: GLOBAL_RULES.correct, wrong: GLOBAL_RULES.wrong }}
           />
         )}
@@ -241,7 +209,7 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
           <button
             type="button"
             onClick={handlePrev}
-            disabled={currentIndex === 0}
+            disabled={isSaving || currentIndex === 0}
             className="px-4 py-2.5 rounded-[4px] border border-histo-dark/20 bg-white text-xs font-ui font-bold uppercase tracking-wider text-histo-dark hover:border-histo-gold transition-all disabled:opacity-30 cursor-pointer shadow-soft"
           >
             <ChevronLeftIcon className="h-4 w-4" /> Previous
@@ -254,7 +222,7 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
           <button
             type="button"
             onClick={handleNext}
-            disabled={!isCurrentAnswered}
+            disabled={isSaving || !isCurrentAnswered}
             className="px-6 py-2.5 rounded-[4px] bg-histo-copper hover:bg-histo-dark text-white text-xs font-ui font-bold uppercase tracking-wider shadow-medium transition-all flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 cursor-pointer"
           >
             {currentIndex === questions.length - 1 ? (
@@ -271,6 +239,8 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
   // 3. Entry Screen
   return (
     <div className="max-w-3xl mx-auto">
+        {errorMsg && <p role="alert" className="text-red-600 mb-4">{errorMsg}</p>}
+        {isSaving && <p role="status">Saving results...</p>}
       {/* Top Banner */}
       <div className="rounded-histo bg-histo-cream border border-histo-dark/15 p-4 mb-8 flex flex-wrap items-center justify-between gap-4 shadow-soft">
         <div className="flex items-center gap-3">
@@ -282,7 +252,7 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
               {new Date().toLocaleString('default', { month: 'long' })} Ranked Season
             </h4>
             <p className="text-xs font-ui text-histo-ink/60">
-              ⏱ {daysRemaining} days remaining until monthly leaderboard reset & Histoin payout
+              ⏱ {daysRemaining} days remaining until monthly leaderboard reset
             </p>
           </div>
         </div>
@@ -317,7 +287,7 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
               <span>Negative Marking</span>
             </div>
             <p className="text-xs font-body text-histo-ink/70 leading-relaxed">
-              +2 for correct answer, -2 penalty for incorrect answer. Think before locking!
+              +2 for correct answer, -2 penalty for incorrect answer. Review your choices before submitting.
             </p>
           </div>
 
@@ -327,7 +297,7 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
               <span>Earn Histoins</span>
             </div>
             <p className="text-xs font-body text-histo-ink/70 leading-relaxed">
-              Every correct answer awards +20 Histoins to unlock study packs in the shop.
+              Earn Histoins equal to your final score, up to 80. Negative scores earn no coins.
             </p>
           </div>
 
@@ -337,17 +307,23 @@ export default function GlobalQuizEntry({ onBackToHub, onOpenLeaderboard }) {
               <span>Monthly Ladder</span>
             </div>
             <p className="text-xs font-body text-histo-ink/70 leading-relaxed">
-              Climb the global ranks. Top 10 scholars receive exclusive seasonal badges.
+              Compare your official score with other scholars on this month's leaderboard.
             </p>
           </div>
         </div>
 
         {/* Start Button */}
+        {poolStatus !== 'ready' && (
+          <div role="status" className="mb-6 rounded border border-histo-copper/30 bg-white p-4 text-sm font-body text-histo-dark">
+            {poolStatus === 'checking' ? 'Checking this month’s official questions…' : poolStatus === 'unavailable' ? 'This month’s challenge is not ready yet. Please check back once the official questions are published.' : 'Challenge availability could not be checked.'}
+            {poolStatus !== 'checking' && <button type="button" onClick={checkPool} className="block mx-auto mt-3 text-histo-copper underline">Check again</button>}
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-center gap-4">
           <button
             type="button"
             onClick={handleStartChallenge}
-            disabled={isLoading}
+            disabled={isLoading || poolStatus !== 'ready'}
             className="px-8 py-4 rounded-[4px] bg-histo-copper hover:bg-histo-dark text-white text-xs font-ui font-bold tracking-widest uppercase shadow-medium transition-all flex items-center gap-2.5 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 cursor-pointer"
           >
             {isLoading ? (

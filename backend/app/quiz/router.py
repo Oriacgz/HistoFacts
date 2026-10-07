@@ -3,21 +3,28 @@ FastAPI router for Quiz module endpoints and WebSocket Lobby.
 """
 
 import asyncio
-from app.core.security import decode_token
-from fastapi import APIRouter, Depends, Query, HTTPException, Request, status, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from app.core.inter_service import notify
+from fastapi import APIRouter, Depends, Query, HTTPException, Request, status, WebSocket, UploadFile, File, Form
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord
+from app.quiz.models import QuizAttempt, QuizSessionRecord
+from app.quiz.sessions import create_personalized_session, current_global_questions, start_global_session, complete_session, generate_global_question_pool
+from app.quiz.generation import extract_pdf_text
+from app.quiz.lobby import create_lobby as create_shared_lobby, serve_lobby, end_lobby
+from app.quiz.lobby_state import lobby_state_manager
 from app.quiz.schemas import (
     QuizQuestionResponse,
     QuizAttemptRequest,
     QuizAttemptResponse,
-    QuizResultSummary,
     GenerateQuizRequest,
     QuizSessionCreateRequest,
     QuizSessionResponse,
     LeaderboardResponse,
+    CompleteQuizRequest,
+    GlobalPoolRequest,
+    LobbyCreateRequest,
 )
 from app.quiz.service import (
     get_quiz_questions_by_topic,
@@ -27,7 +34,6 @@ from app.quiz.service import (
     get_user_quiz_history,
     get_quiz_session_detail,
     get_global_leaderboard_data,
-    lobby_manager,
 )
 from app.core.database import get_async_session
 from app.core.deps import get_optional_current_user, CurrentUser, verify_internal_service_secret
@@ -37,6 +43,63 @@ from slowapi.util import get_remote_address
 limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/api/quiz", tags=["Quiz"])
+
+
+def require_quiz_user(user):
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    return user.id
+
+
+@router.post("/personalized/generate")
+async def generate_personalized(req: GenerateQuizRequest,
+                                user=Depends(get_optional_current_user),
+                                db: AsyncSession = Depends(get_async_session)):
+    user_id = require_quiz_user(user)
+    if req.source_type != "topic":
+        raise HTTPException(400, "Upload PDFs through /personalized/from-pdf")
+    return await create_personalized_session(req, user_id, db)
+
+
+@router.post("/personalized/from-pdf")
+async def generate_pdf(file: UploadFile = File(...), difficulty: str = Form("medium"),
+                       user=Depends(get_optional_current_user),
+                       db: AsyncSession = Depends(get_async_session)):
+    user_id = require_quiz_user(user)
+    if difficulty not in {"easy", "medium", "hard"}:
+        raise HTTPException(422, "Invalid difficulty")
+    raw = await file.read(10 * 1024 * 1024 + 1)
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(413, "PDF must be at most 10 MB")
+    text = await asyncio.to_thread(extract_pdf_text, raw)
+    req = GenerateQuizRequest(topic="History PDF", source_type="pdf", pdf_text=text, difficulty=difficulty)
+    return await create_personalized_session(req, user_id, db)
+
+
+@router.get("/global/current")
+async def global_current(db: AsyncSession = Depends(get_async_session)):
+    from app.quiz.sessions import public_question
+    _, questions = await current_global_questions(db)
+    return [public_question(q) for q in questions]
+
+
+@router.post("/global/start")
+async def global_start(user=Depends(get_optional_current_user),
+                       db: AsyncSession = Depends(get_async_session)):
+    return await start_global_session(require_quiz_user(user), db)
+
+
+@router.post("/sessions/{session_id}/complete", response_model=QuizSessionResponse)
+async def finish_session(session_id: str, req: CompleteQuizRequest,
+                         user=Depends(get_optional_current_user),
+                         db: AsyncSession = Depends(get_async_session)):
+    return await complete_session(session_id, require_quiz_user(user), req, db)
+
+
+@router.post("/internal/global/pool", dependencies=[Depends(verify_internal_service_secret)])
+async def publish_global_pool(req: GlobalPoolRequest, db: AsyncSession = Depends(get_async_session)):
+    await generate_global_question_pool(req.period, db)
+    return {"period": req.period, "status": "ready"}
 
 
 @router.get("/questions", response_model=list[QuizQuestionResponse])
@@ -55,6 +118,8 @@ async def generate_quiz(
     req: GenerateQuizRequest,
     db: AsyncSession = Depends(get_async_session),
 ):
+    if req.source_type != "topic":
+        raise HTTPException(400, "Upload PDFs through /personalized/from-pdf")
     questions = await generate_personalized_quiz_service(req, db)
     return [QuizQuestionResponse.model_validate(q) for q in questions]
 
@@ -92,12 +157,14 @@ async def save_session_record(
 
 @router.get("/history", response_model=list[QuizSessionResponse])
 async def get_history(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     current_user: CurrentUser | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     if not current_user:
-        return []
-    records = await get_user_quiz_history(user_id=current_user.id, db=db)
+        raise HTTPException(status_code=401, detail="Authentication required")
+    records = await get_user_quiz_history(user_id=current_user.id, db=db, limit=limit, offset=offset)
     return [QuizSessionResponse.model_validate(r) for r in records]
 
 
@@ -123,32 +190,27 @@ async def get_global_leaderboard(
     return await get_global_leaderboard_data(db=db, current_user=current_user)
 
 
+@router.get("/lobby/quizzes")
+async def hostable_quizzes(user=Depends(get_optional_current_user), db: AsyncSession = Depends(get_async_session)):
+    user_id = require_quiz_user(user)
+    fields = (QuizSessionRecord.id, QuizSessionRecord.topic, QuizSessionRecord.difficulty, QuizSessionRecord.created_at)
+    rows = (await db.execute(select(*fields).where(
+        QuizSessionRecord.user_id == user_id, QuizSessionRecord.quiz_type == "personalized",
+        QuizSessionRecord.question_ids.is_not(None)
+    ).order_by(QuizSessionRecord.created_at.desc()).limit(50))).mappings()
+    return [dict(row) for row in rows]
+
+
 @router.post("/lobby/create")
-async def create_lobby(
-    req: GenerateQuizRequest,
-    current_user: CurrentUser | None = Depends(get_optional_current_user),
-    db: AsyncSession = Depends(get_async_session),
-):
-    host_id = current_user.id if current_user else "guest-host"
-    host_name = current_user.username if current_user else "Host"
-    questions = await generate_personalized_quiz_service(req, db)
-    room = await lobby_manager.create_room_async(
-        host_id=host_id,
-        host_name=host_name,
-        topic=req.topic or "History Trivia",
-        questions=questions,
-    )
-    return {
-        "code": room.code,
-        "host_id": room.host_id,
-        "host_name": room.host_name,
-        "topic": room.topic,
-        "total_questions": len(questions),
-    }
+async def create_lobby(req: LobbyCreateRequest, user=Depends(get_optional_current_user),
+                       db: AsyncSession = Depends(get_async_session)):
+    require_quiz_user(user)
+    return await create_shared_lobby(str(req.quiz_session_id), user, db)
 
 
-from pydantic import BaseModel
-from app.core.inter_service import notify
+@router.post("/lobby/{code}/end")
+async def end_lobby_endpoint(code: str, user=Depends(get_optional_current_user)):
+    return await end_lobby(code, require_quiz_user(user))
 
 
 class LobbyInviteRequest(BaseModel):
@@ -162,9 +224,12 @@ async def invite_to_lobby(
     req: LobbyInviteRequest,
     current_user: CurrentUser | None = Depends(get_optional_current_user),
 ):
-    room = lobby_manager.get_room(code)
+    room = await lobby_state_manager.get_lobby(code)
     if not room:
         raise HTTPException(status_code=404, detail="Lobby room not found")
+
+    if require_quiz_user(current_user) != room["host_id"]:
+        raise HTTPException(403, "Only the host can invite participants")
 
     target_ids = list(req.user_ids)
     if req.user_id and req.user_id not in target_ids:
@@ -173,8 +238,8 @@ async def invite_to_lobby(
     if not target_ids:
         raise HTTPException(status_code=400, detail="No user IDs provided for invitation")
 
-    host_name = current_user.username if current_user else room.host_name
-    host_id = current_user.id if current_user else room.host_id
+    host_name = current_user.username if current_user else room["host_name"]
+    host_id = current_user.id if current_user else room["host_id"]
 
     for uid in target_ids:
         if uid != host_id:
@@ -182,8 +247,8 @@ async def invite_to_lobby(
                 user_id=uid,
                 type="quiz_lobby_invite",
                 payload={
-                    "code": room.code,
-                    "topic": room.topic,
+                    "code": room["code"],
+                    "topic": room["topic"],
                     "host_id": host_id,
                     "host_name": host_name,
                 },
@@ -194,206 +259,26 @@ async def invite_to_lobby(
 
 @router.get("/lobby/{code}")
 async def get_lobby_info(code: str):
-    room = lobby_manager.get_room(code)
+    room = await lobby_state_manager.get_lobby(code)
     if not room:
         raise HTTPException(status_code=404, detail="Lobby room not found")
     return {
-        "code": room.code,
-        "host_name": room.host_name,
-        "topic": room.topic,
-        "state": room.state,
-        "total_questions": len(room.questions),
-        "participants_count": len(room.participants),
+        "code": room["code"],
+        "host_name": room["host_name"],
+        "topic": room["topic"],
+        "state": room["status"],
+        "total_questions": len(room["question_ids"]),
+        "participants_count": len(room["participants"]),
     }
-
 
 
 # -------------------------------------------------------------
 # WebSocket: Live Synchronous Kahoot-style Multiplayer Lobby
 # -------------------------------------------------------------
+@router.websocket("/lobby/{code}/ws")
 @router.websocket("/ws/lobby/{code}")
 async def websocket_lobby_endpoint(websocket: WebSocket, code: str):
-    await websocket.accept()
-    room = lobby_manager.get_room(code)
-    if not room:
-        await websocket.send_json({"type": "error", "message": "Room not found"})
-        await websocket.close()
-        return
-
-    user_id = None
-    try:
-        while True:
-            data = await websocket.receive_json()
-            msg_type = data.get("type")
-
-            # 1. Join / Reconnect with JWT authentication
-            if msg_type == "join":
-                token = data.get("token") or websocket.query_params.get("token")
-                authenticated_user_id = None
-                if token:
-                    payload = decode_token(token)
-                    if payload and payload.get("type") == "access":
-                        authenticated_user_id = payload.get("sub")
-
-                if authenticated_user_id:
-                    user_id = authenticated_user_id
-                    role = "host" if user_id == room.host_id else data.get("role", "player")
-                else:
-                    user_id = data.get("user_id") or f"guest-{str(websocket.client.host if websocket.client else 'client')}"
-                    role = "player"  # Guests cannot claim host privileges
-
-                username = data.get("username") or "Scholar"
-                tag = data.get("tag") or "0001"
-
-                # Restore or init participant state
-                if user_id not in room.participants:
-                    room.participants[user_id] = {
-                        "username": username,
-                        "tag": tag,
-                        "score": 0,
-                        "streak": 0,
-                        "answers": {},
-                        "role": role,
-                        "ws": websocket,
-                    }
-                else:
-                    # Silent reconnect!
-                    room.participants[user_id]["ws"] = websocket
-                    room.participants[user_id]["username"] = username
-                    room.participants[user_id]["role"] = role
-
-                # Send room snapshot to newly joined / reconnected user
-                curr_q = room.questions[room.current_question_index] if room.questions else None
-                await websocket.send_json({
-                    "type": "room_state",
-                    "code": room.code,
-                    "host_id": room.host_id,
-                    "host_name": room.host_name,
-                    "topic": room.topic,
-                    "state": room.state,
-                    "current_question_index": room.current_question_index,
-                    "total_questions": len(room.questions),
-                    "time_remaining": room.time_remaining,
-                    "question": curr_q if room.state == "question_active" else None,
-                    "participants": room.get_participants_summary(),
-                    "mini_leaderboard": room.get_mini_leaderboard(),
-                })
-
-                # Broadcast updated participants list
-                await room.broadcast({
-                    "type": "participants_update",
-                    "participants": room.get_participants_summary(),
-                })
-
-            # 2. Host starts the quiz (Authorized only for room.host_id)
-            elif msg_type == "start_quiz":
-                if user_id != room.host_id:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Unauthorized: Only the lobby host can start the quiz",
-                    })
-                    continue
-
-                if room.state == "waiting_room":
-                    room.state = "question_active"
-                    room.current_question_index = 0
-                    room.time_remaining = 20
-                    q = room.questions[0]
-                    await room.broadcast({
-                        "type": "question_start",
-                        "index": 0,
-                        "total": len(room.questions),
-                        "question": q,
-                        "time_remaining": 20,
-                    })
-
-            # 3. Player submits answer
-            elif msg_type == "submit_answer":
-                if user_id and user_id in room.participants and room.state == "question_active":
-                    selected = data.get("selected_option")
-                    q_idx = room.current_question_index
-                    q = room.questions[q_idx]
-                    is_correct = (selected == q["correct_answer"])
-
-                    p = room.participants[user_id]
-                    p["answers"][q_idx] = selected
-                    if is_correct:
-                        p["score"] += 100 + max(0, room.time_remaining * 5)
-                        p["streak"] = p.get("streak", 0) + 1
-                    else:
-                        p["streak"] = 0
-
-                    await websocket.send_json({
-                        "type": "answer_acknowledged",
-                        "is_correct": is_correct,
-                        "correct_answer": q["correct_answer"],
-                        "score": p["score"],
-                    })
-
-                    await room.broadcast({
-                        "type": "participants_update",
-                        "participants": room.get_participants_summary(),
-                    })
-
-            # 4. Host advances to next question or mini-leaderboard (Authorized only for room.host_id)
-            elif msg_type == "show_leaderboard":
-                if user_id != room.host_id:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Unauthorized: Only the lobby host can show the leaderboard",
-                    })
-                    continue
-
-                room.state = "mini_leaderboard"
-                await room.broadcast({
-                    "type": "show_mini_leaderboard",
-                    "mini_leaderboard": room.get_mini_leaderboard(),
-                })
-
-            elif msg_type == "next_question":
-                if user_id != room.host_id:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Unauthorized: Only the lobby host can advance questions",
-                    })
-                    continue
-
-                if room.current_question_index + 1 < len(room.questions):
-                    room.current_question_index += 1
-                    room.state = "question_active"
-                    room.time_remaining = 20
-                    q = room.questions[room.current_question_index]
-                    await room.broadcast({
-                        "type": "question_start",
-                        "index": room.current_question_index,
-                        "total": len(room.questions),
-                        "question": q,
-                        "time_remaining": 20,
-                    })
-                else:
-                    room.state = "final_results"
-                    await room.broadcast({
-                        "type": "final_results",
-                        "leaderboard": sorted(room.get_participants_summary(), key=lambda x: x["score"], reverse=True),
-                    })
-
-            # 5. Server time tick update (Authorized only for room.host_id)
-            elif msg_type == "tick":
-                if user_id == room.host_id:
-                    new_time = data.get("time_remaining")
-                    if new_time is not None:
-                        room.time_remaining = new_time
-                        await room.broadcast({
-                            "type": "time_sync",
-                            "time_remaining": room.time_remaining,
-                        })
-
-
-    except WebSocketDisconnect:
-        if user_id and user_id in room.participants:
-            room.participants[user_id]["ws"] = None
-    except Exception:
-        pass
+    await serve_lobby(websocket, code)
 
 
 # ── Internal Purge and Export Endpoints ──────────────────────────────────────

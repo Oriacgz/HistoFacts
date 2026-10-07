@@ -68,11 +68,12 @@ def resolve_target_service(path: str) -> tuple[str, str] | None:
 
 
 @app.websocket("/api/quiz/ws/lobby/{code}")
+@app.websocket("/api/quiz/lobby/{code}/ws")
 async def proxy_quiz_websocket(websocket: WebSocket, code: str):
     """Proxy real-time WebSocket connection to Quiz microservice lobby."""
     await websocket.accept()
     target_ws_base = settings.quiz_service_url.replace("http://", "ws://").replace("https://", "wss://")
-    target_ws_url = f"{target_ws_base}/api/quiz/ws/lobby/{code}"
+    target_ws_url = f"{target_ws_base}/api/quiz/lobby/{code}/ws"
 
     try:
         async with websockets.connect(target_ws_url) as backend_ws:
@@ -151,6 +152,10 @@ async def proxy_gateway(request: Request, path: str):
             url=target_url,
             headers=headers,
             content=body,
+            **({"timeout": httpx.Timeout(615, connect=10)} if full_path in {
+                "/api/quiz/personalized/generate", "/api/quiz/personalized/from-pdf",
+                "/api/quiz/generate",
+            } else {}),
         )
 
         # Filter response headers
