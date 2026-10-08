@@ -15,9 +15,11 @@ export default function LobbyWaitingRoom({
   isConnected = true,
   isReconnecting = false,
   onLeave,
+  errorMessage,
 }) {
   return (
     <div className="max-w-2xl mx-auto">
+      {errorMessage && <p role="alert" className="text-red-600 mb-4">{errorMessage}</p>}
       {/* Header Info */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">

@@ -1,215 +1,91 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { endLobbyApi } from '../../../api/quiz';
+import { API_BASE_URL } from '../../../api/client';
 
-/**
- * useLobbySocket
- * Manages resilient WebSocket connection for Kahoot-style quiz rooms.
- * Handles auto-reconnect, state restoration, server-authoritative timer, and participant updates.
- */
-export function useLobbySocket({ code, user, role = 'player' }) {
+export function useLobbySocket({ code, user }) {
+  const [state, setState] = useState({ roomState: 'waiting_room', participants: [], finalLeaderboard: [],
+    timeRemaining: 0, totalQuestions: 10, currentQuestionIndex: -1, currentQuestion: null,
+    hostName: 'Host', topic: 'History Trivia', currentUserId: null, myAnswerResult: null,
+    endedByHost: false, hasAnsweredCurrent: false, role: null, result: null, scoringRules: null });
+  const [errorMessage, setErrorMessage] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
-  const [roomState, setRoomState] = useState('waiting_room'); // 'waiting_room' | 'question_active' | 'mini_leaderboard' | 'final_results'
-  const [hostName, setHostName] = useState('Host');
-  const [topic, setTopic] = useState('History Trivia');
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [totalQuestions, setTotalQuestions] = useState(10);
-  const [currentQuestion, setCurrentQuestion] = useState(null);
-  const [timeRemaining, setTimeRemaining] = useState(20);
-  const [participants, setParticipants] = useState([]);
-  const [miniLeaderboard, setMiniLeaderboard] = useState([]);
-  const [finalLeaderboard, setFinalLeaderboard] = useState([]);
-  const [myAnswerResult, setMyAnswerResult] = useState(null);
-  const [hasAnsweredCurrent, setHasAnsweredCurrent] = useState(false);
-
   const socketRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-  const isUnmountedRef = useRef(false);
-  /** Tracks consecutive failed connections for backoff calculation. */
-  const attemptRef = useRef(0);
-  const connectRef = useRef(null);
+  const questionIdRef = useRef(null);
 
-  const getWsUrl = useCallback(() => {
-    const loc = window.location;
-    const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Connect through standard API Gateway
-    const port = import.meta.env.VITE_GATEWAY_WS_PORT || (loc.port === '5173' || loc.port === '3000' ? '8000' : loc.port);
-    const portSegment = port ? `:${port}` : '';
-    const token = localStorage.getItem('access_token');
-    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
-    return `${protocol}//${loc.hostname}${portSegment}/api/quiz/ws/lobby/${code}${tokenParam}`;
-  }, [code]);
+  useEffect(() => {
+    if (!code) return;
+    let stopped = false;
+    let retryTimer;
+    let attempts = 0;
+    let version = -1;
+    const connect = () => {
+      const url = new URL(`${API_BASE_URL.replace(/\/$/, '')}/api/quiz/lobby/${code}/ws`);
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      if (import.meta.env.VITE_GATEWAY_WS_PORT) url.port = import.meta.env.VITE_GATEWAY_WS_PORT;
+      const ws = new WebSocket(url);
+      socketRef.current = ws;
+      ws.onopen = () => {
+        if (stopped || socketRef.current !== ws) return;
+        setErrorMessage('');
+        ws.send(JSON.stringify({ action: 'join', token: localStorage.getItem('access_token'),
+          username: user?.username, tag: user?.tag }));
+      };
+      ws.onmessage = (event) => {
+        if (stopped || socketRef.current !== ws) return;
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'error') { setErrorMessage(message.message); return; }
+          if (message.type !== 'room_state' || message.version < version) return;
+          const changed = message.version > version;
+          version = message.version;
+          attempts = 0;
+          setIsConnected(true);
+          setIsReconnecting(false);
+          if (changed) setErrorMessage('');
+          questionIdRef.current = message.question?.id;
+          setState({ endedByHost: Boolean(message.ended_by_host), role: message.role, roomState: message.state, hostName: message.host_name, topic: message.topic,
+            currentUserId: message.user_id, currentQuestionIndex: message.current_question_index,
+            totalQuestions: message.total_questions, currentQuestion: message.question,
+            timeRemaining: message.time_remaining, participants: message.participants,
+            finalLeaderboard: message.leaderboard, myAnswerResult: message.my_answer_result,
+            hasAnsweredCurrent: Boolean(message.my_answer_result), result: message.result,
+            scoringRules: message.scoring_rules, difficulty: message.difficulty });
+        } catch { setErrorMessage('Could not read lobby update. Reconnect to resume.'); }
+      };
+      ws.onclose = (event) => {
+        if (stopped || socketRef.current !== ws) return;
+        setIsConnected(false);
+        if (event.code === 4401) { setIsReconnecting(false); return; }
+        setIsReconnecting(true);
+        retryTimer = setTimeout(connect, Math.min(1000 * 2 ** attempts++, 30000));
+      };
+      ws.onerror = () => ws.close();
+    };
+    connect();
+    return () => {
+      stopped = true;
+      clearTimeout(retryTimer);
+      const ws = socketRef.current;
+      socketRef.current = null;
+      ws?.close();
+      setIsConnected(false);
+      setIsReconnecting(false);
+    };
+  }, [code, user?.username, user?.tag]);
 
-  const sendEvent = useCallback((type, payload = {}) => {
-    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type, ...payload }));
+  const send = useCallback((action, fields = {}) => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ action, ...fields }));
     }
   }, []);
-
-  const connect = useCallback(() => {
-    if (!code || isUnmountedRef.current) return;
-
-    const url = getWsUrl();
-    const ws = new WebSocket(url);
-    socketRef.current = ws;
-
-    ws.onopen = () => {
-      setIsConnected(true);
-      setIsReconnecting(false);
-      // Reset backoff counter on successful connection
-      attemptRef.current = 0;
-
-      // Authenticate / Join room on connect or reconnect
-      const token = localStorage.getItem('access_token');
-      const userId = user?.id || `anon-${Math.random().toString(36).substring(2, 8)}`;
-      const username = user?.username || 'Scholar';
-      const tag = user?.tag || '0001';
-
-      ws.send(JSON.stringify({
-        type: 'join',
-        token,
-        user_id: userId,
-        username,
-        tag,
-        role,
-      }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-
-        switch (msg.type) {
-          case 'room_state':
-            setRoomState(msg.state || 'waiting_room');
-            setHostName(msg.host_name || 'Host');
-            setTopic(msg.topic || 'History Trivia');
-            setCurrentQuestionIndex(msg.current_question_index || 0);
-            setTotalQuestions(msg.total_questions || 10);
-            setTimeRemaining(msg.time_remaining || 20);
-            if (msg.question) setCurrentQuestion(msg.question);
-            if (msg.participants) setParticipants(msg.participants);
-            if (msg.mini_leaderboard) setMiniLeaderboard(msg.mini_leaderboard);
-            break;
-
-          case 'participants_update':
-            if (msg.participants) setParticipants(msg.participants);
-            break;
-
-          case 'question_start':
-            setRoomState('question_active');
-            setCurrentQuestionIndex(msg.index);
-            setTotalQuestions(msg.total);
-            setCurrentQuestion(msg.question);
-            setTimeRemaining(msg.time_remaining || 20);
-            setHasAnsweredCurrent(false);
-            setMyAnswerResult(null);
-            break;
-
-          case 'time_sync':
-            if (msg.time_remaining !== undefined) {
-              setTimeRemaining(msg.time_remaining);
-            }
-            break;
-
-          case 'answer_acknowledged':
-            setHasAnsweredCurrent(true);
-            setMyAnswerResult({
-              is_correct: msg.is_correct,
-              correct_answer: msg.correct_answer,
-              score: msg.score,
-            });
-            break;
-
-          case 'show_mini_leaderboard':
-            setRoomState('mini_leaderboard');
-            if (msg.mini_leaderboard) setMiniLeaderboard(msg.mini_leaderboard);
-            break;
-
-          case 'final_results':
-            setRoomState('final_results');
-            if (msg.leaderboard) setFinalLeaderboard(msg.leaderboard);
-            break;
-
-          default:
-            break;
-        }
-      } catch (err) {
-        console.warn('Malformed WS message:', err);
-      }
-    };
-
-    ws.onclose = () => {
-      setIsConnected(false);
-      if (!isUnmountedRef.current) {
-        setIsReconnecting(true);
-        // Exponential backoff: 1s, 2s, 4s, 8s, 16s … capped at 30s, with ±300ms jitter
-        const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30_000);
-        const jitter = Math.random() * 600 - 300; // ±300ms
-        attemptRef.current += 1;
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectRef.current?.();
-        }, delay + jitter);
-      }
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
-  }, [code, user, role, getWsUrl]);
-
-  useEffect(() => {
-    connectRef.current = connect;
-  }, [connect]);
-
-  useEffect(() => {
-    isUnmountedRef.current = false;
-    connect();
-
-    return () => {
-      isUnmountedRef.current = true;
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (socketRef.current) socketRef.current.close();
-    };
-  }, [connect]);
-
-  // Host Action: Start Quiz
-  const startQuiz = useCallback(() => {
-    sendEvent('start_quiz');
-  }, [sendEvent]);
-
-  // Host Action: Show Mini-Leaderboard
-  const showMiniLeaderboard = useCallback(() => {
-    sendEvent('show_leaderboard');
-  }, [sendEvent]);
-
-  // Host Action: Advance to Next Question
-  const nextQuestion = useCallback(() => {
-    sendEvent('next_question');
-  }, [sendEvent]);
-
-  // Player Action: Submit Answer
-  const submitAnswer = useCallback((selectedOption) => {
-    sendEvent('submit_answer', { selected_option: selectedOption });
-  }, [sendEvent]);
-
-  return {
-    isConnected,
-    isReconnecting,
-    roomState,
-    hostName,
-    topic,
-    currentQuestionIndex,
-    totalQuestions,
-    currentQuestion,
-    timeRemaining,
-    participants,
-    miniLeaderboard,
-    finalLeaderboard,
-    myAnswerResult,
-    hasAnsweredCurrent,
-    startQuiz,
-    showMiniLeaderboard,
-    nextQuestion,
-    submitAnswer,
+  return { ...state, errorMessage, isConnected, isReconnecting,
+    startQuiz: () => send('start_quiz'), showMiniLeaderboard: () => send('advance_question'),
+    endQuiz: async () => {
+      try { await endLobbyApi(code); }
+      catch (error) { setErrorMessage(error.message || 'Could not end the quiz. Try again.'); }
+    },
+    nextQuestion: () => send('advance_question'),
+    submitAnswer: (selectedOption) => send('submit_answer', { question_id: questionIdRef.current, selected_option: selectedOption }),
   };
 }

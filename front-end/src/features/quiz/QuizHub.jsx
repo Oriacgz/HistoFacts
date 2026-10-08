@@ -11,6 +11,7 @@ import {
   BookOpenIcon,
   ChevronLeftIcon,
 } from '../../components/MotionIcons';
+import { startPersonalizedQuizApi, endLobbyApi } from '../../api/quiz';
 import { useAuth } from '../../contexts/AuthContext';
 
 // Mode Components
@@ -34,8 +35,8 @@ const GAME_MODES = [
     icon: SparklesIcon,
     iconBg: 'bg-histo-copper/10 text-histo-copper border-histo-copper/30',
     subtitle: 'Practice from Topics or Your Own Notes',
-    description: 'Generate 10 structured practice questions on any historical topic, or upload your class notes and PDFs for targeted exam revision with instant answer explanations.',
-    highlights: ['10 Questions', 'Self-Paced', 'Instant Answer Explanations', 'Score Tracking'],
+    description: 'Generate 10 structured practice questions on any historical topic, or upload your class notes and PDFs for targeted exam revision with answer review after submission.',
+    highlights: ['10 Questions', 'Self-Paced', 'Answer Review', 'Score Tracking'],
     actionText: 'Start Practice Quiz',
   },
   {
@@ -53,13 +54,13 @@ const GAME_MODES = [
   {
     id: 'global',
     title: 'Monthly Ranked Challenge',
-    badge: '+20 🪙 Earn Histoins',
+    badge: 'Earn Histoins',
     badgeColor: 'bg-amber-100 text-amber-900 border-amber-300',
     icon: TrophyIcon,
     iconBg: 'bg-amber-50 text-amber-800 border-amber-300',
     subtitle: '40-Question Monthly Challenge',
     description: 'Test your world history knowledge against students worldwide. Earn free Histoins coins for correct answers and climb the monthly leaderboard.',
-    highlights: ['40 Questions', 'Timed Scoring', 'Monthly Leaderboard Reset', 'Earn Free Coins'],
+    highlights: ['40 Questions', 'Fixed Scoring', 'Monthly Leaderboard Reset', 'Earn Free Coins'],
     actionText: 'Play Ranked Challenge',
   },
   {
@@ -81,14 +82,33 @@ export default function QuizHub() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const joinCodeParam = searchParams.get('join') || '';
-  const initialMode = joinCodeParam ? 'lobby' : (searchParams.get('tab') || null);
+  const initialMode = (joinCodeParam || searchParams.get('host')) ? 'lobby' : (searchParams.get('tab') || null);
   const [activeMode, setActiveMode] = useState(initialMode);
 
   // Personalized State
   const [activePersonalizedQuiz, setActivePersonalizedQuiz] = useState(null);
+  const [practiceError, setPracticeError] = useState('');
+  const [isRestarting, setIsRestarting] = useState(false);
+
+  const restartPractice = async (difficulty) => {
+    if (isRestarting) return;
+    setIsRestarting(true);
+    setPracticeError('');
+    try {
+      const res = await startPersonalizedQuizApi({
+        topic: activePersonalizedQuiz.topic, difficulty, file: activePersonalizedQuiz.file,
+      });
+      setActivePersonalizedQuiz({ ...activePersonalizedQuiz, difficulty,
+        questions: res.questions, sessionId: res.session_id });
+    } catch (error) {
+      setPracticeError(error.message || 'Could not start another quiz.');
+    } finally {
+      setIsRestarting(false);
+    }
+  };
 
   // Lobby Sub-mode State: 'hub' | 'host' | 'join' | 'joined_play'
-  const [lobbySubMode, setLobbySubMode] = useState(() => (joinCodeParam ? 'joined_play' : 'hub'));
+  const [lobbySubMode, setLobbySubMode] = useState(() => (joinCodeParam ? 'joined_play' : searchParams.get('host') ? 'host' : 'hub'));
   const [lobbyJoinCode, setLobbyJoinCode] = useState(() => joinCodeParam);
 
   // Global Sub-mode State: 'entry' | 'leaderboard'
@@ -108,7 +128,6 @@ export default function QuizHub() {
   const playerSocket = useLobbySocket({
     code: lobbyJoinCode,
     user,
-    role: 'player',
   });
 
   const handleSelectMode = (modeId) => {
@@ -119,20 +138,28 @@ export default function QuizHub() {
     if (modeId === 'global') setGlobalSubMode('entry');
   };
 
-  const handleBackToModes = () => {
+  const handleBackToModes = async () => {
+    if (activeMode === 'lobby' && lobbySubMode === 'host' && searchParams.get('host')) {
+      try { await endLobbyApi(searchParams.get('host')); }
+      catch (error) { setPracticeError(error.message || 'Could not end the lobby. Try again.'); return; }
+    }
+    setPracticeError('');
     setActiveMode(null);
     setSearchParams({});
     setActivePersonalizedQuiz(null);
     setLobbySubMode('hub');
+    setLobbyJoinCode('');
   };
 
   const handleJoinLobbyCode = (code) => {
     setLobbyJoinCode(code);
     setLobbySubMode('joined_play');
+    setSearchParams({ tab: 'lobby', join: code });
   };
 
   return (
     <div className="w-full">
+      {practiceError && <p role="alert" className="text-red-600 mb-4">{practiceError}</p>}
       {/* ═══════════════════════════════════════════════════════════════════════ */}
       {/* 1. GAME MODES SELECTION (WIDE HORIZONTAL RECTANGULAR CARDS)          */}
       {/* ═══════════════════════════════════════════════════════════════════════ */}
@@ -252,16 +279,10 @@ export default function QuizHub() {
                 ) : (
                   <PersonalizedQuizPlay
                     quiz={activePersonalizedQuiz}
-                    onReset={() => {
-                      setActivePersonalizedQuiz({ ...activePersonalizedQuiz });
-                    }}
-                    onTryHarder={() => {
-                      const nextDiff = activePersonalizedQuiz.difficulty === 'easy' ? 'medium' : 'hard';
-                      setActivePersonalizedQuiz({
-                        ...activePersonalizedQuiz,
-                        difficulty: nextDiff,
-                      });
-                    }}
+                    key={activePersonalizedQuiz.sessionId}
+                    isRestarting={isRestarting}
+                    onReset={() => restartPractice(activePersonalizedQuiz.difficulty)}
+                    onTryHarder={() => restartPractice(activePersonalizedQuiz.difficulty === 'easy' ? 'medium' : 'hard')}
                     onBackToHub={handleBackToModes}
                   />
                 )}
@@ -339,7 +360,8 @@ export default function QuizHub() {
                 {lobbySubMode === 'host' && (
                   <HostLobby
                     user={user}
-                    onExit={() => setLobbySubMode('hub')}
+                    onExit={() => { setLobbySubMode('hub'); setSearchParams({ tab: 'lobby' }); }}
+                    onCreatePractice={() => handleSelectMode('personalized')}
                   />
                 )}
 
@@ -368,15 +390,16 @@ export default function QuizHub() {
                         topic={playerSocket.topic}
                         participants={playerSocket.participants}
                         user={user}
+                        errorMessage={playerSocket.errorMessage}
                         isConnected={playerSocket.isConnected}
                         isReconnecting={playerSocket.isReconnecting}
-                        onLeave={() => setLobbySubMode('hub')}
+                        onLeave={() => { setLobbyJoinCode(''); setLobbySubMode('hub'); setSearchParams({ tab: 'lobby' }); }}
                       />
                     ) : (
                       <LobbyPlay
                         socket={playerSocket}
                         user={user}
-                        onExit={() => setLobbySubMode('hub')}
+                        onExit={() => { setLobbyJoinCode(''); setLobbySubMode('hub'); setSearchParams({ tab: 'lobby' }); }}
                       />
                     )}
                   </div>

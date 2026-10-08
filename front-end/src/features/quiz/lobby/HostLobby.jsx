@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -10,44 +11,47 @@ import {
   SparklesIcon,
   LogoutIcon,
 } from '../../../components/MotionIcons';
-import { createLobbyApi } from '../../../api/quiz';
+import { createLobbyApi, getHostableQuizzesApi } from '../../../api/quiz';
 import { useLobbySocket } from './useLobbySocket';
 import QuestionCard from '../components/QuestionCard';
 import Countdown from '../components/Countdown';
 import MiniLeaderboard from '../components/MiniLeaderboard';
 
-export default function HostLobby({ user, onExit }) {
-  const [createdRoom, setCreatedRoom] = useState(null);
-  const [topic, setTopic] = useState('World History Trivia');
-  const [difficulty, setDifficulty] = useState('medium');
+export default function HostLobby({ user, onExit, onCreatePractice }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [createdRoom, setCreatedRoom] = useState(() => searchParams.get('host') ? { code: searchParams.get('host') } : null);
+  const [quizzes, setQuizzes] = useState([]);
+  const [quizSessionId, setQuizSessionId] = useState('');
+  const [isLoadingQuizzes, setIsLoadingQuizzes] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (createdRoom) return;
+    let cancelled = false;
+    getHostableQuizzesApi().then((records) => {
+      if (!cancelled) { setQuizzes(records); setQuizSessionId(records[0]?.id || ''); }
+    }).catch((error) => { if (!cancelled) setErrorMsg(error.message); })
+      .finally(() => { if (!cancelled) setIsLoadingQuizzes(false); });
+    return () => { cancelled = true; };
+  }, [createdRoom]);
 
   const socket = useLobbySocket({
     code: createdRoom?.code,
     user,
-    role: 'host',
   });
 
   const handleCreateRoom = async (e) => {
     e?.preventDefault();
     setIsCreating(true);
+    setErrorMsg('');
     try {
-      const room = await createLobbyApi({
-        topic: topic.trim() || 'World History Trivia',
-        difficulty,
-        count: 10,
-      });
+      const room = await createLobbyApi(quizSessionId);
       setCreatedRoom(room);
+      setSearchParams({ tab: 'lobby', host: room.code });
     } catch (err) {
-      console.warn('Lobby creation fallback:', err);
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      setCreatedRoom({
-        code,
-        host_name: user?.username || 'Host',
-        topic: topic || 'World History',
-        total_questions: 10,
-      });
+      setErrorMsg(err.message || 'Could not create lobby. Please try again.');
     } finally {
       setIsCreating(false);
     }
@@ -65,6 +69,8 @@ export default function HostLobby({ user, onExit }) {
   if (!createdRoom) {
     return (
       <div className="max-w-2xl mx-auto">
+        {socket.errorMessage && <p role="alert" className="text-red-600 mb-4">{socket.errorMessage}</p>}
+        {errorMsg && <p role="alert" className="text-red-600 mb-4">{errorMsg}</p>}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-histo-copper/10 border border-histo-copper/20 text-histo-copper text-xs font-ui font-semibold uppercase tracking-wider mb-3">
             <CrownIcon className="h-3.5 w-3.5" /> Host Synchronous Room
@@ -80,43 +86,26 @@ export default function HostLobby({ user, onExit }) {
         <div className="rounded-histo bg-histo-cream border border-histo-dark/10 p-6 sm:p-8 shadow-medium">
           <form onSubmit={handleCreateRoom} className="space-y-6">
             <div>
-              <label className="block text-xs font-ui font-bold text-histo-dark uppercase tracking-wider mb-2">
-                Lobby Topic or Quiz Theme
+              <label htmlFor="lobby-quiz" className="block text-xs font-ui font-bold text-histo-dark mb-2">
+                Choose an existing practice quiz
               </label>
-              <input
-                type="text"
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g. Ancient Civilizations, Medieval India, Modern Revolutions..."
-                className="w-full rounded-[4px] border border-histo-dark/20 bg-white px-4 py-3.5 text-sm text-histo-dark outline-none placeholder:text-histo-ink/40 focus:border-histo-gold shadow-xs font-body transition-all"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-ui font-bold text-histo-dark uppercase tracking-wider mb-2">
-                Difficulty Preset
-              </label>
-              <div className="grid grid-cols-3 gap-3">
-                {['easy', 'medium', 'hard'].map((lvl) => (
-                  <button
-                    key={lvl}
-                    type="button"
-                    onClick={() => setDifficulty(lvl)}
-                    className={`py-3 rounded-[3px] border text-xs font-ui font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                      difficulty === lvl
-                        ? 'border-2 border-histo-gold bg-white text-histo-dark shadow-soft ring-1 ring-histo-gold/30'
-                        : 'border-histo-dark/15 bg-white/70 text-histo-ink/70 hover:bg-white'
-                    }`}
-                  >
-                    {lvl}
-                  </button>
-                ))}
-              </div>
+              {isLoadingQuizzes ? <p role="status">Loading your practice quizzes...</p> : quizzes.length ? (
+                <select id="lobby-quiz" value={quizSessionId} onChange={(event) => setQuizSessionId(event.target.value)}
+                  className="w-full border border-histo-dark/20 bg-white px-4 py-3 text-histo-dark rounded-histo">
+                  {quizzes.map((quiz) => <option key={quiz.id} value={quiz.id}>
+                    {quiz.topic} • {quiz.difficulty} • {new Date(quiz.created_at).toLocaleDateString()}
+                  </option>)}
+                </select>
+              ) : <p>You need a practice quiz before hosting a match.</p>}
+              <button type="button" onClick={onCreatePractice} className="mt-3 text-histo-copper underline">
+                Create a practice quiz
+              </button>
+              <p className="mt-3 text-xs text-histo-ink/70">The lobby reuses its ten questions and difficulty rules. The host closes each round and advances the match.</p>
             </div>
 
             <button
               type="submit"
-              disabled={isCreating}
+              disabled={isCreating || !quizSessionId || isLoadingQuizzes}
               className="w-full py-4 rounded-[4px] bg-histo-copper hover:bg-histo-dark text-white text-xs font-ui font-bold tracking-widest uppercase shadow-medium transition-all flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 cursor-pointer"
             >
               {isCreating ? (
@@ -137,12 +126,15 @@ export default function HostLobby({ user, onExit }) {
     );
   }
 
+  if (socket.role === 'player') return <p role="alert">This room belongs to another host. Join using its player invite link.</p>;
+
   // 2. Host Waiting Room View
   if (socket.roomState === 'waiting_room') {
     const participantCount = socket.participants.length;
 
     return (
       <div className="max-w-4xl mx-auto">
+        {socket.errorMessage && <p role="alert" className="text-red-600 mb-4">{socket.errorMessage}</p>}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-600 animate-pulse" />
@@ -153,7 +145,7 @@ export default function HostLobby({ user, onExit }) {
 
           <button
             type="button"
-            onClick={onExit}
+            onClick={socket.endQuiz}
             className="px-3 py-1.5 rounded-[4px] border border-histo-dark/20 bg-white text-xs font-ui font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
           >
             <LogoutIcon className="h-3.5 w-3.5" /> End Room
@@ -252,7 +244,7 @@ export default function HostLobby({ user, onExit }) {
               <button
                 type="button"
                 onClick={socket.startQuiz}
-                disabled={participantCount === 0}
+                disabled={participantCount === 0 || !socket.isConnected}
                 className="w-full py-4 rounded-[4px] bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-ui font-bold uppercase tracking-widest shadow-medium transition-all flex items-center justify-center gap-2.5 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <span>Start Quiz ({participantCount} Players)</span>
@@ -272,6 +264,9 @@ export default function HostLobby({ user, onExit }) {
 
     return (
       <div className="max-w-4xl mx-auto">
+        {socket.errorMessage && <p role="alert" className="text-red-600 mb-4">{socket.errorMessage}</p>}
+        <button type="button" onClick={socket.endQuiz}
+          className="mb-4 px-4 py-2 rounded border border-red-300 text-red-700 font-ui text-xs font-bold">End Quiz</button>
         {/* Top Control Bar */}
         <div className="flex items-center justify-between gap-4 mb-6">
           <div>
@@ -306,8 +301,6 @@ export default function HostLobby({ user, onExit }) {
             total={socket.totalQuestions}
             question={socket.currentQuestion.question}
             options={socket.currentQuestion.options}
-            correctAnswer={socket.currentQuestion.correct_answer}
-            showCorrectAnswer
             disabled
           />
         )}
@@ -352,9 +345,10 @@ export default function HostLobby({ user, onExit }) {
   }
 
   // 4. Host Mini-Leaderboard View
-  if (socket.roomState === 'mini_leaderboard') {
+  if (socket.roomState === 'question_results') {
     return (
       <div className="max-w-2xl mx-auto">
+        {socket.errorMessage && <p role="alert" className="text-red-600 mb-4">{socket.errorMessage}</p>}
         <div className="text-center mb-6">
           <span className="text-xs font-ui font-bold uppercase tracking-wider text-histo-copper mb-1 block">
             End of Question {socket.currentQuestionIndex + 1}
@@ -368,6 +362,8 @@ export default function HostLobby({ user, onExit }) {
           className="mb-6 shadow-medium"
         />
 
+        <button type="button" onClick={socket.endQuiz}
+          className="mb-4 px-4 py-2 rounded border border-red-300 text-red-700 font-ui text-xs font-bold">End Quiz</button>
         <div className="flex justify-center">
           <button
             type="button"
@@ -394,8 +390,9 @@ export default function HostLobby({ user, onExit }) {
 
     return (
       <div className="max-w-3xl mx-auto">
+        {socket.errorMessage && <p role="alert" className="text-red-600 mb-4">{socket.errorMessage}</p>}
         <div className="mb-6 rounded-histo bg-blue-50 border border-blue-200 p-4 text-xs font-ui text-blue-900 shadow-soft">
-          <strong className="text-blue-950 font-bold block mb-1">Lobby Match Completed:</strong>
+          <strong className="text-blue-950 font-bold block mb-1">{socket.endedByHost ? 'Quiz ended by host' : 'Lobby Match Completed:'}</strong>
           Multiplayer lobby scores are for group study and live practice — they do not affect monthly Global Ranked ratings or Histoin balances.
         </div>
 

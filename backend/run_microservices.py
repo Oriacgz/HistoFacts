@@ -1,6 +1,6 @@
 """
 Local Microservices Process Supervisor for HistoFacts.
-Launches all 6 microservice processes + API Gateway concurrently in development.
+Launches all 7 microservice processes + API Gateway concurrently in development.
 """
 
 import sys
@@ -81,12 +81,14 @@ def main():
                 [python_exe, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
                 cwd=backend_dir,
                 check=True,
-                timeout=10,
+                timeout=120,
             )
         except subprocess.TimeoutExpired:
-            print("  [!] Migrations timed out or already up-to-date, proceeding...")
-        except Exception as e:
-            print(f"  [!] Migration check notice: {e}, proceeding...")
+            print("  [!] Database migrations timed out. Services were not started.")
+            return 1
+        except (subprocess.CalledProcessError, OSError) as e:
+            print(f"  [!] Database migrations failed: {e}. Services were not started.")
+            return 1
     else:
         print("  [*] Skipping database migrations (--skip-migrations flag passed)...")
 
@@ -139,4 +141,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

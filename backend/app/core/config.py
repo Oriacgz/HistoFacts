@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     llm_model: str = "qwen3-vl-4b-thinking"           # exact model ID from LM Studio
     llm_api_key: str = "not-needed"                  # local inference; no real key required
     llm_provider: str = "lm_studio"
+    quiz_llm_base_url: str | None = None
+    quiz_llm_model: str | None = None
 
     # ── Wikimedia API ─────────────────────────────────────────
     wikimedia_api_token: str = ""
