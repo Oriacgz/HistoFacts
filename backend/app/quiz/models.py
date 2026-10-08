@@ -4,8 +4,7 @@ SQLAlchemy models for Quiz module (quiz_questions, quiz_attempts, quiz_sessions)
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, String, Text, Integer, DateTime, ForeignKey, JSON
-from sqlalchemy.orm import relationship
+from sqlalchemy import Boolean, Column, String, Text, Integer, DateTime, ForeignKey, JSON, UniqueConstraint
 
 from app.core.database import Base
 
@@ -23,7 +22,9 @@ class QuizQuestion(Base):
     question = Column(Text, nullable=False)
     options = Column(JSON, nullable=False)
     correct_answer = Column(Integer, nullable=False)
-    difficulty = Column(String, default="medium")
+    difficulty = Column(String().evaluates_none(), default="medium")
+    is_global_pool = Column(Boolean, nullable=False, default=False)
+    global_period = Column(String, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -41,12 +42,13 @@ class QuizAttempt(Base):
 
 class QuizSessionRecord(Base):
     __tablename__ = "quiz_sessions"
+    __table_args__ = (UniqueConstraint("user_id", "global_period", name="uq_quiz_user_period"),)
 
     id = Column(String, primary_key=True, default=generate_uuid)
     user_id = Column(String, nullable=False, index=True)
     quiz_type = Column(String, nullable=False, index=True)
     topic = Column(String, nullable=False)
-    difficulty = Column(String, default="medium")
+    difficulty = Column(String().evaluates_none(), default="medium")
     score = Column(Integer, nullable=False, default=0)
     max_score = Column(Integer, nullable=False, default=20)
     correct_count = Column(Integer, nullable=False, default=0)
@@ -54,7 +56,16 @@ class QuizSessionRecord(Base):
     total_time_seconds = Column(Integer, default=0)
     rank = Column(Integer, nullable=True)
     details = Column(JSON, nullable=True)
+    question_ids = Column(JSON, nullable=True)
+    global_period = Column(String, nullable=True, index=True)
+    completed = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class GlobalQuizPool(Base):
+    __tablename__ = "quiz_global_pools"
+
+    period = Column(String, primary_key=True)
 
 
 class UserSummaryCache(Base):

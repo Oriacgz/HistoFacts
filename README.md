@@ -6,7 +6,7 @@
 [![Frontend Tests](https://img.shields.io/badge/frontend%20tests-11%2F11%20passing-brightgreen)](#testing)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
 
----
+----
 
 ## 📖 Table of Contents
 

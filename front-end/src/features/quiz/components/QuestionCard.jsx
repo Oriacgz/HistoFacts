@@ -21,7 +21,9 @@ export default function QuestionCard({
   scoringRules = null,
   className = '',
 }) {
-  const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const letters = ['A', 'B', 'C', 'D'];
+  const revealAnswer = showCorrectAnswer && Number.isInteger(correctAnswer);
+  const hasSelection = Number.isInteger(selectedOption);
 
   return (
     <motion.div
@@ -78,13 +80,13 @@ export default function QuestionCard({
         {options.map((optionText, optIdx) => {
           const isSelected = selectedOption === optIdx;
           const isCorrect = correctAnswer === optIdx;
-          const isUserWrong = showCorrectAnswer && isSelected && !isCorrect;
-          const isRevealedCorrect = showCorrectAnswer && isCorrect;
+          const isUserWrong = revealAnswer && isSelected && !isCorrect;
+          const isRevealedCorrect = revealAnswer && isCorrect;
 
           let cardStyle = 'border-histo-dark/15 bg-white/80 hover:bg-white hover:border-histo-gold text-histo-ink shadow-soft';
           let letterBadgeStyle = 'bg-histo-paper text-histo-dark border border-histo-dark/20 font-bold';
 
-          if (showCorrectAnswer) {
+          if (revealAnswer) {
             if (isRevealedCorrect) {
               cardStyle = 'border-2 border-emerald-600 bg-emerald-50 text-emerald-950 shadow-soft font-semibold';
               letterBadgeStyle = 'bg-emerald-600 text-white border-emerald-700 font-bold';
@@ -105,8 +107,8 @@ export default function QuestionCard({
               type="button"
               disabled={disabled || showCorrectAnswer}
               onClick={() => onSelect && onSelect(optIdx)}
-              whileHover={!disabled && !showCorrectAnswer ? { scale: 1.008, x: 3 } : {}}
-              whileTap={!disabled && !showCorrectAnswer ? { scale: 0.995 } : {}}
+              whileHover={!disabled && !revealAnswer ? { scale: 1.008, x: 3 } : {}}
+              whileTap={!disabled && !revealAnswer ? { scale: 0.995 } : {}}
               className={`w-full text-left flex items-center justify-between p-4 rounded-histo border transition-all duration-200 cursor-pointer disabled:cursor-default ${cardStyle}`}
             >
               <div className="flex items-center gap-3.5 min-w-0 pr-2">
@@ -120,7 +122,7 @@ export default function QuestionCard({
 
               {/* Status Icons */}
               <div className="shrink-0 ml-2">
-                {showCorrectAnswer ? (
+                {revealAnswer ? (
                   isRevealedCorrect ? (
                     <div className="h-6 w-6 text-emerald-700 flex items-center justify-center">
                       <CheckCircleIcon className="h-5 w-5" />
@@ -145,7 +147,7 @@ export default function QuestionCard({
 
       {/* Immediate feedback banner when showCorrectAnswer is active */}
       <AnimatePresence>
-        {showCorrectAnswer && (
+        {revealAnswer && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -153,13 +155,15 @@ export default function QuestionCard({
             className="mt-4 pt-4 border-t border-histo-dark/10 flex items-center justify-between text-xs font-ui"
           >
             <div className="flex items-center gap-2">
-              {selectedOption === correctAnswer ? (
+              {!hasSelection ? (
+                <span className="text-histo-ink/70">Unanswered (0 pts). Correct is Option {letters[correctAnswer]}.</span>
+              ) : selectedOption === correctAnswer ? (
                 <span className="text-emerald-800 font-bold flex items-center gap-1.5 bg-emerald-100 px-3 py-1.5 rounded-full border border-emerald-300">
-                  <CheckCircleIcon className="h-4 w-4 text-emerald-700" /> Correct! (+{scoringRules?.correct ?? 2} pts)
+                  <CheckCircleIcon className="h-4 w-4 text-emerald-700" /> Correct!{scoringRules ? ` (+${scoringRules.correct} pts)` : ''}
                 </span>
               ) : (
                 <span className="text-rose-800 font-bold flex items-center gap-1.5 bg-rose-100 px-3 py-1.5 rounded-full border border-rose-300">
-                  <XCircleIcon className="h-4 w-4 text-rose-700" /> Incorrect ({scoringRules?.wrong ? `${scoringRules.wrong} pts` : '0 pts'}). Correct is Option {letters[correctAnswer]}.
+                  <XCircleIcon className="h-4 w-4 text-rose-700" /> Incorrect{scoringRules ? ` (${scoringRules.wrong} pts)` : ''}. Correct is Option {letters[correctAnswer]}.
                 </span>
               )}
             </div>

@@ -8,7 +8,8 @@ import {
 import QuestionCard from '../components/QuestionCard';
 import ResultsSummary from '../components/ResultsSummary';
 import ScoreRulesBadge from '../components/ScoreRulesBadge';
-import { saveQuizSessionApi } from '../../../api/quiz';
+import QuizGenerationProgress from '../components/QuizGenerationProgress';
+import { completeQuizApi } from '../../../api/quiz';
 
 const SCORING_RULES = {
   easy: { correct: 2, wrong: 0, maxScore: 20 },
@@ -19,32 +20,26 @@ const SCORING_RULES = {
 export default function PersonalizedQuizPlay({
   quiz,
   onReset,
+  isRestarting = false,
   onTryHarder,
   onBackToHub,
 }) {
-  const { topic, difficulty = 'medium', questions = [] } = quiz;
+  const { sessionId, topic, difficulty = 'medium', questions = [] } = quiz;
   const totalQuestions = questions.length;
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState(Array(totalQuestions).fill(null));
-  const [lockedAnswers, setLockedAnswers] = useState(Array(totalQuestions).fill(false));
   const [startTime] = useState(() => Date.now());
-  const [endTime, setEndTime] = useState(null);
-  const [isFinished, setIsFinished] = useState(false);
+  const [result, setResult] = useState(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const rules = SCORING_RULES[difficulty] || SCORING_RULES.medium;
   const currentQuestion = questions[currentIndex];
 
   const handleSelectOption = (optionIndex) => {
-    if (lockedAnswers[currentIndex]) return;
-
-    const newAnswers = [...selectedAnswers];
-    newAnswers[currentIndex] = optionIndex;
-    setSelectedAnswers(newAnswers);
-
-    const newLocked = [...lockedAnswers];
-    newLocked[currentIndex] = true;
-    setLockedAnswers(newLocked);
+    if (isSaving) return;
+    setSelectedAnswers((answers) => answers.map((answer, index) => index === currentIndex ? optionIndex : answer));
   };
 
   const handleNext = () => {
@@ -61,85 +56,40 @@ export default function PersonalizedQuizPlay({
     }
   };
 
-  const calculateScore = () => {
-    let totalScore = 0;
-    let correctCount = 0;
-    let wrongCount = 0;
-
-    questions.forEach((q, idx) => {
-      const chosen = selectedAnswers[idx];
-      if (chosen !== null && chosen !== undefined) {
-        if (chosen === q.correct_answer) {
-          totalScore += rules.correct;
-          correctCount += 1;
-        } else {
-          totalScore += rules.wrong;
-          wrongCount += 1;
-        }
-      }
-    });
-
-    return {
-      score: Math.max(0, totalScore),
-      correctCount,
-      wrongCount,
-    };
-  };
-
   const finishQuiz = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setErrorMsg('');
     const end = Date.now();
-    setEndTime(end);
-    setIsFinished(true);
-
-    const { score, correctCount, wrongCount } = calculateScore();
-    const duration = Math.round((end - startTime) / 1000);
-
-    const details = questions.map((q, idx) => ({
-      question_id: q.id || `q-${idx}`,
-      question: q.question,
-      options: q.options,
-      selected_option: selectedAnswers[idx],
-      correct_answer: q.correct_answer,
-      is_correct: selectedAnswers[idx] === q.correct_answer,
-      difficulty: q.difficulty || difficulty,
-    }));
-
     try {
-      await saveQuizSessionApi({
-        quiz_type: 'personalized',
-        topic,
-        difficulty,
-        score,
-        max_score: rules.maxScore,
-        correct_count: correctCount,
-        wrong_count: wrongCount,
-        total_time_seconds: duration,
-        details,
-      });
+      const saved = await completeQuizApi(sessionId, questions, selectedAnswers, Math.round((end - startTime) / 1000));
+      setResult(saved);
     } catch (e) {
-      console.warn('Could not save session history:', e);
+      setErrorMsg(e.message || 'Could not save quiz. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const progressPercent = totalQuestions > 0 ? ((currentIndex + 1) / totalQuestions) * 100 : 0;
   const isCurrentAnswered = selectedAnswers[currentIndex] !== null;
 
-  if (isFinished) {
-    const { score, correctCount, wrongCount } = calculateScore();
-    const timeSpent = endTime ? Math.round((endTime - startTime) / 1000) : 0;
-
+  if (result) {
     return (
       <div className="max-w-4xl mx-auto py-4">
+        {isRestarting && <QuizGenerationProgress sourceType={quiz.sourceType} />}
         <ResultsSummary
-          score={score}
-          maxScore={rules.maxScore}
-          correctCount={correctCount}
-          wrongCount={wrongCount}
+          score={result.score}
+          maxScore={result.max_score}
+          correctCount={result.correct_count}
+          wrongCount={result.wrong_count}
           totalQuestions={totalQuestions}
-          timeSpentSeconds={timeSpent}
+          timeSpentSeconds={result.total_time_seconds}
           quizType="personalized"
           topic={topic}
           difficulty={difficulty}
+          details={result.details}
+          isBusy={isRestarting}
           onRetry={onReset}
           onTryHarder={onTryHarder}
           onBackToHub={onBackToHub}
@@ -149,6 +99,9 @@ export default function PersonalizedQuizPlay({
   }
 
   return (
+    <>
+      {errorMsg && <p role="alert" className="text-red-600 mb-4">{errorMsg}</p>}
+      {isSaving && <p role="status">Saving results...</p>}
     <div className="max-w-4xl mx-auto">
       {/* Top Meta Bar */}
       <div className="flex items-center justify-between gap-4 mb-4">
@@ -192,9 +145,7 @@ export default function PersonalizedQuizPlay({
           options={currentQuestion.options}
           selectedOption={selectedAnswers[currentIndex]}
           onSelect={handleSelectOption}
-          disabled={lockedAnswers[currentIndex]}
-          showCorrectAnswer={lockedAnswers[currentIndex]}
-          correctAnswer={currentQuestion.correct_answer}
+          disabled={isSaving}
           difficulty={currentQuestion.difficulty || difficulty}
           scoringRules={{ correct: rules.correct, wrong: rules.wrong }}
         />
@@ -205,7 +156,7 @@ export default function PersonalizedQuizPlay({
         <button
           type="button"
           onClick={handlePrev}
-          disabled={currentIndex === 0}
+          disabled={isSaving || currentIndex === 0}
           className="px-4 py-2.5 rounded-[4px] border border-histo-dark/20 bg-white text-xs font-ui font-bold uppercase tracking-wider text-histo-dark hover:border-histo-copper transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5 shadow-soft cursor-pointer"
         >
           <ChevronLeftIcon className="h-4 w-4" /> Previous
@@ -218,7 +169,7 @@ export default function PersonalizedQuizPlay({
         <button
           type="button"
           onClick={handleNext}
-          disabled={!isCurrentAnswered}
+          disabled={isSaving || !isCurrentAnswered}
           className="px-6 py-2.5 rounded-[4px] bg-histo-copper hover:bg-histo-dark text-white text-xs font-ui font-bold uppercase tracking-wider shadow-medium transition-all flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
         >
           {currentIndex === totalQuestions - 1 ? (
@@ -229,5 +180,6 @@ export default function PersonalizedQuizPlay({
         </button>
       </div>
     </div>
+    </>
   );
 }

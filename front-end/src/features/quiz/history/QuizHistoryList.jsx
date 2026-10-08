@@ -6,11 +6,15 @@ import {
   RightArrowIcon,
   BookOpenIcon,
 } from '../../../components/MotionIcons';
-import { getQuizHistoryApi } from '../../../api/quiz';
+import { getQuizHistoryApi, getQuizHistoryDetailApi } from '../../../api/quiz';
 import QuizAttemptDetail from './QuizAttemptDetail';
 
 export default function QuizHistoryList({ onStartPersonalized }) {
   const [historyList, setHistoryList] = useState([]);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isOpeningReview, setIsOpeningReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState(null);
 
@@ -20,14 +24,43 @@ export default function QuizHistoryList({ onStartPersonalized }) {
       try {
         const records = await getQuizHistoryApi();
         setHistoryList(records || []);
+        setHasMore(records.length === 20);
       } catch (err) {
-        console.warn('Could not load quiz history:', err);
+        setErrorMsg(err.message || 'Could not load quiz history.');
       } finally {
         setLoading(false);
       }
     }
     loadHistory();
   }, []);
+
+  const loadMore = async () => {
+    if (isLoadingMore) return;
+    setIsLoadingMore(true);
+    setErrorMsg('');
+    try {
+      const records = await getQuizHistoryApi(20, historyList.length);
+      setHistoryList((history) => [...history, ...records]);
+      setHasMore(records.length === 20);
+    } catch (error) {
+      setErrorMsg(error.message || 'Could not load more results.');
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  const openReview = async (sessionId) => {
+    if (isOpeningReview) return;
+    setIsOpeningReview(true);
+    setErrorMsg('');
+    try {
+      setSelectedSession(await getQuizHistoryDetailApi(sessionId));
+    } catch (error) {
+      setErrorMsg(error.message || 'Could not load the answer review.');
+    } finally {
+      setIsOpeningReview(false);
+    }
+  };
 
   const formatDate = (isoString) => {
     try {
@@ -72,6 +105,8 @@ export default function QuizHistoryList({ onStartPersonalized }) {
 
   return (
     <div className="max-w-3xl mx-auto">
+      {errorMsg && <p role="alert" className="text-red-600 mb-4">{errorMsg}</p>}
+      {isOpeningReview && <p role="status">Loading answer review...</p>}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -126,7 +161,7 @@ export default function QuizHistoryList({ onStartPersonalized }) {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.04 }}
-              onClick={() => setSelectedSession(session)}
+              onClick={() => openReview(session.id)}
               className="group p-5 rounded-histo bg-white hover:bg-histo-cream border border-histo-dark/10 hover:border-histo-gold transition-all cursor-pointer flex items-center justify-between gap-4 shadow-soft"
             >
               <div className="min-w-0">
@@ -178,6 +213,9 @@ export default function QuizHistoryList({ onStartPersonalized }) {
         </div>
       )}
 
+      {hasMore && <button type="button" onClick={loadMore} disabled={isLoadingMore} className="mt-4 px-4 py-2 border rounded-histo">
+        {isLoadingMore ? 'Loading...' : 'Load more results'}
+      </button>}
       {/* Drill-down Detail Modal */}
       <AnimatePresence>
         {selectedSession && (

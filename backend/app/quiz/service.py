@@ -3,13 +3,11 @@ Quiz business logic — seeds questions, handles attempts, AI generation,
 lobby room state machine, leaderboard rankings, and history records.
 """
 
-import json
-import uuid
-import asyncio
-from datetime import datetime, timezone, timedelta
-from sqlalchemy import select, desc, func, text
+from datetime import datetime, timezone
+from sqlalchemy import select, desc, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord, UserSummaryCache
+from sqlalchemy.orm.attributes import set_committed_value
+from app.quiz.models import QuizQuestion, QuizAttempt, QuizSessionRecord
 from app.quiz.schemas import (
     QuizAttemptRequest,
     GenerateQuizRequest,
@@ -18,7 +16,7 @@ from app.quiz.schemas import (
     LeaderboardEntry,
 )
 from app.core.deps import CurrentUser
-from app.core.inter_service import call_auth_get_user_summary
+from app.quiz.leaderboard import ranked_rows, user_summaries
 
 SEED_QUESTIONS = [
     {
@@ -95,7 +93,7 @@ SEED_QUESTIONS = [
 
 
 async def seed_quiz_questions(db: AsyncSession):
-    res = await db.execute(select(QuizQuestion).limit(1))
+    res = await db.execute(select(QuizQuestion).where(QuizQuestion.is_global_pool.is_(False)).limit(1))
     if res.scalar_one_or_none():
         return
 
@@ -116,58 +114,25 @@ async def get_quiz_questions_by_topic(topic: str, db: AsyncSession) -> list[Quiz
     
     if topic:
         res = await db.execute(
-            select(QuizQuestion).where(QuizQuestion.topic.ilike(f"%{topic}%"))
+            select(QuizQuestion).where(QuizQuestion.topic.ilike(f"%{topic}%"), QuizQuestion.is_global_pool.is_(False))
         )
         questions = res.scalars().all()
         if questions:
             return list(questions)
 
-    res = await db.execute(select(QuizQuestion))
+    res = await db.execute(select(QuizQuestion).where(QuizQuestion.is_global_pool.is_(False)))
     return list(res.scalars().all())
 
 
 async def generate_personalized_quiz_service(
     req: GenerateQuizRequest, db: AsyncSession
 ) -> list[dict]:
-    """
-    Generates 10 structured multiple choice questions from topic or PDF text.
-    Uses LLM client or structured fallback tailored to the requested difficulty.
-    """
-    topic_str = req.topic or "World History"
-    diff = req.difficulty.lower()
-
-    # Attempt to query matching questions from database
-    existing = await get_quiz_questions_by_topic(topic_str, db)
-    
-    generated = []
-    for i, q in enumerate(existing[:req.count]):
-        generated.append({
-            "id": q.id,
-            "topic": q.topic,
-            "question": q.question,
-            "options": q.options,
-            "correct_answer": q.correct_answer,
-            "difficulty": q.difficulty or diff,
-        })
-
-    # If we need more questions, build themed ones based on topic / difficulty
-    while len(generated) < req.count:
-        idx = len(generated) + 1
-        generated.append({
-            "id": f"gen-{uuid.uuid4()}",
-            "topic": topic_str,
-            "question": f"Key Milestone #{idx} in {topic_str}: What significant development shaped this period?",
-            "options": [
-                f"Establishment of major constitutional codices",
-                f"Transformation of trade routes across regional hubs",
-                f"Decisive diplomatic alliance realignment",
-                f"Technological breakthrough in agrarian infrastructure",
-            ],
-            "correct_answer": (idx % 4),
-            "difficulty": diff,
-        })
-
-    return generated
+    from app.quiz.sessions import personalized_questions
+    questions = await personalized_questions(req, db)
+    await db.commit()
+    return [{"id": q.id, "topic": q.topic, "question": q.question,
+             "options": q.options, "correct_answer": q.correct_answer,
+             "difficulty": q.difficulty} for q in questions]
 
 
 async def record_quiz_attempt(
@@ -178,6 +143,11 @@ async def record_quiz_attempt(
     if not qq:
         raise ValueError("Question not found")
 
+    if qq.is_global_pool:
+        raise ValueError("Global answers must be submitted through the official session")
+    session = await db.get(QuizSessionRecord, req.session_id)
+    if session and session.question_ids:
+        raise ValueError("Submit answers through the session completion endpoint")
     is_correct = (req.selected_option == qq.correct_answer)
 
     attempt = QuizAttempt(
@@ -214,18 +184,50 @@ async def record_quiz_attempt(
 async def save_quiz_session_history(
     user_id: str, req: QuizSessionCreateRequest, db: AsyncSession
 ) -> QuizSessionRecord:
+    from fastapi import HTTPException
+    from app.quiz.sessions import complete_session
+    from app.quiz.schemas import CompleteQuizRequest
+    if req.session_id:
+        return await complete_session(req.session_id, user_id, CompleteQuizRequest(
+            answers={d.question_id: d.selected_option for d in req.details},
+            total_time_seconds=req.total_time_seconds), db)
+    if req.quiz_type == "global":
+        raise HTTPException(400, "Start an official global quiz session first")
+    if req.difficulty not in {"easy", "medium", "hard"}:
+        raise HTTPException(400, "Invalid quiz difficulty")
+    from app.quiz.generation import SCORING
+    ids = [d.question_id for d in req.details]
+    if not ids or len(ids) != len(set(ids)):
+        raise HTTPException(400, "Distinct quiz questions are required")
+    questions = {q.id: q for q in (await db.execute(select(QuizQuestion).where(QuizQuestion.id.in_(ids)))).scalars()}
+    if len(questions) != len(ids) or any(q.is_global_pool for q in questions.values()):
+        raise HTTPException(400, "Invalid quiz questions")
+    details = []
+    correct = wrong = 0
+    for d in req.details:
+        q = questions[d.question_id]
+        if d.selected_option is not None and not 0 <= d.selected_option <= 3:
+            raise HTTPException(400, "Invalid option")
+        is_correct = d.selected_option == q.correct_answer
+        if d.selected_option is not None:
+            correct += int(is_correct)
+            wrong += int(not is_correct)
+        details.append({"question_id": q.id, "question": q.question, "options": q.options,
+                        "selected_option": d.selected_option, "correct_answer": q.correct_answer,
+                        "is_correct": is_correct, "difficulty": req.difficulty})
+    rules = SCORING[req.difficulty]
     record = QuizSessionRecord(
         user_id=user_id,
         quiz_type=req.quiz_type,
         topic=req.topic,
         difficulty=req.difficulty,
-        score=req.score,
-        max_score=req.max_score,
-        correct_count=req.correct_count,
-        wrong_count=req.wrong_count,
+        score=correct * rules["correct"] + wrong * rules["wrong"],
+        max_score=len(ids) * 2,
+        correct_count=correct,
+        wrong_count=wrong,
         total_time_seconds=req.total_time_seconds,
-        rank=req.rank,
-        details=[d.model_dump() for d in req.details],
+        rank=None,
+        details=details,
     )
     db.add(record)
     await db.commit()
@@ -233,76 +235,50 @@ async def save_quiz_session_history(
     return record
 
 
-async def get_user_quiz_history(user_id: str, db: AsyncSession) -> list[QuizSessionRecord]:
-    res = await db.execute(
-        select(QuizSessionRecord)
-        .where(QuizSessionRecord.user_id == user_id)
-        .order_by(desc(QuizSessionRecord.created_at))
-    )
-    return list(res.scalars().all())
+async def get_user_quiz_history(user_id: str, db: AsyncSession, limit: int = 50, offset: int = 0) -> list[dict]:
+    # Summaries avoid loading every question/options JSON document on the list view.
+    fields = ("id", "user_id", "quiz_type", "topic", "difficulty", "score", "max_score",
+              "correct_count", "wrong_count", "total_time_seconds", "rank", "created_at")
+    statement = select(*(getattr(QuizSessionRecord, name) for name in fields)).where(
+        QuizSessionRecord.user_id == user_id, QuizSessionRecord.completed.is_(True)
+    ).order_by(desc(QuizSessionRecord.created_at), QuizSessionRecord.id).limit(limit).offset(offset)
+    return list((await db.execute(statement)).mappings())
 
 
 async def get_quiz_session_detail(
     session_id: str, user_id: str, db: AsyncSession
 ) -> QuizSessionRecord | None:
+    from app.quiz.generation import SCORING
     res = await db.execute(
         select(QuizSessionRecord).where(
             QuizSessionRecord.id == session_id,
             QuizSessionRecord.user_id == user_id,
+            QuizSessionRecord.completed.is_(True),
         )
     )
-    return res.scalar_one_or_none()
-
-
-async def _get_user_summary(user_id: str, db: AsyncSession) -> UserSummaryCache | None:
-    """Get user summary from local cache or fetch from Auth service."""
-    cached = await db.get(UserSummaryCache, user_id)
-    if cached:
-        synced_at = cached.synced_at
-        if synced_at.tzinfo is None:
-            synced_at = synced_at.replace(tzinfo=timezone.utc)
-        if (datetime.now(timezone.utc) - synced_at) < timedelta(hours=1):
-            return cached
-
-    try:
-        data = await call_auth_get_user_summary(user_id)
-        if data:
-            summary = UserSummaryCache(
-                user_id=data["user_id"],
-                username=data["username"],
-                tag=data["tag"],
-                avatar_url=data.get("avatar_url"),
-                bio=data.get("bio"),
-                is_banned=data.get("is_banned", False),
-                synced_at=datetime.now(timezone.utc),
-            )
-            await db.merge(summary)
-            await db.commit()
-            return summary
-    except Exception:
-        pass
-
-    # In-process DB fallback
-    try:
-        from app.auth.models import User
-        u = await db.get(User, user_id)
-        if u:
-            summary = UserSummaryCache(
-                user_id=u.id,
-                username=u.username,
-                tag=u.tag,
-                avatar_url=u.avatar_url,
-                bio=u.bio,
-                is_banned=u.is_banned,
-                synced_at=datetime.now(timezone.utc),
-            )
-            await db.merge(summary)
-            await db.commit()
-            return summary
-    except Exception:
-        pass
-
-    return cached
+    session = res.scalar_one_or_none()
+    if session is None or not session.question_ids:
+        return session
+    rows = await db.execute(select(QuizQuestion, QuizAttempt).outerjoin(
+        QuizAttempt, and_(QuizAttempt.question_id == QuizQuestion.id,
+                          QuizAttempt.session_id == session.id,
+                          QuizAttempt.user_id == user_id)
+    ).where(QuizQuestion.id.in_(session.question_ids)))
+    by_id = {question.id: (question, attempt) for question, attempt in rows}
+    rules = SCORING.get(session.difficulty, SCORING["medium"])
+    if session.quiz_type == "global":
+        rules = {"correct": 2, "wrong": -2}
+    details = [{
+        "question_id": question.id, "question": question.question,
+        "options": question.options, "correct_answer": question.correct_answer,
+        "selected_option": attempt.selected_option if attempt else None,
+        "is_correct": bool(attempt and attempt.is_correct),
+        "difficulty": session.difficulty,
+        "points": rules["correct"] if attempt and attempt.is_correct else rules["wrong"] if attempt else 0,
+    } for question_id in session.question_ids if question_id in by_id
+      for question, attempt in [by_id[question_id]]]
+    set_committed_value(session, "details", details)
+    return session
 
 
 async def get_global_leaderboard(
@@ -310,46 +286,10 @@ async def get_global_leaderboard(
     month_start: datetime | None = None,
     limit: int = 100,
 ) -> list[dict]:
-    """
-    SQL-aggregated and ranked global leaderboard.
-    All aggregation and ranking is performed in SQL via func.sum() and func.rank().over().
-    Zero Python-side .sum() or .sort().
-    """
-    if month_start is None:
-        now = datetime.now(timezone.utc)
-        month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
-
-    stmt = (
-        select(
-            QuizSessionRecord.user_id,
-            func.sum(QuizSessionRecord.score).label("total_score"),
-            func.rank().over(order_by=func.sum(QuizSessionRecord.score).desc()).label("rank"),
-        )
-        .where(
-            QuizSessionRecord.created_at >= month_start,
-        )
-        .group_by(QuizSessionRecord.user_id)
-        .order_by(text("total_score DESC"))
-        .limit(limit)
-    )
-    rows = (await db.execute(stmt)).all()
-
-    user_ids = [r.user_id for r in rows]
-    authors = {}
-    if user_ids:
-        authors = {
-            a.user_id: a
-            for a in (
-                await db.execute(
-                    select(UserSummaryCache).where(UserSummaryCache.user_id.in_(user_ids))
-                )
-            ).scalars().all()
-        }
-
-    return [
-        {"rank": int(r.rank), "score": int(r.total_score or 0), "user": authors.get(r.user_id)}
-        for r in rows
-    ]
+    rows = await ranked_rows(db, month_start, limit)
+    authors = await user_summaries(db, [r.user_id for r in rows])
+    return [{"rank": int(r.rank), "score": int(r.total_score or 0),
+             "user": authors.get(r.user_id)} for r in rows]
 
 
 async def get_global_leaderboard_data(
@@ -357,7 +297,6 @@ async def get_global_leaderboard_data(
     current_user: CurrentUser | None = None,
     limit: int = 50,
 ) -> LeaderboardResponse:
-    from app.core.deps import CurrentUser
     now = datetime.now(timezone.utc)
     month_name = now.strftime("%B %Y")
     month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
@@ -366,33 +305,10 @@ async def get_global_leaderboard_data(
     days_in_month = calendar.monthrange(now.year, now.month)[1]
     days_remaining = max(1, days_in_month - now.day)
 
-    query = (
-        select(
-            QuizSessionRecord.user_id,
-            func.sum(QuizSessionRecord.score).label("total_score"),
-            func.count(QuizSessionRecord.id).label("quizzes_taken"),
-            func.sum(QuizSessionRecord.correct_count).label("total_correct"),
-            func.sum(QuizSessionRecord.correct_count + QuizSessionRecord.wrong_count).label("total_questions"),
-            func.rank().over(order_by=func.sum(QuizSessionRecord.score).desc()).label("rank"),
-        )
-        .where(QuizSessionRecord.created_at >= month_start)
-        .group_by(QuizSessionRecord.user_id)
-        .order_by(text("total_score DESC"))
-        .limit(limit)
-    )
-    result = await db.execute(query)
-    rows = result.all()
-
+    rows = await ranked_rows(db, month_start, limit, current_user.id if current_user else None)
+    user_map = await user_summaries(db, [r.user_id for r in rows])
     entries = []
     user_rank = None
-
-    user_ids = [row.user_id for row in rows]
-    user_map = {}
-    if user_ids:
-        u_res = await db.execute(select(UserSummaryCache).where(UserSummaryCache.user_id.in_(user_ids)))
-        for u in u_res.scalars().all():
-            user_map[u.user_id] = u
-
     for row in rows:
         u_id = row.user_id
         db_user = user_map.get(u_id)
@@ -405,10 +321,11 @@ async def get_global_leaderboard_data(
         accuracy = round((total_correct / total_questions) * 100.0, 1) if total_questions > 0 else 0.0
         row_rank = int(row.rank)
 
-        is_me = False
-        if current_user and (str(u_id) == str(current_user.id) or (db_user and db_user.username.lower() == current_user.username.lower())):
-            is_me = True
+        is_me = bool(current_user and str(u_id) == str(current_user.id))
+        if is_me:
             user_rank = row_rank
+        if row.position > limit:
+            continue
 
         entries.append(LeaderboardEntry(
             rank=row_rank,
@@ -428,142 +345,3 @@ async def get_global_leaderboard_data(
         current_user_rank=user_rank,
         leaderboard=entries,
     )
-
-
-
-# -------------------------------------------------------------
-# Real-time WebSocket Lobby Manager (Kahoot-style state machine)
-# -------------------------------------------------------------
-from app.quiz.lobby_state import lobby_state_manager
-
-
-class LobbyRoom:
-    def __init__(self, code: str, host_id: str, host_name: str, topic: str, questions: list[dict]):
-        self.code = code
-        self.host_id = host_id
-        self.host_name = host_name
-        self.topic = topic
-        self.questions = questions
-        self.state = "waiting_room"  # "waiting_room" -> "question_active" -> "mini_leaderboard" -> "final_results"
-        self.current_question_index = 0
-        self.time_per_question = 20
-        self.time_remaining = 20
-        self.participants = {}  # user_id -> { "username": str, "tag": str, "score": int, "streak": int, "answers": dict, "ws": WebSocket }
-        self.task = None
-
-    def to_dict(self) -> dict:
-        """Serializes lobby state to JSON-safe dictionary (excluding active WebSocket objects)."""
-        p_data = {}
-        for uid, p in self.participants.items():
-            p_data[uid] = {
-                "username": p.get("username", "Scholar"),
-                "tag": p.get("tag", "0001"),
-                "score": p.get("score", 0),
-                "streak": p.get("streak", 0),
-                "answers": p.get("answers", {}),
-                "role": p.get("role", "player"),
-            }
-        return {
-            "code": self.code,
-            "host_id": self.host_id,
-            "host_name": self.host_name,
-            "topic": self.topic,
-            "questions": self.questions,
-            "state": self.state,
-            "current_question_index": self.current_question_index,
-            "time_per_question": self.time_per_question,
-            "time_remaining": self.time_remaining,
-            "participants": p_data,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "LobbyRoom":
-        """Restores a LobbyRoom from serialized Redis state."""
-        room = cls(
-            code=data["code"],
-            host_id=data["host_id"],
-            host_name=data.get("host_name", "Host"),
-            topic=data.get("topic", "History"),
-            questions=data.get("questions", []),
-        )
-        room.state = data.get("state", "waiting_room")
-        room.current_question_index = data.get("current_question_index", 0)
-        room.time_per_question = data.get("time_per_question", 20)
-        room.time_remaining = data.get("time_remaining", 20)
-        room.participants = data.get("participants", {})
-        return room
-
-    async def sync_state(self) -> None:
-        """Persist current state snapshot to Redis / distributed state manager."""
-        await lobby_state_manager.save_lobby(self.code, self.to_dict())
-
-    def get_participants_summary(self):
-        return [
-            {
-                "user_id": uid,
-                "username": p.get("username", "Scholar"),
-                "tag": p.get("tag", "0001"),
-                "score": p.get("score", 0),
-                "streak": p.get("streak", 0),
-                "answered_current": self.current_question_index in p.get("answers", {}),
-            }
-            for uid, p in self.participants.items()
-        ]
-
-    def get_mini_leaderboard(self):
-        sorted_p = sorted(self.get_participants_summary(), key=lambda x: x["score"], reverse=True)
-        return sorted_p[:5]
-
-    async def broadcast(self, message: dict):
-        """Broadcast message to all lobby participants across all service replicas via Redis Pub/Sub."""
-        # 1. Synchronize latest state to Redis
-        await self.sync_state()
-        # 2. Publish to Redis Pub/Sub channel for cross-replica distribution
-        await lobby_state_manager.broadcast_to_lobby(self.code, message)
-        # 3. Deliver locally to active connections held directly in memory
-        dead_connections = []
-        for uid, p in self.participants.items():
-            ws = p.get("ws")
-            if ws:
-                try:
-                    await ws.send_json(message)
-                except Exception:
-                    dead_connections.append(uid)
-        for uid in dead_connections:
-            if uid in self.participants:
-                self.participants[uid]["ws"] = None
-
-
-class LobbyManager:
-    def __init__(self):
-        self.rooms: dict[str, LobbyRoom] = {}
-
-    def create_room(self, host_id: str, host_name: str, topic: str, questions: list[dict]) -> LobbyRoom:
-        import random
-        code = str(random.randint(100000, 999999))
-        room = LobbyRoom(code, host_id, host_name, topic, questions)
-        self.rooms[code] = room
-        return room
-
-    async def create_room_async(self, host_id: str, host_name: str, topic: str, questions: list[dict]) -> LobbyRoom:
-        room = self.create_room(host_id, host_name, topic, questions)
-        await room.sync_state()
-        return room
-
-    def get_room(self, code: str) -> LobbyRoom | None:
-        return self.rooms.get(code)
-
-    async def get_room_async(self, code: str) -> LobbyRoom | None:
-        """Get room from memory, or restore from Redis if created by another replica."""
-        if code in self.rooms:
-            return self.rooms[code]
-
-        data = await lobby_state_manager.get_lobby(code)
-        if data:
-            room = LobbyRoom.from_dict(data)
-            self.rooms[code] = room
-            return room
-        return None
-
-
-lobby_manager = LobbyManager()

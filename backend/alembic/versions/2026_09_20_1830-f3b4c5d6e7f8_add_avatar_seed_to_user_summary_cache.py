@@ -27,12 +27,12 @@ def _has_column(inspector, table: str, column: str) -> bool:
 def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
-    if not _has_column(inspector, "social_user_summary_cache", "avatar_seed"):
+    if inspector.has_table("social_user_summary_cache") and not _has_column(inspector, "social_user_summary_cache", "avatar_seed"):
         op.add_column("social_user_summary_cache", sa.Column("avatar_seed", sa.String(), nullable=True))
 
 
 def downgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
-    if _has_column(inspector, "social_user_summary_cache", "avatar_seed"):
+    if inspector.has_table("social_user_summary_cache") and _has_column(inspector, "social_user_summary_cache", "avatar_seed"):
         op.drop_column("social_user_summary_cache", "avatar_seed")
