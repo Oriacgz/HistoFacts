@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.history.router import router as history_router
+from app.history.monuments.router import router as monument_router, internal_router as monument_internal_router
 from app.history.sync import seed_initial_events
 
 
@@ -41,6 +42,8 @@ app.add_middleware(
 )
 
 app.include_router(history_router)
+app.include_router(monument_router)
+app.include_router(monument_internal_router)
 
 
 @app.get("/health", tags=["System"])

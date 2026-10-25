@@ -5,6 +5,7 @@ Reads from environment variables or a .env file.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -24,6 +25,10 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    notes_context_limit: int = Field(default=8192, ge=4096, le=131072)
+    notes_memory_dense_enabled: bool = False
+    notes_session_window_tokens: int = Field(default=150000, ge=1000, le=1000000)
+    notes_research_think_output_tokens: int = Field(default=3072, ge=2048, le=4096)
 
     # ── CORS ──────────────────────────────────────────────────
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
@@ -47,8 +52,16 @@ class Settings(BaseSettings):
     llm_model: str = "qwen3-vl-4b-thinking"           # exact model ID from LM Studio
     llm_api_key: str = "not-needed"                  # local inference; no real key required
     llm_provider: str = "lm_studio"
-    quiz_llm_base_url: str | None = None
-    quiz_llm_model: str | None = None
+    notes_llm_base_url: str = "http://127.0.0.1:11434/v1"
+    notes_llm_model: str = "llama3.2:3b"
+    notes_thinking_llm_base_url: str | None = None
+    notes_thinking_llm_model: str | None = None
+    # Web Research stays unavailable until a server-side free-tier key is set.
+    tavily_api_key: str = ""
+    quiz_llm_base_url: str | None = "http://127.0.0.1:11434/v1"
+    quiz_llm_model: str | None = "llama3.2:3b"
+    quiz_generation_timeout_seconds: int = Field(default=150, ge=10, le=300)
+    quiz_context_length: int = Field(default=8192, ge=2048)
 
     # ── Wikimedia API ─────────────────────────────────────────
     wikimedia_api_token: str = ""

@@ -65,3 +65,21 @@ Thumbs.db
 # Agent & temporary kits
 .agents/
 .temp_ag_kit/
+
+# Local assistant tooling and generated validation artifacts
+.freebuff/
+.qodo/
+.local-artifacts/
+backend/*-acceptance.json
+backend/session-embedding-capability.json
+backend/research-thinking-expanded-budget.json
+*-qa.local.db*
+front-end/*-responsive-qa.html
+
+# Local test/build tooling output
+.ruff_cache/
+.mypy_cache/
+.cache/
+coverage/
+.coverage.*
+*.tsbuildinfo

@@ -13,6 +13,7 @@ import {
 } from '../../components/MotionIcons';
 import { startPersonalizedQuizApi, endLobbyApi } from '../../api/quiz';
 import { useAuth } from '../../contexts/AuthContext';
+import { getMonumentStudy } from '../monuments/studyHandoff';
 
 // Mode Components
 import CreatePersonalizedQuiz from './personalized/CreatePersonalizedQuiz';
@@ -82,7 +83,8 @@ export default function QuizHub() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const joinCodeParam = searchParams.get('join') || '';
-  const initialMode = (joinCodeParam || searchParams.get('host')) ? 'lobby' : (searchParams.get('tab') || null);
+  const monumentStudy = getMonumentStudy(searchParams.get('monument'));
+  const initialMode = (joinCodeParam || searchParams.get('host')) ? 'lobby' : (searchParams.get('tab') || (monumentStudy ? 'personalized' : null));
   const [activeMode, setActiveMode] = useState(initialMode);
 
   // Personalized State
@@ -274,6 +276,8 @@ export default function QuizHub() {
               >
                 {!activePersonalizedQuiz ? (
                   <CreatePersonalizedQuiz
+                    key={monumentStudy?.id || 'manual'}
+                    initialTopic={monumentStudy?.quizTopic || ''}
                     onQuizReady={(quizPayload) => setActivePersonalizedQuiz(quizPayload)}
                   />
                 ) : (

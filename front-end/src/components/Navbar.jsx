@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { label: 'Community', path: '/feed', match: (p) => p.startsWith('/feed') },
   { label: 'Quiz', path: '/quiz', match: (p) => p.startsWith('/quiz') },
   { label: 'AI Notes', path: '/notes', match: (p) => p.startsWith('/notes') },
+  { label: 'Monuments', path: '/monuments', match: (p) => p.startsWith('/monuments') },
 ];
 
 // Preload route components on hover/focus to eliminate lazy-loading latency
@@ -32,6 +33,7 @@ const ROUTE_PRELOADERS = {
   '/feed': () => import('../pages/FeedPage'),
   '/quiz': () => import('../pages/QuizPage'),
   '/notes': () => import('../pages/NotesPage'),
+  '/monuments': () => import('../pages/MonumentExplorerPage'),
 };
 
 const prefetchRoute = (path) => {
@@ -310,7 +312,7 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-40 w-full bg-histo-dark text-white border-b border-white/10 shadow-medium min-h-[64px] sm:min-h-[72px] shrink-0 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-[72px] flex items-center justify-between gap-3 sm:gap-4 relative">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-[72px] flex lg:grid lg:grid-cols-[minmax(0,1fr)_470px_minmax(0,1fr)] items-center justify-between gap-3 sm:gap-4 relative">
 
         {/* ── 1. Brand & Emblem ────────────────────────────────────────── */}
         <div className="flex items-center gap-3 shrink-0">
@@ -323,36 +325,18 @@ export default function Navbar() {
             <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full bg-histo-gold/20 border border-histo-gold/50 group-hover:border-histo-gold flex items-center justify-center text-histo-gold transition-all duration-200 shadow-soft group-hover:scale-105">
               <BookOpen className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
             </div>
-            <span className="font-display text-xl sm:text-2xl font-bold tracking-[3px] text-histo-paper uppercase group-hover:text-histo-gold transition-colors duration-200">
+            <span className="hidden min-[440px]:inline font-display text-xl sm:text-2xl lg:text-xl xl:text-2xl font-bold tracking-[3px] text-histo-paper uppercase group-hover:text-histo-gold transition-colors duration-200">
               HISTOFACTS
             </span>
           </Link>
 
-          {/* AI Notes Library Toggle (context-isolated) */}
-          {isNotesRoute && <AiNotesLibraryToggle />}
         </div>
 
-        {/* ── 2. Primary Navigation Links (Desktop with Hardware-Accelerated Sliding Indicator) ── */}
+        {/* ── 2. Primary Navigation Links ── */}
         <nav
-          className="hidden lg:grid grid-cols-4 p-1 rounded-full bg-white/5 border border-white/10 shadow-inner w-[370px] xl:w-[410px] relative pointer-events-auto"
+          className="hidden lg:flex justify-between shrink-0 p-1 rounded-full bg-white/5 border border-white/10 shadow-inner w-[470px] relative pointer-events-auto"
           aria-label="Main Navigation"
         >
-          {/* Persistent single sliding active indicator: GPU-composited CSS translate for 0ms lag */}
-          {activeIndex !== -1 && (
-            <div
-              className="absolute top-1 bottom-1 rounded-full bg-gradient-to-r from-histo-gold/20 via-histo-gold/15 to-histo-gold/20 border border-histo-gold/45 shadow-[0_0_12px_rgba(212,175,55,0.22)] pointer-events-none"
-              style={{
-                left: '4px',
-                width: 'calc((100% - 8px) / 4)',
-                transform: `translate3d(${activeIndex * 100}%, 0, 0)`,
-                transition: 'transform 200ms cubic-bezier(0.16, 1, 0.3, 1)',
-                willChange: 'transform',
-              }}
-            >
-              <span className="absolute -bottom-1 left-2.5 right-2.5 h-[2px] bg-gradient-to-r from-transparent via-histo-gold to-transparent rounded-full shadow-[0_0_8px_rgba(212,175,55,0.8)]" />
-            </div>
-          )}
-
           {NAV_ITEMS.map((item, index) => {
             const isActive = activeIndex === index;
             return (
@@ -364,28 +348,29 @@ export default function Navbar() {
                 onFocus={() => prefetchRoute(item.path)}
                 onTouchStart={() => prefetchRoute(item.path)}
                 onClick={() => setOptimisticIndex(index)}
-                className={`relative z-10 py-1.5 text-xs font-ui tracking-wider uppercase font-semibold text-center rounded-full select-none flex items-center justify-center transition-colors duration-150 active:scale-[0.96] focus:outline-none focus-visible:ring-2 focus-visible:ring-histo-gold/50 ${
+                className={`relative z-10 px-2.5 py-1.5 text-xs font-ui tracking-wider uppercase font-semibold text-center rounded-full select-none flex items-center justify-center transition-colors duration-150 active:scale-[0.96] focus:outline-none focus-visible:ring-2 focus-visible:ring-histo-gold/50 ${
                   isActive
                     ? 'text-histo-gold font-bold'
                     : 'text-histo-paper/75 hover:text-white hover:bg-white/5'
                 }`}
               >
-                <span>{item.label}</span>
+                {isActive && <motion.span
+                  layoutId="navbar-active-indicator"
+                  initial={false}
+                  transition={{duration:0.2,ease:'easeOut'}}
+                  aria-hidden="true"
+                  className="absolute inset-0 rounded-full bg-gradient-to-r from-histo-gold/20 via-histo-gold/15 to-histo-gold/20 border border-histo-gold/45 shadow-[0_0_12px_rgba(212,175,55,0.22)] pointer-events-none"
+                >
+                  <span className="absolute -bottom-1 left-2.5 right-2.5 h-[2px] bg-gradient-to-r from-transparent via-histo-gold to-transparent rounded-full shadow-[0_0_8px_rgba(212,175,55,0.8)]" />
+                </motion.span>}
+                <span className="relative whitespace-nowrap">{item.label}</span>
               </Link>
             );
           })}
         </nav>
 
         {/* ── 3. Hierarchy: Primary Nav | Contextual Actions | User Actions | Profile ── */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-
-          {/* Contextual Tier on /notes: Separator + Wallet + Shop */}
-          {isNotesRoute && (
-            <>
-              <div className="h-5 w-px bg-white/20 hidden lg:block" aria-hidden="true" />
-              <AiNotesWalletAndShop />
-            </>
-          )}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 lg:justify-self-end">
 
           {/* UserActions: Notifications & Chat */}
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -540,6 +525,15 @@ export default function Navbar() {
           </button>
         </div>
       </div>
+
+      {isNotesRoute && (
+        <div className="border-t border-white/10" aria-label="AI Notes controls">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-12 py-2 flex items-center justify-between gap-3">
+            <AiNotesLibraryToggle />
+            <AiNotesWalletAndShop />
+          </div>
+        </div>
+      )}
 
       {/* ── 5. Responsive Mobile Menu Drawer (GPU transform/opacity for butter-smooth animation) ── */}
       <AnimatePresence>

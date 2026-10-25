@@ -10,11 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_session
 from app.core.deps import get_current_user, CurrentUser, verify_internal_service_secret
 from app.notification.models import Notification, NOTIFICATION_TYPES
+from app.notification.notes_presence import notes_presence
+from redis.exceptions import RedisError
 from app.notification.schemas import (
     NotificationCreate,
     NotificationResponse,
     UnreadCountResponse,
     NotificationBatchReadResponse,
+    NotesPresenceRequest,
 )
 from app.notification.service import (
     create_notification_record,
@@ -91,6 +94,18 @@ async def export_user_notifications(
 
 
 # ── Public Endpoints (Via Gateway) ────────────────────────────
+@router.post('/api/notifications/notes-presence')
+async def update_notes_presence(
+    payload: NotesPresenceRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    try:
+        await notes_presence.update(current_user.id, str(payload.tab_id), payload.active)
+    except RedisError as exc:
+        raise HTTPException(503, 'Notes presence is temporarily unavailable') from exc
+    return {'status': 'updated'}
+
+
 @router.get(
     "/api/notifications",
     response_model=list[NotificationResponse],

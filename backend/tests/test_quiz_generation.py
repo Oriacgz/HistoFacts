@@ -94,16 +94,17 @@ async def test_unavailable_model_does_not_save_static_questions(monkeypatch, db_
 
 
 @pytest.mark.asyncio
-async def test_distinct_model_responses_are_preserved_and_reasoning_budgeted(monkeypatch):
+async def test_distinct_model_responses_are_preserved_with_bounded_quiz_budget(monkeypatch):
     first = generation.fallback_questions(10)
     second = [{**item, "question": "New question: " + item["question"]} for item in first]
     model = AsyncMock(side_effect=[(json.dumps(first), 100), ("```\n" + json.dumps(second) + "\n```", 100)])
     monkeypatch.setattr(generation, "_chat_complete", model)
     monkeypatch.setattr(generation.settings, "llm_model", "qwen3-vl-4b-thinking")
-    monkeypatch.setattr(generation.settings, "quiz_llm_model", None)
+    monkeypatch.setattr(generation.settings, "quiz_llm_model", "llama-3.2-3b-instruct")
     assert await generation.generate_and_parse_quiz_json("French Revolution") == first
     assert await generation.generate_and_parse_quiz_json("Roman Empire") == second
-    assert model.call_args.kwargs["max_tokens"] == 8000
+    assert model.call_args.kwargs["max_tokens"] == 1928
+    assert generation.settings.llm_model == "qwen3-vl-4b-thinking"
 
 
 @pytest.mark.asyncio
@@ -111,14 +112,19 @@ async def test_quiz_generation_gateway_timeout_does_not_change_other_routes(monk
     from types import SimpleNamespace
     from app.gateway.main import proxy_gateway
     import httpx
-    client = SimpleNamespace(request=AsyncMock(return_value=httpx.Response(200, json={})))
+    recorded = []
+    def handle(req):
+        recorded.append(req.extensions['timeout']['read'])
+        return httpx.Response(200,json={})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle),timeout=30)
     request = SimpleNamespace(method="POST", url=SimpleNamespace(query=""), headers={},
                               state=SimpleNamespace(request_id="test"), body=AsyncMock(return_value=b"{}"),
-                              app=SimpleNamespace(state=SimpleNamespace(client=client)))
-    await proxy_gateway(request, "quiz/personalized/generate")
-    assert client.request.call_args.kwargs["timeout"].read == 615
-    await proxy_gateway(request, "quiz/history")
-    assert "timeout" not in client.request.call_args.kwargs
+                              app=SimpleNamespace(state=SimpleNamespace(client=client)),is_disconnected=AsyncMock(return_value=False))
+    async with client:
+        await proxy_gateway(request, "quiz/personalized/generate")
+        assert recorded[-1] == generation.settings.quiz_generation_timeout_seconds + 15
+        await proxy_gateway(request, "quiz/history")
+        assert recorded[-1] == 30
 
 
 @pytest.mark.asyncio
@@ -224,7 +230,7 @@ async def test_official_api_and_legacy_answer_isolation(monkeypatch, client, db_
 async def test_compact_model_output_preserves_public_schema(monkeypatch):
     from types import SimpleNamespace
     questions = generation.fallback_questions(10)
-    compact = [{"q": q["question"], "o": q["options"], "a": q["correct_answer"]} for q in questions]
+    compact = [{"q": q["question"], "o": q["options"], "a": q["options"][q["correct_answer"]]} for q in questions]
     create = AsyncMock(return_value=SimpleNamespace(
         choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=json.dumps(compact)))],
         usage=SimpleNamespace(total_tokens=900)))
@@ -237,6 +243,7 @@ async def test_compact_model_output_preserves_public_schema(monkeypatch):
     schema = create.call_args.kwargs["response_format"]["json_schema"]["schema"]
     assert schema["items"]["required"] == ["q", "o", "a"]
     assert schema["minItems"] == schema["maxItems"] == 10
+    assert schema['items']['properties']['a']['type']=='string'
 
 
 @pytest.mark.asyncio
@@ -263,7 +270,7 @@ async def test_repairs_only_missing_questions_without_regenerating_valid_rows(mo
     assert await generation.generate_and_parse_quiz_json("History") == data
     assert model.await_args_list[0].kwargs["count"] == 10
     assert model.await_args_list[1].kwargs["count"] == 2
-    assert model.await_args_list[1].kwargs["max_tokens"] == 600
+    assert model.await_args_list[1].kwargs["max_tokens"] == 488
     assert "Do not repeat" in model.await_args_list[1].args[0][-1]["content"]
 
 

@@ -18,6 +18,7 @@ from app.core.database import Base
 # Import all models so Alembic autogenerates all tables
 import app.auth.models  # noqa: F401
 import app.history.models  # noqa: F401
+import app.history.monuments.models  # noqa: F401
 import app.quiz.models  # noqa: F401
 import app.social.models  # noqa: F401
 import app.groups.models  # noqa: F401

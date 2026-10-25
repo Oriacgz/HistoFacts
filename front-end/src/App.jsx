@@ -17,6 +17,7 @@ const GroupsPage = lazy(() => import('./pages/GroupsPage'));
 const FriendsPage = lazy(() => import('./pages/FriendsPage'));
 const NotesPage = lazy(() => import('./pages/NotesPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const MonumentExplorerPage = lazy(() => import('./pages/MonumentExplorerPage'));
 
 function PageLoader() {
   return (
@@ -165,6 +166,14 @@ export default function App() {
                   element={
                     <FeatureBoundary featureName="AI Study Notes">
                       <NotesPage />
+                    </FeatureBoundary>
+                  }
+                />
+                <Route
+                  path="/monuments"
+                  element={
+                    <FeatureBoundary featureName="Monument Explorer">
+                      <MonumentExplorerPage />
                     </FeatureBoundary>
                   }
                 />

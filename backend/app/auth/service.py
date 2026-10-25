@@ -365,6 +365,8 @@ async def update_preferences(db: AsyncSession, user: User, payload: PreferencesU
     """Update preferences JSON column, keeping existing preferences intact."""
     current_prefs = dict(user.preferences or {})
     incoming = payload.model_dump(exclude_unset=True)
+    if 'ai_notes_memory' in incoming:
+        incoming['ai_notes_memory']={**current_prefs.get('ai_notes_memory',{}),**incoming['ai_notes_memory']}
     current_prefs.update(incoming)
     user.preferences = current_prefs
     await db.commit()
@@ -469,6 +471,7 @@ async def execute_account_deletion(user_id: str, db: AsyncSession) -> None:
 
     headers = {"X-Internal-Secret": settings.secret_key}
     service_urls = [
+        settings.history_service_url,
         settings.social_service_url,
         settings.groups_service_url,
         settings.quiz_service_url,
@@ -498,6 +501,8 @@ async def execute_account_deletion(user_id: str, db: AsyncSession) -> None:
 
 async def _in_process_purge(db: AsyncSession, user_id: str) -> None:
     """Monolithic in-process purge fallback."""
+    from app.history.monuments.service import purge_learning
+    await purge_learning(db, user_id)
     # 1. Social: update cached user summary to anonymized
     from app.social.models import UserSummaryCache as SocialCache
     await db.execute(
@@ -521,7 +526,10 @@ async def _in_process_purge(db: AsyncSession, user_id: str) -> None:
     await db.execute(delete(QuizSessionRecord).where(QuizSessionRecord.user_id == user_id))
 
     # 4. AI Notes: delete personal notes and wallets
-    from app.ai_notes.models import Note, UserTokenWallet, HistoinWallet, TokenLedger, HistoinLedger, PurchaseLog
+    from app.ai_notes.models import Note, NoteResearchRun, UserTokenWallet, HistoinWallet, TokenLedger, HistoinLedger, PurchaseLog
+    from app.ai_notes.models import NoteSessionMemory
+    await db.execute(delete(NoteSessionMemory).where(NoteSessionMemory.user_id == user_id))
+    await db.execute(delete(NoteResearchRun).where(NoteResearchRun.user_id == user_id))
     await db.execute(delete(Note).where(Note.user_id == user_id))
     await db.execute(delete(UserTokenWallet).where(UserTokenWallet.user_id == user_id))
     await db.execute(delete(HistoinWallet).where(HistoinWallet.user_id == user_id))
@@ -559,6 +567,7 @@ async def export_user_data(user_id: str, db: AsyncSession) -> bytes:
     files = {"profile.json": auth_data}
 
     services = [
+        ("monuments.json", f"{settings.history_service_url}/internal/users/{user_id}/export"),
         ("social.json", f"{settings.social_service_url}/internal/users/{user_id}/export"),
         ("groups.json", f"{settings.groups_service_url}/internal/users/{user_id}/export"),
         ("quiz.json", f"{settings.quiz_service_url}/internal/users/{user_id}/export"),
@@ -592,6 +601,9 @@ async def export_user_data(user_id: str, db: AsyncSession) -> bytes:
 
 async def _in_process_export(db: AsyncSession, user_id: str, fname: str) -> dict:
     """Monolithic in-process export fallback."""
+    if fname == "monuments.json":
+        from app.history.monuments.service import export_learning
+        return await export_learning(db, user_id)
     if fname == "social.json":
         from app.social.models import Post, Comment
         posts_res = await db.execute(select(Post).where(Post.user_id == user_id))
@@ -610,8 +622,11 @@ async def _in_process_export(db: AsyncSession, user_id: str, fname: str) -> dict
         return {"sessions": [{"id": s.id, "score": s.score, "max_score": s.max_score, "created_at": str(s.created_at)} for s in res.scalars().all()]}
     elif fname == "ai_notes.json":
         from app.ai_notes.models import Note
+        from app.ai_notes.research.lifecycle import serialize_notes
         res = await db.execute(select(Note).where(Note.user_id == user_id))
-        return {"notes": [{"id": n.id, "title": n.title, "content": n.content, "created_at": str(n.created_at)} for n in res.scalars().all()]}
+        notes = await serialize_notes(res.scalars().all(),user_id,db)
+        from app.ai_notes.context.router import export_memories
+        return {"session_memories": await export_memories(user_id, db), "notes": [{"id": n.id, "title": n.title, "content": n.content, "created_at": str(n.created_at), "research":n.research} for n in notes]}
     elif fname == "notifications.json":
         from app.notification.models import Notification
         res = await db.execute(select(Notification).where(Notification.user_id == user_id))

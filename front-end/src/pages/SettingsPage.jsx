@@ -1,3 +1,4 @@
+import SessionMemory from '../features/ai-notes/components/SessionMemory';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -126,6 +127,10 @@ export default function SettingsPage() {
   // Privacy & Preferences
   const [theme, setTheme] = useState(user?.preferences?.theme || 'system');
   const [language, setLanguage] = useState(user?.preferences?.language || 'en');
+  const [notesMemoryDefault, setNotesMemoryDefault] = useState(user?.preferences?.notes_memory_default !== false);
+  const [memoryPolicy, setMemoryPolicy] = useState({ enabled:true, auto_compact:true, mode:'balanced', ...user?.preferences?.ai_notes_memory });
+  const [webResearchDefault, setWebResearchDefault] = useState(Boolean(user?.preferences?.web_research_default));
+  const [webResearchDepth, setWebResearchDepth] = useState(user?.preferences?.web_research_depth || 'standard');
   const [notificationPrefs, setNotificationPrefs] = useState({
     friend_requests: true,
     quiz_challenges: true,
@@ -164,6 +169,10 @@ export default function SettingsPage() {
       if (user.preferences) {
         if (user.preferences.theme) setTheme(user.preferences.theme);
         if (user.preferences.language) setLanguage(user.preferences.language);
+        setNotesMemoryDefault(user.preferences.notes_memory_default !== false);
+        setMemoryPolicy({ enabled:true, auto_compact:true, mode:'balanced', ...user.preferences.ai_notes_memory });
+        setWebResearchDefault(Boolean(user.preferences.web_research_default));
+        setWebResearchDepth(user.preferences.web_research_depth || 'standard');
         if (user.preferences.notification_prefs) {
           setNotificationPrefs((prev) => ({ ...prev, ...user.preferences.notification_prefs }));
         }
@@ -461,6 +470,10 @@ export default function SettingsPage() {
         theme,
         language,
         notification_prefs: notificationPrefs,
+        notes_memory_default: notesMemoryDefault,
+        ai_notes_memory: memoryPolicy,
+        web_research_default: webResearchDefault,
+        web_research_depth: webResearchDepth,
       };
       const updated = await updatePreferencesApi(prefs);
       updateUser({ preferences: updated });
@@ -1309,7 +1322,28 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Per-Notification-Type Toggles */}
+              <label className="flex gap-3 py-3 text-sm text-histo-paper"><input type="checkbox" checked={notesMemoryDefault} onChange={event => setNotesMemoryDefault(event.target.checked)} />Enable private memory for new AI Notes sessions (save preferences below)</label>
+              <div className="space-y-3 text-sm text-histo-paper">
+                <label className="flex gap-3"><input type="checkbox" checked={memoryPolicy.enabled} onChange={event=>setMemoryPolicy(previous=>({...previous,enabled:event.target.checked}))} />Use saved session memory (all conversations)</label>
+                <label className="flex gap-3"><input type="checkbox" checked={memoryPolicy.auto_compact} onChange={event=>setMemoryPolicy(previous=>({...previous,auto_compact:event.target.checked}))} />Automatically compact memory by default</label>
+                <label className="block">Default memory mode<select value={memoryPolicy.mode} onChange={event=>setMemoryPolicy(previous=>({...previous,mode:event.target.value}))} className="block mt-2 rounded-md bg-histo-dark border border-white/15 p-2"><option value="minimal">Minimal</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option></select></label>
+                <p className="text-xs opacity-75">Save preferences below to apply. Per-session mode and compaction choices override defaults. Turning memory off preserves notes and summaries while stopping history injection.</p>
+              </div>
+              <SessionMemory manager />
+              {/* Web Research Preferences */}
+              <label className="flex items-start gap-3 py-3 text-sm font-ui text-histo-paper">
+                <input type="checkbox" checked={webResearchDefault} onChange={event => setWebResearchDefault(event.target.checked)} className="mt-1" />
+                <span>Enable Web Research by default in AI Notes
+                  <span className="block text-xs text-histo-paper/70 mt-1">Search terms are sent to Tavily when research is used. Requires an available search provider. Think remains a separate option.</span>
+                </span>
+              </label>
+              <label className="block text-sm font-ui text-histo-paper pb-3">
+                Research depth
+                <select value={webResearchDepth} onChange={event => setWebResearchDepth(event.target.value)} className="block mt-2 w-full rounded-md bg-histo-dark border border-white/15 p-2">
+                  <option value="concise">Concise · up to 2 sources</option>
+                  <option value="standard">Standard · up to 4 sources</option>
+                </select>
+              </label>
               <div className="pt-2 space-y-3">
                 <div className="flex items-center gap-2 text-histo-gold">
                   <Bell className="h-4 w-4" />

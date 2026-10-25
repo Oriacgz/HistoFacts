@@ -119,7 +119,7 @@ async def test_is_history_related_classifies_off_topic_with_thinking(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_is_history_related_fallback_on_network_error(monkeypatch):
+async def test_is_history_related_rejects_on_network_error(monkeypatch):
     from app.ai_notes.llm_client import is_history_related
 
     mock_client = MagicMock()
@@ -127,8 +127,8 @@ async def test_is_history_related_fallback_on_network_error(monkeypatch):
 
     monkeypatch.setattr("app.ai_notes.llm_client.AsyncOpenAI", lambda **kwargs: mock_client)
 
-    # Defaults to True so legitimate requests are not blocked when offline
-    assert await is_history_related("anything") is True
+    # Unknown requests must not bypass the scope gate during an outage.
+    assert await is_history_related("anything") is False
 
 
 # ── Integration: AI revision flow ─────────────────────────────────────────────
@@ -137,6 +137,9 @@ async def test_is_history_related_fallback_on_network_error(monkeypatch):
 async def test_revise_note_creates_linked_copy(client: AsyncClient, monkeypatch):
     """Revision creates a new note; original content is unmodified."""
     monkeypatch.setattr("app.ai_notes.service.is_history_related", AsyncMock(return_value=True))
+    monkeypatch.setattr('app.ai_notes.llm_client._chat_complete',AsyncMock(side_effect=[
+        ('The French Revolution began in 1789.',20),
+        ('Economic causes included fiscal crisis before 1789.',20)]))
 
     # 1. Register user
     reg = await client.post(

@@ -11,6 +11,7 @@ import {
   Download,
 } from 'lucide-react';
 import MarkdownBlockViewer from './MarkdownBlockViewer';
+import ResearchSources from './ResearchSources';
 import HandwrittenBlockViewer from './HandwrittenBlockViewer';
 import { printHandwrittenNote } from '../utils/pdfGenerator';
 
@@ -230,8 +231,9 @@ function AssistantTurn({
           ref={isHandwrittenView ? handwrittenContainerRef : null}
           className="prose prose-slate max-w-none"
         >
-          <Viewer content={note.content} />
+          <Viewer content={note.content} research={note.research} />
         </div>
+        <ResearchSources research={note.research} />
 
         {/* Hidden pre-rendered handwritten block to ensure instant PDF download even from normal view */}
         {!isHandwrittenView && (
@@ -250,7 +252,7 @@ function AssistantTurn({
           onToggleHandwritten={handleToggleStyle}
           onCopy={onCopy}
           isCopied={isCopied}
-          onShare={onShare}
+          onShare={note.shared_read_only ? undefined : onShare}
           onDownloadPdf={handleDownloadPdf}
         />
       </div>

@@ -8,10 +8,15 @@
     "build": "vite build",
     "lint": "eslint .",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "models:generate": "node scripts/generate-monuments.mjs",
+    "models:validate": "node scripts/validate-monuments.mjs",
+    "models:sync": "node scripts/sync-monument-registry.mjs",
+    "models:check-registry": "node scripts/sync-monument-registry.mjs --check"
   },
   "dependencies": {
     "@blobatar/react": "^2.7.0",
+    "@google/model-viewer": "4.4.0",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/react-query": "^5.102.8",
     "blobatar": "^2.7.0",
@@ -41,6 +46,8 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "gltf-validator": "2.0.0-dev.3.10",
+    "happy-dom": "21.0.3",
     "vite": "^8.0.12",
     "vitest": "^4.1.11"
   }

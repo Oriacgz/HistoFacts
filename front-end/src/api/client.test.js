@@ -10,6 +10,25 @@ global.localStorage = {
 };
 
 describe('apiFetch client', () => {
+  it('does not retry an old account write with a new login after a late 401', async () => {
+    localStorage.setItem('user',JSON.stringify({id:'a'}));localStorage.setItem('access_token','a-token');localStorage.setItem('refresh_token','a-refresh');
+    let resolve;global.fetch=vi.fn().mockImplementation(()=>new Promise(r=>{resolve=r;}));
+    const request=apiFetch('/api/monuments/favorites/taj-mahal',{method:'PUT',expectedUserId:'a'});
+    localStorage.setItem('user',JSON.stringify({id:'b'}));localStorage.setItem('access_token','b-token');localStorage.setItem('refresh_token','b-refresh');
+    resolve({status:401,ok:false,json:async()=>({detail:'Expired'})});
+    await expect(request).rejects.toThrow('account changed');expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not overwrite a new session with an older refresh response', async () => {
+    localStorage.setItem('access_token','a-token');localStorage.setItem('refresh_token','a-refresh');
+    let resolveRefresh;const started=new Promise(resolve=>{resolveRefresh=resolve;});let signalRefresh;
+    const refreshing=new Promise(resolve=>{signalRefresh=resolve;});
+    global.fetch=vi.fn().mockResolvedValueOnce({status:401,ok:false,json:async()=>({detail:'Expired'})}).mockImplementationOnce(()=>{signalRefresh();return started;});
+    const request=apiFetch('/api/monuments/favorites');await refreshing;
+    localStorage.setItem('access_token','b-token');localStorage.setItem('refresh_token','b-refresh');localStorage.setItem('user',JSON.stringify({id:'b'}));
+    resolveRefresh({ok:true,json:async()=>({access_token:'new-a-token',refresh_token:'new-a-refresh',user:{id:'a'}})});
+    await expect(request).rejects.toThrow('Expired');expect(localStorage.getItem('access_token')).toBe('b-token');expect(JSON.parse(localStorage.getItem('user')).id).toBe('b');
+  });
   beforeEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
