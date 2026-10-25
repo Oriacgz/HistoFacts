@@ -9,16 +9,34 @@ import { Copy, CheckCircle2 } from 'lucide-react';
  * Proper Markdown renderer using react-markdown with GFM tables, code highlighting,
  * and a Copy button on fenced code blocks. Styled to match HistoFacts design language.
  */
-const MarkdownBlockViewer = memo(function MarkdownBlockViewer({ content }) {
+const MarkdownBlockViewer = memo(function MarkdownBlockViewer({ content, research }) {
   if (!content) return null;
+  const sourceIds = new Set(research?.sources?.map(source => source.id) || []);
+  const renderedContent = research ? content.replace(/\[(S\d+)\](?!\()/g, (marker, id) =>
+    sourceIds.has(id) ? `[${id}](#source-${research.run_id}-${id})` : marker) : content;
+  const components = research ? {
+    ...mdComponents,
+    a: ({href, children}) => <a href={href} className="text-histo-copper underline" target={href?.startsWith('#') ? undefined : '_blank'} rel="noopener noreferrer"
+      onClick={event => {
+        if (!href?.startsWith('#source-')) return;
+        const target = document.getElementById(href.slice(1));
+        if (target) {
+          event.preventDefault();
+          const details = target.closest('details');
+          if (details) details.open = true;
+          target.scrollIntoView({block:'nearest'});
+          target.querySelector('a')?.focus();
+        }
+      }}>{children}</a>,
+  } : mdComponents;
 
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
-      components={mdComponents}
+      components={components}
     >
-      {content}
+      {renderedContent}
     </ReactMarkdown>
   );
 });
@@ -27,7 +45,7 @@ export default MarkdownBlockViewer;
 
 /* ── Custom component overrides ──────────────────────────────────────────── */
 
-function CodeBlock({ children, className, node, ...props }) {
+function CodeBlock({ children, className, _node, ...props }) {
   const [copied, setCopied] = useState(false);
   const isInline = !className && typeof children === 'string' && !children.includes('\n');
 

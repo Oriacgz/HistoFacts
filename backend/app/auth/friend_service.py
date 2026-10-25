@@ -294,6 +294,7 @@ async def list_friends_with_presence(db: AsyncSession, user_id: str) -> list[Fri
                 username=f.username,
                 tag=f.tag,
                 avatar_url=f.avatar_url,
+                avatar_seed=f.avatar_seed,
                 is_online=False,
                 last_seen_at=None,
             ))
@@ -311,6 +312,7 @@ async def list_friends_with_presence(db: AsyncSession, user_id: str) -> list[Fri
             username=f.username,
             tag=f.tag,
             avatar_url=f.avatar_url,
+            avatar_seed=f.avatar_seed,
             is_online=is_online,
             last_seen_at=last_seen,
         ))
@@ -407,6 +409,7 @@ async def list_blocked_users(db: AsyncSession, user_id: str) -> list[BlockedUser
             username=user.username,
             tag=user.tag,
             avatar_url=user.avatar_url,
+            avatar_seed=user.avatar_seed,
             blocked_at=friend.created_at,
         )
         for friend, user in rows

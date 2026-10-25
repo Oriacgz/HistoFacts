@@ -4,10 +4,10 @@ Service logic for creating, listing, revising, sharing, and restyling AI notes w
 
 import re
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai_notes.models import Note
+from app.ai_notes.models import Note, NoteResearchRun
 from app.ai_notes.schemas import GenerateNoteRequest, ReviseNoteRequest
 from app.ai_notes.llm_client import (
     generate_curriculum_note,
@@ -83,13 +83,17 @@ async def create_note_for_user(req: GenerateNoteRequest, user_id: str, db: Async
     return note
 
 
-async def create_handwritten_note_for_user(note_id: str, user_id: str, db: AsyncSession) -> Note:
+async def create_handwritten_note_for_user(note_id: str, user_id: str, db: AsyncSession, think: bool = False) -> Note:
     """Restyle an existing note into student handwritten lecture notes."""
     # 1. Fetch original note
     res = await db.execute(select(Note).where(Note.id == note_id, Note.user_id == user_id))
     original = res.scalar_one_or_none()
     if not original:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source note not found")
+    research = await db.scalar(select(NoteResearchRun).where(NoteResearchRun.note_id == original.id, NoteResearchRun.user_id == user_id))
+    if research:
+        from app.ai_notes.research.transform import transform_note
+        return await transform_note(original,research,user_id,db,"Restate as concise study notes while preserving each supported historical fact.",think,style="handwritten")
 
     # 2. Pre-flight token estimation check
     estimated_tokens = calculate_approx_tokens(original.content) * 2 + 500
@@ -99,6 +103,7 @@ async def create_handwritten_note_for_user(note_id: str, user_id: str, db: Async
     new_title, rewritten_content, actual_tokens = await generate_handwritten_note(
         original_title=original.title,
         original_content=original.content,
+        think=think,
     )
 
     # 4. Deduct actual tokens
@@ -113,6 +118,7 @@ async def create_handwritten_note_for_user(note_id: str, user_id: str, db: Async
         content=rewritten_content,
         curriculum_tag=original.curriculum_tag,
         style="handwritten",
+        kind="derived",
         source_note_id=original.id,
         attachment_name=original.attachment_name,
         attachment_type=original.attachment_type,
@@ -155,6 +161,11 @@ async def revise_note_for_user(note_id: str, req: ReviseNoteRequest, user_id: st
             detail=REFUSAL_MESSAGE,
         )
 
+    research = await db.scalar(select(NoteResearchRun).where(NoteResearchRun.note_id == original.id, NoteResearchRun.user_id == user_id))
+    if research:
+        from app.ai_notes.research.transform import transform_note
+        return await transform_note(original,research,user_id,db,req.instruction,req.think)
+
     # 3. Pre-flight token check
     estimated_tokens = calculate_approx_tokens(original.content) + calculate_approx_tokens(req.instruction) + 1200
     await preflight_token_check(user_id, estimated_tokens, db)
@@ -164,6 +175,7 @@ async def revise_note_for_user(note_id: str, req: ReviseNoteRequest, user_id: st
         original_title=original.title,
         original_content=original.content,
         instruction=req.instruction,
+        think=req.think,
     )
 
     # 5. Deduct actual tokens
@@ -178,6 +190,7 @@ async def revise_note_for_user(note_id: str, req: ReviseNoteRequest, user_id: st
         content=revised_content,
         curriculum_tag=original.curriculum_tag,
         style=original.style,
+        kind="derived",
         source_note_id=original.id,
         is_ai_generated=True,
     )
@@ -222,7 +235,11 @@ async def get_note_thread_for_user(note_id: str, user_id: str, db: AsyncSession)
     if not root:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
 
+    ancestors = set()
     while root.source_note_id is not None:
+        if root.id in ancestors:
+            raise HTTPException(409, "This legacy note chain contains a cycle and needs repair.")
+        ancestors.add(root.id)
         parent_res = await db.execute(
             select(Note).where(Note.id == root.source_note_id, Note.user_id == user_id)
         )
@@ -231,20 +248,24 @@ async def get_note_thread_for_user(note_id: str, user_id: str, db: AsyncSession)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
         root = parent
 
-    chain = [root]
-    current = root
-    while True:
-        nxt_res = await db.execute(
-            select(Note)
-            .where(Note.source_note_id == current.id, Note.user_id == user_id)
-            .order_by(Note.created_at.asc())
-        )
-        nxt = nxt_res.scalars().first()
-        if not nxt:
-            break
-        chain.append(nxt)
-        current = nxt
+    # Recursive UNION deduplicates cycles and filters ownership before loading.
+    tree = select(Note.id).where(Note.id == root.id, Note.user_id == user_id).cte(name="note_tree", recursive=True)
+    tree = tree.union(select(Note.id).join(tree, Note.source_note_id == tree.c.id).where(Note.user_id == user_id))
+    descendants = (await db.execute(select(Note).where(Note.id.in_(select(tree.c.id)), Note.user_id == user_id)
+                                   .order_by(Note.created_at, Note.id))).scalars().all()
+    children = {}
+    for note in descendants:
+        children.setdefault(note.source_note_id, []).append(note)
+    chain, pending, seen = [], [root], set()
+    while pending:
+        note = pending.pop(0)
+        if note.id in seen:
+            continue
+        chain.append(note)
+        seen.add(note.id)
+        pending.extend(children.get(note.id, []))
     return chain
+
 
 
 def _find_referenced_turns(chain: list[Note], current_query: str | None) -> set[int]:
@@ -351,7 +372,7 @@ async def save_conversation_turn(
     """
     chain = await get_note_thread_for_user(root_note_id, user_id, db)
     root = chain[0]
-    leaf = chain[-1]
+    leaf = next((turn for turn in reversed(chain) if turn.kind != "derived"), root)
 
     clean_prompt = prompt.strip().replace("\n", " ")
     if len(clean_prompt) > 50:
@@ -425,11 +446,19 @@ async def delete_user_note(note_id: str, user_id: str, db: AsyncSession) -> bool
     if not note:
         return False
 
+    from app.ai_notes.models import NoteSessionMemory
+    session_root = (await get_note_thread_for_user(note_id,user_id,db))[0].id
+    # Any deleted turn invalidates its session's summaries, snapshots and vectors.
+    await db.execute(delete(NoteSessionMemory).where(NoteSessionMemory.user_id == user_id, NoteSessionMemory.root_id == session_root))
+    await db.execute(delete(NoteResearchRun).where(NoteResearchRun.user_id == user_id,
+                      (NoteResearchRun.note_id == note_id) | (NoteResearchRun.root_id == note_id)))
+
     # If deleting a root note, delete all chained child turns in the thread
     if note.source_note_id is None:
         try:
             chain = await get_note_thread_for_user(note_id, user_id, db)
             for item in reversed(chain):
+                await db.execute(delete(NoteResearchRun).where(NoteResearchRun.user_id == user_id, NoteResearchRun.note_id == item.id))
                 await db.delete(item)
             await db.flush()
             return True

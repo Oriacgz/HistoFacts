@@ -206,5 +206,5 @@ async def test_continue_stream_refuses_off_topic(client: AsyncClient, monkeypatc
     )
     assert cont_res.status_code == 200
     stream_text = cont_res.text
-    assert "History Unfolded AI Notes assistant" in stream_text
+    assert "HistoFacts, a history-focused AI assistant" in stream_text
     assert "[DONE]" in stream_text

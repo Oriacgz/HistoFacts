@@ -3,6 +3,9 @@ Tests for Profile Settings (profile update, avatar upload, password/email change
 """
 
 import io
+from urllib.parse import parse_qs, urlparse
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from PIL import Image
 from httpx import AsyncClient
@@ -122,6 +125,60 @@ async def test_avatar_upload_and_replacement(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_avatar_seed_and_upload_are_mutually_exclusive(client: AsyncClient):
+    reg = await client.post(
+        "/api/auth/register",
+        json={"username": "BlobUser", "email": "blob@example.com", "password": "Password123!"},
+    )
+    assert reg.status_code == 201
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # New account: no photo, no seed — avatar falls back to rendering from user id
+    me = await client.get("/api/auth/me", headers=headers)
+    assert me.json()["avatar_url"] is None
+    assert me.json()["avatar_seed"] is None
+
+    # 1. Choosing a Blobatar clears any uploaded photo
+    img_bytes = create_test_image_bytes(format="PNG", size=(200, 200))
+    upload_res = await client.post(
+        "/api/auth/users/me/avatar",
+        files={"file": ("avatar.png", img_bytes, "image/png")},
+        headers=headers,
+    )
+    assert upload_res.status_code == 200
+    avatar_url = upload_res.json()["avatar_url"]
+    disk_path = Path(avatar_url.lstrip("/"))
+    assert disk_path.exists()
+
+    seed_res = await client.patch(
+        "/api/auth/users/me/avatar-seed",
+        json={"seed": "a1b2c3-7"},
+        headers=headers,
+    )
+    assert seed_res.status_code == 200
+    assert seed_res.json()["avatar_seed"] == "a1b2c3-7"
+    assert seed_res.json()["avatar_url"] is None
+
+    # The cleared photo's file must not linger in storage
+    assert not disk_path.exists()
+    me_after_seed = await client.get("/api/auth/me", headers=headers)
+    assert me_after_seed.json()["avatar_seed"] == "a1b2c3-7"
+    assert me_after_seed.json()["avatar_url"] is None
+
+    # 2. Uploading a photo clears any chosen Blobatar
+    upload_res2 = await client.post(
+        "/api/auth/users/me/avatar",
+        files={"file": ("avatar2.png", img_bytes, "image/png")},
+        headers=headers,
+    )
+    assert upload_res2.status_code == 200
+    me_after_upload = await client.get("/api/auth/me", headers=headers)
+    assert me_after_upload.json()["avatar_url"] == upload_res2.json()["avatar_url"]
+    assert me_after_upload.json()["avatar_seed"] is None
+
+
+@pytest.mark.asyncio
 async def test_password_change_flow(client: AsyncClient):
     reg = await client.post(
         "/api/auth/register",
@@ -173,13 +230,16 @@ async def test_email_change_confirmation_flow(client: AsyncClient):
     headers = {"Authorization": f"Bearer {token}"}
 
     # Request email change
-    req_res = await client.post(
-        "/api/auth/users/me/change-email",
-        json={"new_email": "newemail@example.com"},
-        headers=headers,
-    )
+    with patch("app.auth.service.send_email", new_callable=AsyncMock) as send_email:
+        req_res = await client.post(
+            "/api/auth/users/me/change-email",
+            json={"new_email": "newemail@example.com"},
+            headers=headers,
+        )
     assert req_res.status_code == 200
-    verify_token = req_res.json()["token"]
+    assert "token" not in req_res.json()
+    email_body = send_email.await_args.args[2]
+    verify_token = parse_qs(urlparse(email_body.split("link: ", 1)[1]).query)["confirm_email_token"][0]
 
     # Verify email hasn't changed yet
     me = await client.get("/api/auth/me", headers=headers)

@@ -1,4 +1,4 @@
-import { Sparkles, Clock, Flame, Search } from 'lucide-react';
+import { Clock, Flame, Search } from 'lucide-react';
 
 export default function FeedFilter({
   activeTab,

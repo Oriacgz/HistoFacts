@@ -1,4 +1,3 @@
-import React from 'react';
 import { ShieldIcon, BulbIcon } from '../../../components/MotionIcons';
 
 /**

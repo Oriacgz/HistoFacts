@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.notification.models import Notification
 from app.notification.schemas import NotificationCreate
+from app.notification.notes_presence import notes_presence
 
 
 async def create_notification_record(payload: NotificationCreate, db: AsyncSession) -> Notification | None:
@@ -17,6 +18,9 @@ async def create_notification_record(payload: NotificationCreate, db: AsyncSessi
         notif_prefs = user.preferences.get("notification_prefs")
         if isinstance(notif_prefs, dict) and notif_prefs.get(payload.type) is False:
             return None
+
+    if payload.type == 'note_ready' and await notes_presence.is_active(payload.user_id):
+        return None
 
     notification = Notification(
         user_id=payload.user_id,

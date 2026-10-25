@@ -4,6 +4,7 @@ Handles curriculum note generation, handwritten notes conversion, token quotas, 
 """
 
 from contextlib import asynccontextmanager
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -23,7 +24,15 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[])
 async def lifespan(app: FastAPI):
     async with async_session_factory() as session:
         await seed_token_packs(session)
-    yield
+        from app.ai_notes.context.service import recover_expired
+        await recover_expired(session)
+    from app.ai_notes.research.retention import retention_worker
+    retention_task = asyncio.create_task(retention_worker())
+    try:
+        yield
+    finally:
+        retention_task.cancel()
+        await asyncio.gather(retention_task, return_exceptions=True)
 
 
 app = FastAPI(

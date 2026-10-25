@@ -3,6 +3,7 @@ Main FastAPI application entry point.
 """
 
 from contextlib import asynccontextmanager
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +13,7 @@ from app.core.config import settings
 from app.core.database import async_session_factory, engine, Base
 from app.auth.router import router as auth_router, users_router
 from app.history.router import router as history_router
+from app.history.monuments.router import router as monument_router
 from app.quiz.router import router as quiz_router
 from app.social.router import router as social_router
 from app.groups.router import router as groups_router
@@ -32,8 +34,16 @@ async def lifespan(app: FastAPI):
         await seed_token_packs(session)
         await seed_initial_events(session)
         await seed_quiz_questions(session)
+        from app.ai_notes.context.service import recover_expired
+        await recover_expired(session)
 
-    yield
+    from app.ai_notes.research.retention import retention_worker
+    retention_task = asyncio.create_task(retention_worker())
+    try:
+        yield
+    finally:
+        retention_task.cancel()
+        await asyncio.gather(retention_task, return_exceptions=True)
     # Shutdown logic if needed
 
 
@@ -57,6 +67,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(history_router)
+app.include_router(monument_router)
 app.include_router(quiz_router)
 app.include_router(social_router)
 app.include_router(groups_router)

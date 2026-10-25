@@ -119,6 +119,7 @@ async def _sync_category(
     url = url_template.format(month=month.zfill(2), day=day.zfill(2))
     date_key = f"{month.zfill(2)}-{day.zfill(2)}"
     events_inserted = 0
+    events_updated = 0
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -152,15 +153,21 @@ async def _sync_category(
                     pages = item.get("pages", [])
                     source_url = pages[0]["content_urls"]["desktop"]["page"] if pages else None
                     title = pages[0]["title"] if pages else text[:50]
+                    extract = pages[0].get("extract") if pages else None
 
                     # Check if event already exists
-                    existing = await db.execute(
+                    existing_res = await db.execute(
                         select(HistoricalEvent).where(
                             HistoricalEvent.date == date_key,
                             HistoricalEvent.title == title,
                         )
                     )
-                    if not existing.scalar_one_or_none():
+                    existing = existing_res.scalar_one_or_none()
+                    if existing:
+                        if not existing.extract and extract:
+                            existing.extract = extract
+                            events_updated += 1
+                    else:
                         hook = None
                         if enrich_with_ai:
                             try:
@@ -174,6 +181,7 @@ async def _sync_category(
                             year=year,
                             title=title,
                             description=text,
+                            extract=extract,
                             category=category_label,
                             source="Wikimedia",
                             source_url=source_url,
@@ -182,9 +190,9 @@ async def _sync_category(
                         db.add(event)
                         events_inserted += 1
 
-                if events_inserted > 0:
+                if events_inserted > 0 or events_updated > 0:
                     await db.commit()
-                return events_inserted
+                return events_inserted + events_updated
 
         except httpx.RequestError as req_err:
             logger.warning(f"Network error syncing Wikimedia events on attempt {attempt}: {req_err}")

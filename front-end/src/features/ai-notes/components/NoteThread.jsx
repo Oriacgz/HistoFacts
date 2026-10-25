@@ -1,17 +1,17 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Fragment, useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sparkles,
   Copy,
   CheckCircle2,
   PenTool,
-  Loader2,
   Paperclip,
   Share2,
   ArrowDown,
   Download,
 } from 'lucide-react';
 import MarkdownBlockViewer from './MarkdownBlockViewer';
+import ResearchSources from './ResearchSources';
 import HandwrittenBlockViewer from './HandwrittenBlockViewer';
 import { printHandwrittenNote } from '../utils/pdfGenerator';
 
@@ -21,8 +21,8 @@ export default function NoteThread({
   streamingPrompt = '',
   streamingText = '',
   streamingAttachments = [],
-  onConvertToHandwritten,
-  isRestylingId = null,
+  _onConvertToHandwritten,
+  _isRestylingId = null,
   onCopyNote,
   copiedNoteId = null,
   onShare,
@@ -87,7 +87,7 @@ export default function NoteThread({
       {chain.map((turn, i) => {
         const isLatest = i === chain.length - 1 && !isStreaming;
         return (
-          <React.Fragment key={turn.id || `turn-${i}`}>
+          <Fragment key={turn.id || `turn-${i}`}>
             {turn.prompt && (
               <UserTurn
                 text={turn.prompt}
@@ -101,7 +101,7 @@ export default function NoteThread({
               isCopied={copiedNoteId === turn.id}
               onShare={onShare}
             />
-          </React.Fragment>
+          </Fragment>
         );
       })}
 
@@ -231,8 +231,9 @@ function AssistantTurn({
           ref={isHandwrittenView ? handwrittenContainerRef : null}
           className="prose prose-slate max-w-none"
         >
-          <Viewer content={note.content} />
+          <Viewer content={note.content} research={note.research} />
         </div>
+        <ResearchSources research={note.research} />
 
         {/* Hidden pre-rendered handwritten block to ensure instant PDF download even from normal view */}
         {!isHandwrittenView && (
@@ -251,7 +252,7 @@ function AssistantTurn({
           onToggleHandwritten={handleToggleStyle}
           onCopy={onCopy}
           isCopied={isCopied}
-          onShare={onShare}
+          onShare={note.shared_read_only ? undefined : onShare}
           onDownloadPdf={handleDownloadPdf}
         />
       </div>
@@ -280,7 +281,7 @@ function AiAvatar({ isHandwritten = false }) {
 
 function MessageActions({
   note,
-  isLatest,
+  _isLatest,
   isHandwritten,
   onToggleHandwritten,
   onCopy,

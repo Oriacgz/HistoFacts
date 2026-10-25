@@ -14,12 +14,17 @@ import {
   getMyNotesApi,
   deleteNoteApi,
   getWalletApi,
+  getShopPacksApi,
+  purchasePackApi,
   getNoteThreadApi,
   streamGenerateNoteApi,
   streamContinueConversationApi,
   generateHandwrittenNoteApi,
+  getResearchStatusApi,
+  cancelSessionGenerationApi,
 } from '../api/aiNotes';
 import { estimateClientTokens } from '../features/ai-notes/utils/tokenEstimator';
+import { pendingResearch, researchRunStatus, clearPendingResearch } from '../features/ai-notes/researchRecovery';
 import { processAttachedFile } from '../features/ai-notes/utils/fileProcessor';
 
 const AiNotesContext = createContext(null);
@@ -97,6 +102,69 @@ export function AiNotesProvider({ children }) {
     }
   }, [setWallet]);
 
+  // ── Layout & UI Navigation State ───────────────────────────────
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), []);
+
+  // ── Shop Modal & Token Pack State ─────────────────────────────
+  const [shopOpen, setShopOpen] = useState(false);
+  const [shopPacks, setShopPacks] = useState([]);
+  const [confirmPack, setConfirmPack] = useState(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+
+  const openShop = useCallback(async () => {
+    setShopOpen(true);
+    try {
+      const packs = await getShopPacksApi();
+      setShopPacks(packs || []);
+    } catch {
+      setShopPacks([
+        { id: 'p-1', name: 'Starter Pack', token_amount: 50000, histoin_cost: 100, is_active: true },
+        { id: 'p-2', name: 'Popular Pack', token_amount: 150000, histoin_cost: 250, is_active: true },
+        { id: 'p-3', name: 'Mega Pack', token_amount: 350000, histoin_cost: 500, is_active: true },
+      ]);
+    }
+  }, []);
+
+  const closeShop = useCallback(() => {
+    setShopOpen(false);
+    setConfirmPack(null);
+  }, []);
+
+  const handleBuyPack = useCallback(
+    (pack) => {
+      if (wallet.histoin_balance < pack.histoin_cost) {
+        toast.error(`Insufficient Histoins! Need ${pack.histoin_cost} 🪙`);
+        return;
+      }
+      const idempotencyKey =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      setConfirmPack({ ...pack, idempotencyKey });
+    },
+    [wallet.histoin_balance, toast]
+  );
+
+  const confirmPurchase = useCallback(async () => {
+    if (!confirmPack) return;
+    setIsPurchasing(true);
+    try {
+      const res = await purchasePackApi(confirmPack.id, confirmPack.idempotencyKey);
+      setWallet((prev) => ({
+        ...prev,
+        token_balance: res.token_balance,
+        histoin_balance: res.histoin_balance,
+      }));
+      toast.success(`Purchased ${confirmPack.name}! +${res.tokens_credited?.toLocaleString()} tokens.`);
+      setConfirmPack(null);
+    } catch (err) {
+      toast.error(err.message || 'Purchase failed');
+    } finally {
+      setIsPurchasing(false);
+    }
+  }, [confirmPack, setWallet, toast]);
+
   // ── Core Sessions & Conversation Thread State ──────────────────
   const [notes, setNotes] = useState([]);
   const [activeNoteId, setActiveNoteIdState] = useState(() => {
@@ -164,6 +232,25 @@ export function AiNotesProvider({ children }) {
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [thinkEnabled, setThinkEnabled] = useState(false);
+  const [researchEnabled, setResearchEnabled] = useState(false);
+  const researchDepth = user?.preferences?.web_research_depth || 'standard';
+  const [researchAvailable, setResearchAvailable] = useState(false);
+  const [researchProgress, setResearchProgress] = useState(null);
+  const researchOwnerRef = useRef(userId);
+  useEffect(() => { researchOwnerRef.current = userId; }, [userId]);
+  useEffect(() => {
+    let active = true;
+    setResearchProgress(null);
+    setResearchAvailable(false);
+    setResearchEnabled(Boolean(user?.preferences?.web_research_default));
+    if (userId) getResearchStatusApi().then(status => {
+      if (active) {
+        setResearchAvailable(Boolean(status.available));
+        if (!status.available) setResearchEnabled(false);
+      }
+    }).catch(() => { if (active) setResearchEnabled(false); });
+    return () => { active = false; };
+  }, [userId, user?.preferences?.web_research_default]);
   const [isRestylingId, setIsRestylingId] = useState(null);
 
   // ── Streaming State (Lives in Provider across navigation) ──────
@@ -173,6 +260,7 @@ export function AiNotesProvider({ children }) {
   const [streamingText, setStreamingText] = useState('');
 
   const abortControllerRef = useRef(null);
+  const contextOperationRef = useRef(null);
   const isStreamingRef = useRef(false);
   useEffect(() => {
     isStreamingRef.current = isStreaming;
@@ -230,6 +318,7 @@ export function AiNotesProvider({ children }) {
         getMyNotesApi().catch(() => []),
         getWalletApi().catch(() => null),
       ]);
+      if (researchOwnerRef.current !== userId) return;
       const validNotes = notesData || [];
       setNotes(validNotes);
       if (walletData) {
@@ -258,6 +347,23 @@ export function AiNotesProvider({ children }) {
         targetId = validNotes[0].id;
       }
 
+      let pending = pendingResearch(userId, targetId);
+      if (pending) {
+        try {
+          const recovered = await researchRunStatus(userId, pending.requestId);
+          if (researchOwnerRef.current !== userId) return;
+          if (recovered.note) {
+            targetId = pending.root || recovered.note.id;
+            if (!pending.root) setNotes(prev => [recovered.note, ...prev.filter(note => note.id !== recovered.note.id)]);
+            clearPendingResearch(userId,pending.root,pending.requestId);
+            pending = null;
+          } else if (['failed','cancelled'].includes(recovered.state)) {
+            localStorage.setItem(getDraftStorageKey(userId,targetId), pending.prompt);
+            clearPendingResearch(userId,pending.root,pending.requestId);
+          }
+        } catch { /* Unknown status retains its stable ID for the next recovery attempt. */ }
+      }
+      if (researchOwnerRef.current !== userId) return;
       if (targetId) {
         setActiveNoteId(targetId);
         try {
@@ -316,7 +422,7 @@ export function AiNotesProvider({ children }) {
 
       // Restore draft prompt for active session
       try {
-        const savedDraft = localStorage.getItem(getDraftStorageKey(userId, targetId)) || '';
+        const savedDraft = localStorage.getItem(getDraftStorageKey(userId, targetId)) || pending?.prompt || '';
         setInputValueState(savedDraft);
       } catch {
         // ignore
@@ -392,6 +498,8 @@ export function AiNotesProvider({ children }) {
       const noteId = typeof note === 'object' ? note.id : note;
       if (!noteId) return;
 
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      setResearchProgress(null);
       setActiveNoteId(noteId);
 
       // Load draft for this selected session
@@ -459,13 +567,22 @@ export function AiNotesProvider({ children }) {
   );
 
   // ── Stop Active Generation ────────────────────────────────────
-  const handleStopGenerating = useCallback(() => {
+  const handleStopGenerating = useCallback((event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const operation=contextOperationRef.current;
+    if (operation?.owner===userId) cancelSessionGenerationApi(operation.root_id,operation.generation_id,userId).catch(() => {});
+    contextOperationRef.current=null;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
     isStreamingRef.current = false;
     setIsStreaming(false);
+    setStreamingPrompt('');
+    setStreamingAttachments([]);
+    setStreamingText('');
+    setResearchProgress(null);
     try {
       sessionStorage.removeItem(getInterruptedStorageKey(userId));
     } catch {
@@ -485,13 +602,21 @@ export function AiNotesProvider({ children }) {
       ) {
         return;
       }
-      isStreamingRef.current = true;
+      if (!thinkEnabled && attachedFiles.some(file=>file.dataUrl?.startsWith('data:image/'))) {
+        toast.info('Enable Think mode to analyze image attachments.');
+        return;
+      }
 
+      if (researchEnabled && (!researchAvailable || attachedFiles.length)) {
+        toast.info('Web Research needs an available search provider and a question without attachments.');
+        return;
+      }
       const estCost = estimateClientTokens(promptText, attachedFiles);
       if (wallet.token_balance < estCost) {
         toast.error(`Not enough tokens! You need ~${estCost.toLocaleString()} tokens.`);
         return;
       }
+      isStreamingRef.current = true;
 
       const currentFiles = [...attachedFiles];
       const userPrompt =
@@ -510,6 +635,7 @@ export function AiNotesProvider({ children }) {
       setStreamingPrompt(userPrompt);
       setStreamingAttachments(currentFiles);
       setStreamingText('');
+      setResearchProgress(null);
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -552,17 +678,26 @@ export function AiNotesProvider({ children }) {
           attachment_text: primaryFile?.extractedText || null,
           attachment_data: primaryFile?.dataUrl || null,
           think: thinkEnabled,
+          research_mode: researchEnabled ? 'web' : 'off',
+          research_depth: researchDepth,
+          research_request_id: null,
         };
 
         try {
           await streamGenerateNoteApi({
+            owner:userId,
             payload,
+            onResearch: (progress) => {
+              if (!controller.signal.aborted && researchOwnerRef.current === userId && (activeNoteIdRef.current === activeNoteId || savedNoteReceived)) setResearchProgress(progress);
+            },
             onDelta: (delta) => {
+              if (controller.signal.aborted || researchOwnerRef.current !== userId || (researchEnabled && activeNoteIdRef.current !== activeNoteId && !savedNoteReceived)) return;
               accumulatedText += delta;
               setStreamingText((prev) => prev + delta);
-              saveInterruptedSnapshot(accumulatedText);
+              if (!researchEnabled) saveInterruptedSnapshot(accumulatedText);
             },
             onNoteSaved: (savedNote, tokenMeta) => {
+              if (controller.signal.aborted || researchOwnerRef.current !== userId || (researchEnabled && activeNoteIdRef.current !== activeNoteId && !savedNoteReceived)) return;
               savedNoteReceived = true;
               try {
                 sessionStorage.removeItem(getInterruptedStorageKey(userId));
@@ -575,12 +710,13 @@ export function AiNotesProvider({ children }) {
               if (tokenMeta?.token_balance != null) {
                 setWallet((prev) => ({ ...prev, token_balance: tokenMeta.token_balance }));
               }
+              if (tokenMeta?.retained_prompt) setInputValue(tokenMeta.retained_prompt);
               fetchWallet();
             },
             signal: controller.signal,
           });
 
-          if (!savedNoteReceived && accumulatedText.trim()) {
+          if (!researchEnabled && !savedNoteReceived && accumulatedText.trim()) {
             const fallbackNote = {
               id: tempId,
               prompt: userPrompt,
@@ -594,8 +730,14 @@ export function AiNotesProvider({ children }) {
             setActiveThread([fallbackNote]);
           }
         } catch (err) {
+          if (!savedNoteReceived && !accumulatedText.trim() && researchOwnerRef.current === userId && activeNoteIdRef.current === activeNoteId) {
+            setInputValue(userPrompt);
+            setAttachedFiles(currentFiles);
+          }
+          if (researchEnabled && (researchOwnerRef.current !== userId || activeNoteIdRef.current !== activeNoteId)) return;
+          if (researchEnabled && !savedNoteReceived && researchOwnerRef.current === userId) setInputValue(userPrompt);
           if (err.name === 'AbortError' || controller.signal.aborted) {
-            if (accumulatedText.trim() && !savedNoteReceived) {
+            if (!researchEnabled && accumulatedText.trim() && !savedNoteReceived) {
               const partialNote = {
                 id: `stopped-${Date.now()}`,
                 prompt: userPrompt,
@@ -616,7 +758,7 @@ export function AiNotesProvider({ children }) {
           }
 
           if (
-            !savedNoteReceived &&
+            !researchEnabled && !savedNoteReceived &&
             accumulatedText.trim() &&
             err.name !== 'AbortError' &&
             !controller.signal.aborted
@@ -633,6 +775,7 @@ export function AiNotesProvider({ children }) {
             setActiveThread([fallbackNote]);
           }
         } finally {
+          if (abortControllerRef.current === controller) {
           try {
             sessionStorage.removeItem(getInterruptedStorageKey(userId));
           } catch {
@@ -643,7 +786,9 @@ export function AiNotesProvider({ children }) {
           setStreamingPrompt('');
           setStreamingAttachments([]);
           setStreamingText('');
+          setResearchProgress(null);
           abortControllerRef.current = null;
+          }
         }
       } else {
         // Follow-up Turn in Existing Session Thread
@@ -654,18 +799,30 @@ export function AiNotesProvider({ children }) {
           attachment_text: primaryFile?.extractedText || null,
           attachment_data: primaryFile?.dataUrl || null,
           think: thinkEnabled,
+          research_mode: researchEnabled ? 'web' : 'off',
+          research_depth: researchDepth,
+          research_request_id: null,
         };
 
         try {
           await streamContinueConversationApi({
+            owner:userId,
             noteId: activeNoteId,
             payload,
+            onContext: (context) => {
+              if (!controller.signal.aborted && researchOwnerRef.current === userId && activeNoteIdRef.current === activeNoteId) contextOperationRef.current={...context,owner:userId};
+            },
+            onResearch: (progress) => {
+              if (!controller.signal.aborted && researchOwnerRef.current === userId && (activeNoteIdRef.current === activeNoteId || savedNoteReceived)) setResearchProgress(progress);
+            },
             onDelta: (delta) => {
+              if (controller.signal.aborted || researchOwnerRef.current !== userId || (researchEnabled && activeNoteIdRef.current !== activeNoteId && !savedNoteReceived)) return;
               accumulatedText += delta;
               setStreamingText((prev) => prev + delta);
-              saveInterruptedSnapshot(accumulatedText);
+              if (!researchEnabled) saveInterruptedSnapshot(accumulatedText);
             },
             onNoteSaved: (newTurn, tokenMeta) => {
+              if (controller.signal.aborted || researchOwnerRef.current !== userId || (researchEnabled && activeNoteIdRef.current !== activeNoteId && !savedNoteReceived)) return;
               savedNoteReceived = true;
               try {
                 sessionStorage.removeItem(getInterruptedStorageKey(userId));
@@ -679,12 +836,13 @@ export function AiNotesProvider({ children }) {
               if (tokenMeta?.token_balance != null) {
                 setWallet((prev) => ({ ...prev, token_balance: tokenMeta.token_balance }));
               }
+              if (tokenMeta?.retained_prompt) setInputValue(tokenMeta.retained_prompt);
               fetchWallet();
             },
             signal: controller.signal,
           });
 
-          if (!savedNoteReceived && accumulatedText.trim()) {
+          if (!researchEnabled && !savedNoteReceived && accumulatedText.trim()) {
             const fallbackTurn = {
               id: `turn-${Date.now()}`,
               prompt: userPrompt,
@@ -696,8 +854,14 @@ export function AiNotesProvider({ children }) {
             setActiveThread((prev) => [...prev, fallbackTurn]);
           }
         } catch (err) {
+          if (!savedNoteReceived && !accumulatedText.trim() && researchOwnerRef.current === userId && activeNoteIdRef.current === activeNoteId) {
+            setInputValue(userPrompt);
+            setAttachedFiles(currentFiles);
+          }
+          if (researchEnabled && (researchOwnerRef.current !== userId || activeNoteIdRef.current !== activeNoteId)) return;
+          if (researchEnabled && !savedNoteReceived && researchOwnerRef.current === userId) setInputValue(userPrompt);
           if (err.name === 'AbortError' || controller.signal.aborted) {
-            if (accumulatedText.trim() && !savedNoteReceived) {
+            if (!researchEnabled && accumulatedText.trim() && !savedNoteReceived) {
               const partialTurn = {
                 id: `stopped-${Date.now()}`,
                 prompt: userPrompt,
@@ -716,7 +880,7 @@ export function AiNotesProvider({ children }) {
           }
 
           if (
-            !savedNoteReceived &&
+            !researchEnabled && !savedNoteReceived &&
             accumulatedText.trim() &&
             err.name !== 'AbortError' &&
             !controller.signal.aborted
@@ -732,6 +896,7 @@ export function AiNotesProvider({ children }) {
             setActiveThread((prev) => [...prev, fallbackTurn]);
           }
         } finally {
+          if (abortControllerRef.current === controller) {
           try {
             sessionStorage.removeItem(getInterruptedStorageKey(userId));
           } catch {
@@ -742,7 +907,9 @@ export function AiNotesProvider({ children }) {
           setStreamingPrompt('');
           setStreamingAttachments([]);
           setStreamingText('');
+          setResearchProgress(null);
           abortControllerRef.current = null;
+          }
         }
       }
     },
@@ -753,6 +920,9 @@ export function AiNotesProvider({ children }) {
       wallet.token_balance,
       activeNoteId,
       thinkEnabled,
+      researchEnabled,
+      researchAvailable,
+      researchDepth,
       userId,
       setInputValue,
       setActiveNoteId,
@@ -773,7 +943,7 @@ export function AiNotesProvider({ children }) {
 
       setIsRestylingId(noteId);
       try {
-        const res = await generateHandwrittenNoteApi(noteId);
+        const res = await generateHandwrittenNoteApi(noteId, thinkEnabled);
         setActiveThread((prev) => [...prev.filter((t) => t.id !== res.id), res]);
         fetchWallet();
         toast.success('Converted to Handwritten Notes!');
@@ -787,7 +957,7 @@ export function AiNotesProvider({ children }) {
         setIsRestylingId(null);
       }
     },
-    [wallet.token_balance, fetchWallet, toast]
+    [wallet.token_balance, fetchWallet, toast, thinkEnabled]
   );
 
   const value = useMemo(
@@ -808,7 +978,11 @@ export function AiNotesProvider({ children }) {
       removeAttachedFile,
       isProcessingFiles,
       thinkEnabled,
+      researchEnabled,
+      researchAvailable,
+      researchProgress,
       setThinkEnabled,
+      setResearchEnabled,
       isStreaming,
       streamingPrompt,
       streamingAttachments,
@@ -819,6 +993,21 @@ export function AiNotesProvider({ children }) {
       estimatedTokens,
       isInsufficient,
       isRestylingId,
+
+      // Layout & Shop UI
+      sidebarOpen,
+      setSidebarOpen,
+      toggleSidebar,
+      shopOpen,
+      setShopOpen,
+      openShop,
+      closeShop,
+      shopPacks,
+      confirmPack,
+      setConfirmPack,
+      handleBuyPack,
+      confirmPurchase,
+      isPurchasing,
 
       // Actions
       loadData,
@@ -842,6 +1031,9 @@ export function AiNotesProvider({ children }) {
       removeAttachedFile,
       isProcessingFiles,
       thinkEnabled,
+      researchEnabled,
+      researchAvailable,
+      researchProgress,
       isStreaming,
       streamingPrompt,
       streamingAttachments,
@@ -852,6 +1044,16 @@ export function AiNotesProvider({ children }) {
       estimatedTokens,
       isInsufficient,
       isRestylingId,
+      sidebarOpen,
+      toggleSidebar,
+      shopOpen,
+      openShop,
+      closeShop,
+      shopPacks,
+      confirmPack,
+      handleBuyPack,
+      confirmPurchase,
+      isPurchasing,
       loadData,
       handleSendMessage,
       handleStopGenerating,

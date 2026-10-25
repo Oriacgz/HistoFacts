@@ -31,13 +31,14 @@ export async function deletePostApi(postId) {
   });
 }
 
-export async function addCommentApi(postId, content, { parentCommentId = null, mentionedUserId = null } = {}) {
+export async function addCommentApi(postId, content, { parentCommentId = null, mentionedUserId = null, mediaUrl = null } = {}) {
   return apiFetch(`/api/social/posts/${postId}/comments`, {
     method: 'POST',
     body: JSON.stringify({
       content,
       parent_comment_id: parentCommentId,
       mentioned_user_id: mentionedUserId,
+      media_url: mediaUrl,
     }),
   });
 }
@@ -48,10 +49,24 @@ export async function deleteCommentApi(postId, commentId) {
   });
 }
 
-export async function togglePostLikeApi(postId) {
-  return apiFetch(`/api/social/posts/${postId}/like`, {
+export async function reactToPostApi(postId, reaction) {
+  return apiFetch(`/api/social/posts/${postId}/reaction`, {
     method: 'POST',
+    body: JSON.stringify({ reaction }),
   });
+}
+
+export async function uploadPostMediaApi(postId, files) {
+  const formData = new FormData();
+  files.forEach((file) => formData.append('files', file));
+  return apiFetch(`/api/social/posts/${postId}/media`, {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+export async function searchGifsApi(query) {
+  return apiFetch(`/api/social/gifs?query=${encodeURIComponent(query)}`);
 }
 
 export async function sharePostApi(postId, { shareChannel = 'copy_link', caption = null } = {}) {

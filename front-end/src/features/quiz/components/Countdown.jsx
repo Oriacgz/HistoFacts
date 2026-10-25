@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ClockIcon } from '../../../components/MotionIcons';
 
@@ -17,17 +17,16 @@ export default function Countdown({
   className = '',
 }) {
   const [localSeconds, setLocalSeconds] = useState(seconds);
+  const [prevSeconds, setPrevSeconds] = useState(seconds);
 
-  useEffect(() => {
-    if (serverAuthoritative) {
-      setLocalSeconds(seconds);
-    }
-  }, [seconds, serverAuthoritative]);
+  if (seconds !== prevSeconds) {
+    setPrevSeconds(seconds);
+    setLocalSeconds(seconds);
+  }
 
   useEffect(() => {
     if (serverAuthoritative) return;
 
-    setLocalSeconds(seconds);
     const interval = setInterval(() => {
       setLocalSeconds((prev) => {
         if (prev <= 1) {

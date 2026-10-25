@@ -1,17 +1,15 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   SparklesIcon,
   SearchIcon,
   BookOpenIcon,
-  CheckCircleIcon,
   XCircleIcon,
   ShieldIcon,
-  ClockIcon,
-  RightArrowIcon,
 } from '../../../components/MotionIcons';
 import ScoreRulesBadge from '../components/ScoreRulesBadge';
-import { generateQuizApi } from '../../../api/quiz';
+import QuizGenerationProgress from '../components/QuizGenerationProgress';
+import { startPersonalizedQuizApi } from '../../../api/quiz';
 
 const POPULAR_SUGGESTIONS = [
   { label: 'Mughal Empire & Architecture', era: 'Medieval India' },
@@ -30,47 +28,38 @@ const DIFFICULTY_LEVELS = [
   { id: 'hard', label: 'Hard', correct: 2, wrong: -3, desc: 'Deep historiographical analysis & strict -3 penalty' },
 ];
 
-export default function CreatePersonalizedQuiz({ onQuizReady }) {
+export default function CreatePersonalizedQuiz({ onQuizReady, initialTopic = '' }) {
   const [sourceType, setSourceType] = useState('topic'); // 'topic' | 'pdf'
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(initialTopic);
   const [difficulty, setDifficulty] = useState('medium');
   const [pdfFile, setPdfFile] = useState(null);
-  const [pdfText, setPdfText] = useState('');
-  const [isReadingPdf, setIsReadingPdf] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const fileInputRef = useRef(null);
+  const generationRef = useRef(null);
+  useEffect(()=>()=>{generationRef.current?.abort();generationRef.current=null;},[]);
+  const cancelGeneration = () => {
+    generationRef.current?.abort();
+    generationRef.current=null;
+    setIsGenerating(false);
+    setErrorMsg('Generation cancelled. Your topic and difficulty have been kept.');
+  };
 
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.match(/\.(pdf|txt|docx|doc)$/i)) {
-      setErrorMsg('Please upload a PDF or document file (.pdf, .txt, .docx).');
+    if (file.size > 10 * 1024 * 1024) {
+      setErrorMsg('PDF must be at most 10 MB.');
       return;
     }
-
     setPdfFile(file);
     setErrorMsg('');
-    setIsReadingPdf(true);
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setTimeout(() => {
-        const text = event.target?.result || file.name;
-        setPdfText(typeof text === 'string' ? text.slice(0, 5000) : file.name);
-        setIsReadingPdf(false);
-      }, 1000);
-    };
-    reader.onerror = () => {
-      setIsReadingPdf(false);
-      setErrorMsg('Could not read file. Please try another document.');
-    };
-    reader.readAsText(file);
   };
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
+    if (generationRef.current) return;
     setErrorMsg('');
 
     if (sourceType === 'topic' && !topic.trim()) {
@@ -79,57 +68,28 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
     }
 
     if (sourceType === 'pdf' && !pdfFile) {
-      setErrorMsg('Please select a PDF or document to extract questions from.');
+      setErrorMsg('Please select a PDF to extract questions from.');
       return;
     }
 
     setIsGenerating(true);
+    const controller = new AbortController();
+    generationRef.current = controller;
     try {
       const activeTopic = sourceType === 'topic' 
         ? topic.trim() 
         : `Document: ${pdfFile.name.replace(/\.[^/.]+$/, "")}`;
 
-      const res = await generateQuizApi({
-        topic: activeTopic,
-        sourceType,
-        pdfText: pdfText || topic,
-        difficulty,
-        count: 10,
+      const res = await startPersonalizedQuizApi({
+        topic: activeTopic, difficulty, file: sourceType === 'pdf' ? pdfFile : null, signal:controller.signal,
       });
-
-      if (res && res.length > 0) {
-        onQuizReady({
-          topic: activeTopic,
-          difficulty,
-          questions: res,
-          sourceType,
-        });
-      } else {
-        throw new Error('No questions returned');
-      }
+      if (controller.signal.aborted || generationRef.current!==controller) return;
+      onQuizReady({ topic: activeTopic, difficulty, questions: res.questions,
+        sessionId: res.session_id, sourceType, file: sourceType === 'pdf' ? pdfFile : null });
     } catch (err) {
-      console.error('Quiz generation fallback:', err);
-      const activeTopic = sourceType === 'topic' ? topic.trim() : pdfFile?.name || 'Document Notes';
-      onQuizReady({
-        topic: activeTopic,
-        difficulty,
-        questions: Array(10).fill(null).map((_, i) => ({
-          id: `local-q-${i + 1}`,
-          topic: activeTopic,
-          question: `Key Concept #${i + 1} regarding ${activeTopic}: Which milestone or development occurred?`,
-          options: [
-            'Treaty of Westphalia diplomatic milestone',
-            'Socio-economic agricultural reform initiative',
-            'Administrative imperial decree restructuring',
-            'Cultural renaissance transformation and philosophy',
-          ],
-          correct_answer: i % 4,
-          difficulty,
-        })),
-        sourceType,
-      });
+      if (generationRef.current===controller && !controller.signal.aborted) setErrorMsg(err.message || 'Could not generate quiz. Please try again.');
     } finally {
-      setIsGenerating(false);
+      if (generationRef.current===controller) {generationRef.current=null;setIsGenerating(false);}
     }
   };
 
@@ -155,7 +115,7 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
         {/* Main Left Form Area (8 cols) */}
         <div className="lg:col-span-8 rounded-[4px] bg-white border border-histo-dark/15 p-6 sm:p-8 shadow-soft">
           {/* Source Selector Tabs */}
-          <div className="flex rounded-[4px] bg-histo-cream p-1 border border-histo-dark/15 mb-6">
+          <fieldset disabled={isGenerating} className="flex rounded-[4px] bg-histo-cream p-1 border border-histo-dark/15 mb-6">
             <button
               type="button"
               onClick={() => { setSourceType('topic'); setErrorMsg(''); }}
@@ -181,7 +141,7 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
               <BookOpenIcon className="h-4 w-4" />
               <span>Upload PDF / Study Notes</span>
             </button>
-          </div>
+          </fieldset>
 
           {/* Error Alert */}
           <AnimatePresence>
@@ -199,15 +159,17 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
           </AnimatePresence>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            <fieldset disabled={isGenerating} className="space-y-6">
             {/* Tab 1: Topic Prompt */}
             {sourceType === 'topic' ? (
               <div>
-                <label className="block text-xs font-ui font-bold text-histo-dark uppercase tracking-wider mb-2">
+                <label htmlFor="practice-topic" className="block text-xs font-ui font-bold text-histo-dark uppercase tracking-wider mb-2">
                   Historical Topic or Syllabus Unit
                 </label>
                 <div className="relative">
                   <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-histo-ink/40" />
                   <input
+                    id="practice-topic"
                     type="text"
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
@@ -250,7 +212,7 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.txt,.doc,.docx"
+                  accept=".pdf"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
@@ -265,7 +227,7 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
                       Click to upload curriculum document or notes
                     </p>
                     <p className="text-xs font-body text-histo-ink/60 italic">
-                      PDF, DOCX, TXT notes (Max 15MB)
+                      PDF with readable text (Max 10MB)
                     </p>
                   </div>
                 ) : (
@@ -277,14 +239,14 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
                       <div className="min-w-0">
                         <p className="text-sm font-ui font-bold text-histo-dark truncate">{pdfFile.name}</p>
                         <p className="text-xs font-ui text-histo-ink/60 font-mono">
-                          {(pdfFile.size / 1024).toFixed(1)} KB • Extracted for MCQ generation
+                          {(pdfFile.size / 1024).toFixed(1)} KB • Ready for upload
                         </p>
                       </div>
                     </div>
 
                     <button
                       type="button"
-                      onClick={() => { setPdfFile(null); setPdfText(''); }}
+                      onClick={() => setPdfFile(null)}
                       className="px-3 py-1 text-xs font-ui font-semibold text-rose-700 hover:bg-rose-50 rounded transition-colors cursor-pointer"
                     >
                       Remove
@@ -292,22 +254,6 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
                   </div>
                 )}
 
-                {/* PDF Reading Loading State */}
-                <AnimatePresence>
-                  {isReadingPdf && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="mt-3 rounded-[2px] bg-amber-50 border border-amber-300 p-3 flex items-center gap-3 text-xs font-ui text-amber-900 shadow-2xs"
-                    >
-                      <div className="h-4 w-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin shrink-0" />
-                      <span>
-                        <strong>Parsing document…</strong> Extracting historical events, names, and timeline milestones.
-                      </span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </div>
             )}
 
@@ -357,6 +303,7 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
                 })}
               </div>
             </div>
+            </fieldset>
           </form>
         </div>
 
@@ -397,13 +344,12 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={isGenerating || isReadingPdf}
+                disabled={isGenerating}
                 className="w-full py-4 rounded-[3px] bg-histo-copper hover:bg-histo-dark text-white text-xs font-ui font-bold tracking-widest uppercase shadow-medium transition-all flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isGenerating ? (
                   <>
-                    <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Synthesizing Questions...</span>
+                    <span>{sourceType === 'pdf' ? 'Reading your PDF…' : 'Preparing Questions…'}</span>
                   </>
                 ) : (
                   <>
@@ -412,6 +358,8 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
                   </>
                 )}
               </button>
+              {isGenerating && <><QuizGenerationProgress sourceType={sourceType} />
+                <button type="button" onClick={cancelGeneration} className="mt-3 w-full rounded border border-histo-dark/20 px-3 py-2 text-sm text-histo-dark cursor-pointer">Cancel generation</button></>}
             </div>
           </div>
 
@@ -419,10 +367,10 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
           <div className="p-4 rounded-[4px] bg-white border border-histo-dark/10 shadow-2xs">
             <div className="flex items-center gap-2 text-xs font-ui font-bold text-histo-dark mb-1">
               <ShieldIcon className="h-4 w-4 text-histo-copper" />
-              <span>Instant Feedback Mode</span>
+              <span>Answer Review</span>
             </div>
             <p className="text-xs font-body text-histo-ink/70 leading-relaxed">
-              Every answered question immediately reveals historical context, key figures, and chronological explanations.
+              Submit your quiz to compare every answer with the correct solution.
             </p>
           </div>
         </div>

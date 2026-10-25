@@ -1,0 +1,5 @@
+Original HistoFacts educational monument geometry and SVG posters.
+Copyright (c) 2026 Apoorva Puranik. Distributed under the MIT License in the repository root.
+Source: front-end/scripts/generate-monuments.mjs, revision 1.
+These are simplified original illustrations, not photogrammetry, surveys, or accurate reconstructions.
+No third-party meshes, textures, or photographs are included.

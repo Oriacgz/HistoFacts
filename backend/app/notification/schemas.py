@@ -4,6 +4,8 @@ Pydantic schemas for Notification Microservice.
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
+from pydantic import StrictBool
 from pydantic import BaseModel, ConfigDict
 
 
@@ -11,6 +13,11 @@ class NotificationCreate(BaseModel):
     user_id: str
     type: str
     payload: dict[str, Any] = {}
+
+
+class NotesPresenceRequest(BaseModel):
+    tab_id: UUID
+    active: StrictBool
 
 
 class NotificationResponse(BaseModel):

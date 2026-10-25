@@ -53,6 +53,7 @@ class UserResponse(BaseModel):
     tag: str
     email: EmailStr
     avatar_url: str | None = None
+    avatar_seed: str | None = None
     bio: str | None = None
     country_code: str | None = None
     pronouns: str | None = None
@@ -112,6 +113,7 @@ class FriendWithPresence(BaseModel):
     username: str
     tag: str
     avatar_url: str | None = None
+    avatar_seed: str | None = None
     is_online: bool
     last_seen_at: datetime | None = None
 
@@ -127,6 +129,7 @@ class SearchUserResponse(BaseModel):
     username: str
     tag: str
     avatar_url: str | None = None
+    avatar_seed: str | None = None
 
     @property
     def display_name(self) -> str:
@@ -177,6 +180,11 @@ class AvatarResponse(BaseModel):
     avatar_url: str
 
 
+class AvatarSeedUpdate(BaseModel):
+    """Choosing a Blobatar seed clears any uploaded photo — the two avatar paths are mutually exclusive."""
+    seed: str = Field(..., min_length=1, max_length=100)
+
+
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=8)
@@ -199,10 +207,20 @@ class UserSessionResponse(BaseModel):
     is_current: bool = False
 
 
+class NotesMemoryPreferences(BaseModel):
+    enabled: bool = True
+    auto_compact: bool = True
+    mode: Literal['minimal', 'balanced', 'detailed'] = 'balanced'
+
+
 class PreferencesUpdate(BaseModel):
     theme: Literal["light", "dark", "system"] = "system"
     language: str = "en"
     notification_prefs: dict[str, bool] = {}
+    web_research_default: bool = False
+    notes_memory_default: bool = True
+    ai_notes_memory: NotesMemoryPreferences = Field(default_factory=NotesMemoryPreferences)
+    web_research_depth: Literal["concise", "standard"] = "standard"
 
 
 class TwoFactorSetupResponse(BaseModel):
@@ -227,6 +245,7 @@ class BlockedUserResponse(BaseModel):
     username: str
     tag: str
     avatar_url: str | None = None
+    avatar_seed: str | None = None
     blocked_at: datetime | None = None
 
 
@@ -235,6 +254,7 @@ class PublicUserProfileResponse(BaseModel):
     username: str
     tag: str
     avatar_url: str | None = None
+    avatar_seed: str | None = None
     bio: str | None = None
     country_code: str | None = None
     pronouns: str | None = None

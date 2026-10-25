@@ -45,6 +45,10 @@ async def setup_test_db():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
+    # Dispose the engine so the aiosqlite worker thread ends — otherwise the
+    # non-daemon thread blocks pytest's interpreter shutdown after the run.
+    await test_engine.dispose()
+
 
 @pytest_asyncio.fixture
 async def db_session():

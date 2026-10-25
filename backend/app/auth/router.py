@@ -22,6 +22,7 @@ from app.auth.schemas import (
     SearchUserResponse,
     ProfileUpdate,
     AvatarResponse,
+    AvatarSeedUpdate,
     PasswordChange,
     EmailChangeRequest,
     UserSessionResponse,
@@ -38,6 +39,7 @@ from app.auth.service import (
     authenticate_user,
     refresh_user_tokens,
     update_profile,
+    set_avatar_seed,
     change_password,
     request_email_change,
     confirm_email_change,
@@ -137,6 +139,7 @@ async def get_user_summary(
         "username": user.username,
         "tag": user.tag,
         "avatar_url": user.avatar_url,
+        "avatar_seed": user.avatar_seed,
         "bio": user.bio,
         "is_banned": user.is_banned,
     }
@@ -534,9 +537,22 @@ async def upload_avatar(
 
     new_url = store_file(processed.getvalue(), prefix=f"avatars/{user.id}", extension="webp")
     user.avatar_url = new_url
+    user.avatar_seed = None  # uploading a photo clears any chosen Blobatar — the two paths are mutually exclusive
     await db.commit()
     await db.refresh(user)
     return AvatarResponse(avatar_url=new_url)
+
+
+@router.patch("/users/me/avatar-seed")
+@router.patch("/me/avatar-seed")
+async def set_avatar_seed_endpoint(
+    payload: AvatarSeedUpdate,
+    user: User = Depends(get_current_user_db),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Choose a Blobatar seed. Clears any uploaded photo — avatar_url would otherwise keep winning."""
+    await set_avatar_seed(db, user, payload.seed)
+    return {"avatar_seed": user.avatar_seed, "avatar_url": user.avatar_url}
 
 
 @router.patch("/users/me", response_model=UserResponse)
@@ -568,8 +584,8 @@ async def request_email_change_endpoint(
     user: User = Depends(get_current_user_db),
     db: AsyncSession = Depends(get_async_session),
 ):
-    token = await request_email_change(user, payload, db)
-    return {"message": "Confirmation link sent to your new email address", "token": token}
+    await request_email_change(user, payload, db)
+    return {"message": "Confirmation link sent to your new email address"}
 
 
 @router.get("/users/me/change-email/confirm")

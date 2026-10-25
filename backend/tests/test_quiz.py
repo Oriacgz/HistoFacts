@@ -7,7 +7,9 @@ from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_quiz_and_histoin_reward_flow(client: AsyncClient):
+async def test_quiz_and_histoin_reward_flow(client: AsyncClient, monkeypatch):
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("app.core.inter_service.call_notes_reward_quiz", AsyncMock(return_value=False))
     # 1. Register a student user
     reg_resp = await client.post(
         "/api/auth/register",
