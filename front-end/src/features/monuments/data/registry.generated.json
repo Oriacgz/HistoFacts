@@ -1,0 +1,32 @@
+[
+  {
+    "id": "great-pyramid",
+    "name": "Great Pyramid",
+    "tour_revision": 1,
+    "tour": [
+      "form",
+      "khufu",
+      "landscape"
+    ]
+  },
+  {
+    "id": "taj-mahal",
+    "name": "Taj Mahal",
+    "tour_revision": 1,
+    "tour": [
+      "dome",
+      "minarets",
+      "platform"
+    ]
+  },
+  {
+    "id": "qutub-minar",
+    "name": "Qutub Minar",
+    "tour_revision": 1,
+    "tour": [
+      "shaft",
+      "balconies",
+      "complex"
+    ]
+  }
+]

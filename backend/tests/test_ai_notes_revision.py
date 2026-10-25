@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import AsyncClient
 
+pytestmark = pytest.mark.usefixtures('notes_model')
+
 
 # ── Unit tests for guardrail helpers ──────────────────────────────────────────
 

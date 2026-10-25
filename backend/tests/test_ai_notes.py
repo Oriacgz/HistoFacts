@@ -5,6 +5,8 @@ Tests for AI Notes module, Token Economy, and Histoins Shop.
 import pytest
 from httpx import AsyncClient
 
+pytestmark = pytest.mark.usefixtures('notes_model')
+
 
 @pytest.mark.asyncio
 async def test_ai_notes_and_wallet_flow(client: AsyncClient):
