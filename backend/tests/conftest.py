@@ -5,6 +5,7 @@ Uses an in-memory SQLite database via aiosqlite for fast, isolated test runs.
 
 import pytest
 import pytest_asyncio
+from types import SimpleNamespace
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
@@ -28,6 +29,30 @@ test_engine = create_async_engine(
     echo=False,
 )
 TestingSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+
+
+@pytest.fixture
+def notes_model(monkeypatch):
+    """Deterministic provider for Notes lifecycle tests, not scope/model-quality tests.
+
+    Exercise the real generation, guardrails, budgets and persistence code without
+    requiring Ollama/LM Studio or variable model-sized output on a CI runner.
+    Individual scope/routing tests install their own provider expectations.
+    """
+    def factory(**config):
+        async def create(**payload):
+            messages=payload['messages']
+            classify='Classify the request' in str(messages[0].get('content',''))
+            text='HISTORY' if classify else 'The French Revolution began in 1789. Economic hardship and political inequality contributed to the conflict.'
+            if payload.get('stream'):
+                async def chunks():
+                    for part in (text[:40],text[40:]):
+                        yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=part))])
+                return chunks()
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))],
+                                   usage=SimpleNamespace(total_tokens=80))
+        return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr('app.ai_notes.llm_client.AsyncOpenAI',factory)
 
 
 @pytest_asyncio.fixture(autouse=True)
