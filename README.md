@@ -323,7 +323,7 @@ Developers, historians, educators, designers, and documentation contributors are
 3. Add appropriate regression coverage; run affected tests, lint, build, and model validation when applicable.
 4. Open a pull request with the concrete problem, resulting behavior, validation, and remaining limitations.
 
-Enforce ownership and permissions on the server. Preserve accessible labels, keyboard controls, responsive layouts, and reduced-motion behavior. Never commit secrets, user data, generated reports, or local databases. Report exploitable security issues privately to maintainers rather than publishing reproduction details in a public issue.
+Enforce ownership and permissions on the server. Preserve accessible labels, keyboard controls, responsive layouts, and reduced-motion behavior. Never commit secrets, user data, generated reports, or local databases. Report exploitable security issues privately to maintainers rather than publishing reproduction details in a public issues.
 
 ## License
 
