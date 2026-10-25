@@ -7,12 +7,15 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.background import BackgroundTask
+from starlette.responses import StreamingResponse
 import httpx
 import websockets
 import logging
 
 from app.core.config import settings
 from app.core.correlation import CorrelationIdMiddleware, get_request_id
+from app.core.request_lifetime import until_disconnect
 
 logger = logging.getLogger("histofacts.gateway")
 
@@ -48,6 +51,7 @@ app.add_middleware(
 SERVICE_ROUTES = [
     ("/api/auth", settings.auth_service_url),
     ("/api/events", settings.history_service_url),
+    ("/api/monuments", settings.history_service_url),
     ("/api/social", settings.social_service_url),
     ("/api/chat", settings.social_service_url),
     ("/api/groups", settings.groups_service_url),
@@ -147,16 +151,24 @@ async def proxy_gateway(request: Request, path: str):
 
     try:
         client: httpx.AsyncClient = request.app.state.client
-        resp = await client.request(
+        is_notes_stream = full_path.startswith("/api/notes/") and full_path.endswith("/stream")
+        long_request = is_notes_stream or full_path in {
+            "/api/notes/generate", "/api/quiz/personalized/generate",
+            "/api/quiz/personalized/from-pdf", "/api/quiz/generate",
+        } or (full_path.startswith("/api/notes/") and full_path.endswith(("/handwritten", "/revise")))
+        upstream_request = client.build_request(
             method=request.method,
             url=target_url,
             headers=headers,
             content=body,
-            **({"timeout": httpx.Timeout(615, connect=10)} if full_path in {
-                "/api/quiz/personalized/generate", "/api/quiz/personalized/from-pdf",
-                "/api/quiz/generate",
-            } else {}),
+            **({"timeout": httpx.Timeout(
+                settings.quiz_generation_timeout_seconds + 15 if full_path.startswith('/api/quiz/') else 615,
+                connect=10)} if long_request else {}),
         )
+        if full_path in {"/api/quiz/personalized/generate", "/api/quiz/personalized/from-pdf"}:
+            resp = await until_disconnect(request, client.send(upstream_request))
+        else:
+            resp = await client.send(upstream_request, stream=is_notes_stream)
 
         # Filter response headers
         excluded_headers = ["content-encoding", "content-length", "transfer-encoding", "connection"]
@@ -164,12 +176,30 @@ async def proxy_gateway(request: Request, path: str):
             k: v for k, v in resp.headers.items() if k.lower() not in excluded_headers
         }
 
+        if is_notes_stream:
+            async def forward_stream():
+                try:
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk
+                finally:
+                    await resp.aclose()
+
+            response_headers["X-Accel-Buffering"] = "no"
+            return StreamingResponse(
+                forward_stream(), status_code=resp.status_code,
+                headers=response_headers, background=BackgroundTask(resp.aclose),
+            )
+
         return Response(
             content=resp.content,
             status_code=resp.status_code,
             headers=response_headers,
             media_type=resp.headers.get("content-type"),
         )
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="The requested service took too long. Please try again shortly.")
     except httpx.ConnectError:
         raise HTTPException(
             status_code=503,

@@ -1,608 +1,330 @@
-# HistoFacts 🏛️
+# HistoFacts
 
-> **AI-powered historical education platform** — multiplayer quizzes, AI-generated study notes, a social history feed, and a token economy — all in one.
+<p align="center">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/histofacts-banner.png">
+    <img src="docs/assets/histofacts-banner.gif" alt="HistoFacts: discover history, explore monuments, study with AI, and test your knowledge." width="1100">
+  </picture>
+</p>
 
-[![Backend Tests](https://img.shields.io/badge/backend%20tests-32%20passing%20%7C%201%20skipped-brightgreen)](#testing)
-[![Frontend Tests](https://img.shields.io/badge/frontend%20tests-11%2F11%20passing-brightgreen)](#testing)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
+<p align="center">
+  <a href="https://github.com/Oriacgz/HistoFacts/actions/workflows/ci.yml"><img src="https://github.com/Oriacgz/HistoFacts/actions/workflows/ci.yml/badge.svg" alt="HistoFacts CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-d6b975?style=flat-square" alt="MIT license"></a>
+</p>
 
-----
+**Explore the past. Build understanding. Remember what matters.**
 
-## 📖 Table of Contents
+HistoFacts is a history learning platform built with React and FastAPI. Discover events, explore illustrated 3D monuments, develop study notes with local AI, and practice through personalized and multiplayer quizzes.
 
-1. [Product Overview](#product-overview)
-2. [Features](#features)
-3. [Open-Source Collaboration](#open-source-collaboration)
-4. [System Architecture](#system-architecture)
-5. [Tech Stack](#tech-stack)
-6. [Project Structure](#project-structure)
-7. [Local Development Setup](#local-development-setup)
-8. [Environment Variables](#environment-variables)
-9. [Database Migrations](#database-migrations)
-10. [Testing](#testing)
-11. [Docker Compose Deployment](#docker-compose-deployment)
-12. [WebSocket Multiplayer Lobby](#websocket-multiplayer-lobby)
-13. [Security Architecture](#security-architecture)
-14. [Troubleshooting](#troubleshooting)
+[Quick start](#quick-start) · [Features](#features) · [AI configuration](#ai-configuration) · [Architecture](#architecture) · [Testing](#testing) · [Contributing](#contributing)
 
----
-
-## Product Overview
-
-HistoFacts is a full-stack SPA built for history enthusiasts, students, and competitive exam aspirants. It combines:
-
-- **On-this-day history feed** synced from Wikimedia
-- **AI-powered personalized quizzes** from topic or uploaded PDF
-- **Kahoot-style real-time multiplayer quiz lobbies** (WebSocket)
-- **AI study notes** with token economy (LLM-powered)
-- **Social discussion feed** (posts, comments, likes)
-- **Study groups** with shared notes
-- **Friends system** and global leaderboard
-- **Histoins reward economy** earned by quiz participation
-
----
+[View the static banner](docs/assets/histofacts-banner.png)
 
 ## Features
 
-| Feature | Description |
-|---|---|
-| 📅 Today in History | Date-specific events from Wikimedia with full search |
-| 🧠 Personalized Quiz | AI-generates questions from any topic or uploaded document |
-| 🎮 Multiplayer Lobby | Kahoot-style real-time quiz rooms with JWT-authenticated host control |
-| 📝 AI Notes | LLM-generated structured notes with curriculum tagging |
-| 🪙 Token Economy | AI usage costs tokens; Histoins earned by quiz, spent at shop |
-| 💬 Social Feed | Posts, threaded comments, likes with event context |
-| 👥 Study Groups | Create groups, share notes, group-scoped posts |
-| 🤝 Friends | Add/remove friends, see their activity |
-| 🏆 Leaderboard | Monthly global quiz leaderboard with accuracy and score ranking |
-| 🔖 Bookmarks | Save historical events for later |
+| Area | What you can do |
+| --- | --- |
+| Today in History | Browse date-specific historical events, search the collection, and bookmark discoveries. Wikimedia supplies historical event feeds; optional AI enrichment adds short hooks. |
+| Monument Explorer | Search the Great Pyramid, Taj Mahal, and Qutub Minar; rotate and zoom bundled 3D illustrations; explore annotated points and guided tours; save favorites and tour completion. Prepare a quiz or study-note prompt from a monument. |
+| AI Notes | Stream history-focused answers, continue conversations, attach study material, choose Think mode, create handwritten-style notes, and export printable PDFs. Image input requires Think mode. |
+| Session memory | Keep separate, private context for every conversation across Llama and Qwen. Use a bounded sliding window, source-linked extractive memory, and same-session retrieval. Manage memory in Profile Settings. |
+| Web Research | Optionally retrieve web evidence through Tavily, generate cited answers, and inspect saved sources. Requires a server-side key; Think alone does not search the web. |
+| Quizzes | Practice with topic/PDF-based personalized quizzes, real-time multiplayer lobbies, quiz history, and a global leaderboard. |
+| Community | Discuss history, collaborate in Study Groups, connect with friends, and share notes through chat. |
+| Study economy | Track AI study credits, earn Histoins through quiz participation, and use the token shop. |
+| Account settings | Manage profile details, sessions, preferences, notification choices, memory, account export, and deletion. |
 
----
+### Monument viewing and AR
 
-## Open-Source Collaboration
+The current experience is **camera-free interactive 3D**, suitable for a laptop. Models are bundled, simplified educational illustrations, not generated on demand or accurate architectural reconstructions. Physical AR placement depends on compatible device/browser support and is not claimed as verified. See the [Monument Explorer guide](docs/monument-explorer.md).
 
-Contributions are welcome from developers, historians, educators, designers, and documentation contributors. Please use the following workflow to keep changes easy to review and maintain.
+### How Notes memory works
 
-### Before You Start
-
-- Search existing issues and pull requests before opening a new one.
-- Open an issue first for large features, architecture changes, database changes, or breaking API changes.
-- Keep each pull request focused on one bug, feature, documentation update, or refactor.
-- Do not include secrets, private user data, generated build output, local database files, or unrelated formatting changes.
-
-### Issue Reports
-
-Include:
-
-- A clear title and concise problem description.
-- Exact steps to reproduce the problem.
-- Expected and actual behavior.
-- Relevant browser, operating system, runtime, and deployment details.
-- Console logs, API responses, screenshots, or a minimal reproduction when available.
-
-### Pull Requests
-
-1. Create a branch from the default branch using a descriptive name such as `fix/ai-notes-streaming` or `feat/shared-note-permissions`.
-2. Implement the smallest complete change and update documentation when behavior or setup changes.
-3. Add or update focused tests for the changed behavior.
-4. Run the relevant backend tests, frontend tests, lint checks, and production build locally.
-5. Open a pull request describing the problem, solution, testing performed, and any known limitations.
-
-### Code and Review Standards
-
-- Follow the existing React, FastAPI, SQLAlchemy, Pydantic, and Tailwind patterns in the repository.
-- Preserve existing public API behavior unless the pull request explicitly documents a breaking change.
-- Enforce authentication, authorization, ownership, and input validation on the backend; frontend checks are not security boundaries.
-- Prefer accessible controls, responsive layouts, clear error states, and keyboard support for user-facing features.
-- Reviewers should focus on correctness, security, regressions, maintainability, performance, and test coverage.
-- Contributors should respond to review feedback respectfully and explain trade-offs when a suggestion is not applied.
-
-### Security Reports
-
-Do not disclose exploitable vulnerabilities in a public issue. Report security concerns privately to the repository maintainers with reproduction steps, affected components, impact, and suggested mitigation. Do not include passwords, access tokens, API keys, or personal data in issues or pull requests.
-
-### License
-
-By contributing, you agree that your contribution is provided under the project license. See [LICENSE](LICENSE) for the applicable terms.
-
----
-
-## System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Browser (React SPA)                           │
-│     React 19 + Vite · Code-Split Lazy Routes · WebSocket Client         │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │ Direct HTTP (CORS) / WebSocket
-┌────────────────────────────────────▼────────────────────────────────────┐
-│                    API Gateway / Reverse Proxy (port 8000)              │
-│       Nginx (Docker) · WebSocket Upgrade · /internal route isolation    │
-│       OR FastAPI Gateway (Python) — microservice URL resolver           │
-└─────────┬─────────────────────────────────────────────────┬─────────────┘
-          │ HTTP Proxy                                      │ WS Proxy
-          │                                                 │
-┌─────────▼─────────────────────────────────────────────────▼─────────────┐
-│                             FastAPI Backend                             │
-│       Modular Monolith mode (default) OR Microservices mode (Docker)    │
-│                                                                         │
-│  ┌──────────────┐   ┌───────────────────────────┐   ┌────────────────┐  │
-│  │  Auth        │   │  History Content          │   │  Quiz & WS     │  │
-│  │  :8001       │   │  :8002 (Wikimedia + Groq) │   │  :8006         │  │
-│  └──────────────┘   └─────────────┬─────────────┘   └────────────────┘  │
-│  ┌──────────────┐   ┌─────────────│─────────────┐   ┌────────────────┐  │
-│  │  Social Feed │   │  Study Groups             │   │  AI Notes +    │  │
-│  │  :8003       │   │  :8004                    │   │  Wallet :8005  │  │
-│  └──────────────┘   └───────────────────────────┘   └────────────────┘  │
-│  ┌──────────────┐                                                       │
-│  │ Notifications│                                                       │
-│  │ :8007        │                                                       │
-│  └──────────────┘                                                       │
-└────────────────────────────────────┬──────┬─────────────────────────────┘
-                                     │      │ asyncpg
-                                     │      ▼
-                                     │   ┌────────────────────────────────┐
-                                     │   │      PostgreSQL Database       │
-                                     │   │   20 Tables · Alembic Async    │
-                                     │   └────────────────────────────────┘
-                                     │
-               ┌─────────────────────┴────────────────────────┐
-               │         External Data & AI Enrichment        │
-               ▼                                              ▼
-    ┌───────────────────────────┐              ┌──────────────────────────┐
-    │    Wikimedia Feed API     │              │    Groq AI Cloud API     │
-    │  (On This Day - 5 Feeds)  │              │ (allam-2-7b AI Hooks)    │
-    │  • Selected  • Events     │              │  • HTTP Keep-Alive Pool  │
-    │  • Births    • Deaths     │              │  • "Did you know that...?"
-    │  • Holidays               │              │  • Rate-Limit Protected  │
-    └───────────────────────────┘              └──────────────────────────┘
+```mermaid
+flowchart LR
+    A[Your conversation] --> B[Owner-scoped session memory]
+    B --> C[Bounded recent turns + older excerpts]
+    C --> D{Think enabled?}
+    D -->|No| E[Llama: standard answer]
+    D -->|Yes| F[Qwen: reasoning answer]
+    E --> G[Save completed turn to this session]
+    F --> G
+    G --> B
 ```
 
-### Deployment Modes
+- Each conversation has its own memory. Switching models preserves the same session context; switching conversations does not merge their histories.
+- A circular indicator beside Send shows the **estimated 150K logical session buffer**. With automatic compaction enabled, older turns compact at that threshold while original notes stay readable.
+- This is separate from model capacity: the configured **8,192-token runtime context** reserves output and a safety margin, leaving a conservative **5,632 estimated input-token budget** for ordinary generation. The application does not send a 150K prompt to an 8K model.
+- **Profile Settings → Privacy & Preferences → AI Notes Memory** provides account/per-session controls, Minimal/Balanced/Detailed modes, inspect, compact, rebuild, reset, export, and delete.
+- Disabling memory preserves it and stops history injection. Reset keeps notes readable but excludes earlier turns from future memory until an explicit rebuild.
+- Optional local Nomic retrieval is disabled by default. Compaction does not deduct study-wallet credits. Memory excerpts are conversation claims, not verified historical facts.
 
-- **Modular Monolith** (default for local dev):
-  All modules run inside a single, unified FastAPI process with unified lifespan and connection pooling. The `app/main.py` aggregates all routers seamlessly. Run with `uvicorn app.main:app`.
+The server checks history relevance before answer generation. Ambiguous requests use the fast Llama endpoint; an unclear result or unavailable classifier is rejected rather than allowed through. This applies to standard, Think, and Web Research paths. See [scope behavior and tests](docs/ai-notes-history-scope.md).
 
-- **Microservices** (Docker Compose / Production):
-  Each module operates as an independent FastAPI instance (`app/<module>/main.py`) running on isolated ports (8001–8007). An API Gateway (Nginx or FastAPI Gateway) routes traffic and protects internal routes. Run with `docker compose up`.
-
-### Data Ingestion & AI Enrichment Pipeline
-
-1. **Multi-Category Wikimedia Ingestion**:
-   When users browse historical dates, the system queries cached events in PostgreSQL. If un-cached, it pulls concurrently across five Wikimedia feeds:
-   - **Selected** (Curated top historical milestones)
-   - **Events** (Key global historical occurrences)
-   - **Births** (Notable historical figures born on this day)
-   - **Deaths** (Notable historical figures who passed away on this day)
-   - **Holidays** (Global observances, sacred commemorations, and seasonal festivities)
-
-2. **Automated AI Hook Generation (`ai_hook`)**:
-   - Curated daily events are enriched with curiosity-sparking hooks via **Groq's high-speed inference cloud** using the **`allam-2-7b`** model.
-   - Generates standardized hooks strictly following the pattern: *"Did you know that...?"* (single sentence under 25 words).
-   - Optimized with HTTP persistent connection pooling (`httpx.AsyncClient` with keep-alive) and targeted enrichment to ensure fast sync times (< 20 seconds for 400+ events) with zero rate-limit issues.
-
-
----
-
-## Tech Stack
-
-### Backend
-| Layer | Technology |
-|---|---|
-| Web Framework | FastAPI 0.115 |
-| ORM | SQLAlchemy 2 (async) + asyncpg |
-| Migrations | Alembic |
-| Auth | JWT (python-jose) + bcrypt (passlib) |
-| Validation | Pydantic v2 |
-| HTTP Client | httpx (async, shared client with lifespan) |
-| WebSocket | FastAPI WebSocket + starlette |
-| Testing | pytest + pytest-asyncio + httpx |
-
-### Frontend
-| Layer | Technology |
-|---|---|
-| Framework | React 19 + Vite 8 |
-| Routing | React Router v7 |
-| State | React Context (AuthContext, ToastContext) |
-| Styling | Tailwind CSS + custom CSS variables |
-| Animation | Framer Motion |
-| Charts | Chart.js |
-| Icons | Lucide React |
-| Testing | Vitest |
-| Build | Vite (code splitting, lazy routes) |
-
-### Infrastructure
-| Layer | Technology |
-|---|---|
-| Container | Docker + Docker Compose |
-| Reverse Proxy | Nginx (WebSocket + SPA fallback) |
-| Database | PostgreSQL 16 |
-| CI | GitHub Actions |
-
----
-
-## Project Structure
-
-```
-HistoFacts/
-├── .env.example                  # Root env variable template
-├── .github/
-│   └── workflows/ci.yml          # CI: backend tests + frontend tests + build
-├── docker-compose.yml            # Full microservices deployment
-├── gateway/
-│   ├── Dockerfile
-│   └── nginx.conf                # Nginx reverse proxy + WebSocket upgrade
-├── backend/
-│   ├── .env.example              # Backend-specific env template
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── alembic.ini
-│   ├── alembic/
-│   │   └── versions/
-│   │       ├── 2026_08_22_..._initial_schema.py
-│   │       ├── 2026_08_24_..._add_wallets_and_quiz_sessions.py
-│   │       └── 2026_09_15_..._add_ai_hook_to_historical_events.py
-│   ├── app/
-│   │   ├── main.py               # Modular-monolith entrypoint (all routers)
-│   │   ├── core/
-│   │   │   ├── config.py         # Settings (env-driven via pydantic-settings)
-│   │   │   ├── database.py       # Async SQLAlchemy engine + session factory
-│   │   │   ├── deps.py           # Shared FastAPI dependencies (auth, internal)
-│   │   │   ├── security.py       # JWT creation/decode + password hashing
-│   │   │   └── inter_service.py  # Inter-microservice HTTP client
-│   │   ├── auth/                 # Users, JWT login/register, friends
-│   │   ├── history/              # Events, bookmarks, Wikimedia sync, Groq AI enrich
-│   │   │   ├── router.py         # Dates, search (paginated), bookmarks
-│   │   │   ├── sync.py           # Wikimedia 5-category feed synchronizer
-│   │   │   ├── enrich.py         # Groq (allam-2-7b) AI hook generator
-│   │   │   ├── models.py         # HistoricalEvent (with ai_hook)
-│   │   │   └── schemas.py        # Pydantic v2 event schemas
-│   │   ├── social/               # Posts, comments, likes
-│   │   ├── groups/               # Groups, members, group notes
-│   │   ├── ai_notes/             # Notes, token wallet, Histoins, shop
-│   │   ├── quiz/                 # Questions, attempts, sessions, WS lobby
-│   │   ├── notifications/        # User notifications, unread counts, WebSocket
-│   │   └── gateway/              # FastAPI gateway (microservices mode)
-│   └── tests/
-│       ├── test_auth.py          # Registration, login, friends
-│       ├── test_history.py       # Events, date lookup, search, bookmarks
-│       ├── test_social.py        # Social feeds, posts, comments, likes
-│       ├── test_groups.py        # Study groups and memberships
-│       ├── test_ai_notes.py      # Note generation and token wallets
-│       ├── test_quiz.py          # Quizzes, leaderboard, and rewards
-│       ├── test_gateway.py       # Gateway microservice routing
-│       ├── test_chat.py          # Direct and group chat messaging
-│       ├── test_notifications.py # Internal notifications and resilience
-│       ├── test_profile.py       # Profile updates, avatars, presence
-│       ├── test_profile_round2.py# 2FA TOTP, sessions, data export, blocks
-│       └── test_migrations.py    # Alembic PostgreSQL migration tests
-└── front-end/
-    ├── Dockerfile
-    ├── nginx.conf                 # SPA routing fallback (try_files)
-    ├── package.json
-    ├── vite.config.js
-    └── src/
-        ├── App.jsx               # React Router + lazy-loaded route tree
-        ├── api/                  # Per-module API client functions
-        ├── components/           # Shared components (Navbar, Layout, Icons)
-        ├── contexts/             # AuthContext, ToastContext
-        ├── features/
-        │   ├── quiz/             # Quiz hub, personalized, lobby, global, history
-        │   └── ai-notes/         # Notes sidebar, markdown viewer, shop modal
-        └── pages/                # Page-level components
-```
-
----
-
-## Local Development Setup
+## Quick start
 
 ### Prerequisites
-- Python 3.11+
-- Node.js 20+
-- PostgreSQL 16 (or Docker)
 
-### 1. Backend Setup
+- Python **3.11** is used in CI.
+- Node.js **20.19+** or **22.12+**, matching the installed Vite engine requirement; CI currently selects Node.js 20.
+- A running PostgreSQL instance; the Compose development database uses PostgreSQL 16.
+- For AI features: Ollama with an installed Llama model, plus LM Studio with an installed Qwen model for Think. Match configuration to the exact model IDs available locally.
+- A running Redis instance for multiplayer lobby state.
 
-```bash
+The commands below use **PowerShell**. On macOS/Linux, use `source venv/bin/activate` and `cp` in place of the Windows activation/copy commands.
+
+### 1. Backend
+
+From the repository root:
+
+```powershell
 cd backend
-
-# Create virtualenv
-python -m venv .venv
-.\.venv\Scripts\activate       # Windows
-# source .venv/bin/activate    # macOS/Linux
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your DATABASE_URL and SECRET_KEY
-
-# Run database migrations
-alembic upgrade head
-
-# Start the server (modular monolith mode)
-uvicorn app.main:app --reload --port 8000
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-Backend API available at: `http://localhost:8000`
-Interactive docs: `http://localhost:8000/docs`
+Edit `backend/.env` with your PostgreSQL `DATABASE_URL`, a private `SECRET_KEY`, and the AI endpoints you intend to use. Create the database named in the URL before applying migrations.
 
-### 2. Frontend Setup
+```powershell
+python -m alembic upgrade head
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
 
-```bash
+- API: <http://127.0.0.1:8000>
+- Interactive API documentation: <http://127.0.0.1:8000/docs>
+
+### 2. Frontend
+
+Open a second terminal from the repository root:
+
+```powershell
 cd front-end
-
-npm install
-
-# Start Vite dev server
+npm ci
 npm run dev
 ```
 
-Frontend available at: `http://localhost:5173`
+Open the Vite URL printed in the terminal, normally <http://localhost:5173>. Register an account and sign in to use protected features.
 
-The Vite dev server proxies `/api/*` to `localhost:8000` (configure in `vite.config.js`).
+The frontend API client defaults to the browser's hostname on port **8000**; there is no Vite API proxy configured. To use a different API address, create `front-end/.env.local`:
 
-### 3. Running as Microservices (Local, without Docker)
+```dotenv
+VITE_API_URL=http://127.0.0.1:8000
+```
 
-```bash
+Restart Vite after changing frontend environment variables. Include the frontend origin in backend `CORS_ORIGINS`.
+
+### 3. Alternative: local microservices
+
+Use this **instead of** the monolith on port 8000:
+
+```powershell
 cd backend
+.\venv\Scripts\Activate.ps1
 python run_microservices.py
 ```
 
-This starts all 6 service processes on ports 8001–8006 and a gateway on 8000.
+The supervisor applies migrations, then starts **seven services and a Python gateway**. Stop the supervisor with `Ctrl+C` to stop its child services.
 
----
+| Process | Port |
+| --- | --- |
+| API Gateway | 8000 |
+| Auth | 8001 |
+| History and monuments | 8002 |
+| Social | 8003 |
+| Study Groups | 8004 |
+| AI Notes and wallets | 8005 |
+| Quiz and multiplayer | 8006 |
+| Notifications | 8007 |
 
-## Environment Variables
+## AI configuration
 
-Copy `.env.example` to `.env` and configure:
+Use the examples in [backend/.env.example](backend/.env.example). These settings select existing models; application startup does not download them.
 
-| Variable | Description | Default |
-|---|---|---|
-| `DATABASE_URL` | Async PostgreSQL URL | `postgresql+asyncpg://...` |
-| `SECRET_KEY` | JWT signing secret (change in production!) | — |
-| `ALGORITHM` | JWT algorithm | `HS256` |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Access token TTL | `30` |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh token TTL | `7` |
-| `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:5173,http://localhost:3000` |
-| `GROQ_API_KEY` | API key for Groq Cloud LLM (`allam-2-7b`) for real-time AI hooks | — |
-| `WIKIMEDIA_API_TOKEN` | Optional Wikimedia personal access token | — |
-| `LLM_API_KEY` | API key for AI note generation | — |
-| `LLM_PROVIDER` | LLM provider name | `openai` |
-| `NOTES_SERVICE_URL` | URL of AI Notes microservice | `http://127.0.0.1:8005` |
-| `NOTIFICATION_SERVICE_URL` | URL of Notification microservice | `http://127.0.0.1:8007` |
+| Variable | Purpose / example |
+| --- | --- |
+| `NOTES_LLM_BASE_URL` | Standard Notes and topic classifier: `http://127.0.0.1:11434/v1` |
+| `NOTES_LLM_MODEL` | Fast installed model, e.g. `llama3.2:3b` |
+| `NOTES_THINKING_LLM_BASE_URL` | Think endpoint, e.g. `http://localhost:1234/v1` |
+| `NOTES_THINKING_LLM_MODEL` | Exact loaded Qwen ID, e.g. `qwen3-vl-4b-thinking` |
+| `LLM_BASE_URL`, `LLM_MODEL` | Fallback Think configuration when the thinking overrides are absent |
+| `LLM_API_KEY` | Inference API key; local endpoints commonly use `not-needed` |
+| `QUIZ_LLM_BASE_URL`, `QUIZ_LLM_MODEL` | Independent quiz model selection; defaults target local Llama |
+| `QUIZ_GENERATION_TIMEOUT_SECONDS` | Quiz generation timeout; default `150` |
+| `NOTES_CONTEXT_LIMIT` | Must match the loaded model's context; default `8192` |
+| `NOTES_SESSION_WINDOW_TOKENS` | Logical session compaction threshold; default `150000` |
+| `NOTES_MEMORY_DENSE_ENABLED` | Optional installed `nomic-embed-text` retrieval; default `false` |
+| `TAVILY_API_KEY` | Optional server-only Web Research key; blank leaves live search unavailable |
 
-> [!IMPORTANT]
-> Always set a cryptographically strong `SECRET_KEY` in production. The fallback value is intentionally weak and only for local development.
+Run Ollama for standard Notes and history classification, including ambiguous questions submitted in Think mode. For reasoning answers, also start LM Studio's local API server and load Qwen. Choosing Think does not silently switch to Llama if Qwen is unavailable. Reasoning output is filtered from displayed answers.
 
----
+Think and Web Search are independent options in the composer dropdown. Think requests reasoning; Web Search retrieves sources. Neither model reasoning nor citations guarantee factual accuracy.
 
-## Database Migrations
+### Other configuration
 
-HistoFacts uses Alembic for schema migrations.
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Async SQLAlchemy URL, e.g. `postgresql+asyncpg://postgres:password@localhost:5432/histofacts` |
+| `SECRET_KEY` | Private JWT signing secret; use the same value across local services |
+| `CORS_ORIGINS` | Comma-separated allowed frontend origins |
+| `REDIS_URL` | Redis connection for lobby state; default `redis://localhost:6379/0` |
+| `GROQ_API_KEY`, `GEMINI_API_KEY` | Optional history-feed AI enrichment |
+| `WIKIMEDIA_API_TOKEN` | Optional Wikimedia access token |
+| `TENOR_API_KEY` | Optional GIF search in community/chat |
 
-```bash
-cd backend
+Keep secrets in ignored local environment files. `.env.example` files contain configuration examples, not credentials.
 
-# Apply all migrations to latest version
-alembic upgrade head
+## Architecture
 
-# Create a new migration after model changes
-alembic revision --autogenerate -m "describe_your_change"
-
-# Downgrade one step
-alembic downgrade -1
-
-# Downgrade to empty (drops all tables)
-alembic downgrade base
-
-# View migration history
-alembic history
+```mermaid
+flowchart TB
+    UI[React 19 + Vite frontend] --> API[FastAPI monolith OR API gateway]
+    API --> AUTH[Auth / profile]
+    API --> HISTORY[History / monuments]
+    API --> NOTES[AI Notes / memory / wallets]
+    API --> QUIZ[Quizzes / WebSocket lobbies]
+    API --> COMMUNITY[Social / groups / chat / notifications]
+    AUTH --> DB[(PostgreSQL)]
+    HISTORY --> DB
+    NOTES --> DB
+    QUIZ --> DB
+    COMMUNITY --> DB
+    QUIZ --> REDIS[(Redis lobby state)]
+    NOTES --> LLAMA[Local Ollama / Llama]
+    NOTES --> QWEN[Local LM Studio / Qwen]
+    NOTES --> SEARCH[Optional Tavily research]
+    HISTORY --> WIKI[Wikimedia feeds]
 ```
 
-### Migration Files
+The UI uses React Router, Tailwind CSS, Markdown rendering, and a lazy-loaded `model-viewer` for monuments. The backend uses FastAPI, Pydantic, async SQLAlchemy, Alembic, and OpenAI-compatible inference clients. Notes stream through SSE; multiplayer uses WebSockets.
 
-| Migration | Key Tables & Columns |
-|---|---|
-| `2026_08_22_initial_schema` | `users`, `friends`, `historical_events`, `bookmarks`, `posts`, `comments`, `likes`, `notes`, `group_shared_notes`, `groups`, `group_members`, `quiz_questions`, `quiz_attempts` |
-| `2026_08_24_add_wallets_and_quiz_sessions` | `user_token_wallets`, `token_ledger`, `histoin_wallets`, `histoin_ledger`, `token_packs`, `quiz_sessions` |
-| `2026_08_28_add_chat_tables` | `direct_messages`, `group_chat_messages`, `conversations`, `conversation_reads` |
-| `2026_08_29_friend_requests_and_presence` | `friend_requests`, user presence status tracking |
-| `2026_09_02_community_forum_enhancements` | Threaded discussions, likes/dislikes, forum categories |
-| `2026_09_05_index_created_at_ledger_messages` | High-performance indexes on ledger and message timestamps |
-| `2026_09_06_add_unread_count_to_conversation_reads` | Unread badge counts for chat threads |
-| `2026_09_06_add_profile_fields_to_users` | Avatars, bio sanitization, custom tags |
-| `2026_09_14_profile_round2_fields_and_tables` | 2FA TOTP secrets, user sessions, audit log, account deletion |
-| `2026_09_15_add_ai_hook_to_historical_events` | Adds `ai_hook` (Text, nullable) to `historical_events` for Groq curiosity hooks |
+Authentication uses JWT access/refresh tokens and password hashing. Owner checks protect private Notes sessions and memory; shared-note responses omit private memory. Internal service routes require a shared secret and are blocked at the public gateway. These implemented controls are not a substitute for deployment security testing.
 
----
+```text
+HistoFacts/
+├── backend/
+│   ├── app/
+│   │   ├── ai_notes/          # Notes, context, research and wallets
+│   │   ├── auth/              # Authentication and account settings
+│   │   ├── history/           # Historical feeds and monument catalogue
+│   │   ├── quiz/              # Generation, sessions and multiplayer
+│   │   ├── social/            # Community discussions
+│   │   ├── groups/            # Study Groups
+│   │   ├── chat/              # Shared conversations and messaging
+│   │   ├── notification/      # Notifications and Notes presence
+│   │   └── gateway/           # Python microservice gateway
+│   ├── alembic/versions/      # Database migrations
+│   ├── scripts/               # Reproducible acceptance checks
+│   ├── tests/                 # Unit/integration tests and fixtures
+│   └── run_microservices.py   # Local service supervisor
+├── front-end/
+│   ├── src/                  # Pages, features, contexts and API clients
+│   ├── public/models/        # Bundled monument models and posters
+│   └── scripts/              # Monument asset/registry checks
+├── gateway/                  # Nginx gateway configuration
+├── docs/                     # Feature guides and README media
+└── docker-compose.yml
+```
+
+## Database migrations
+
+From `backend`, with the intended database configured:
+
+```powershell
+python -m alembic current
+python -m alembic upgrade head
+python -m alembic history
+```
+
+Recent migrations include monument learning, retained research evidence, research usage details, and session memory. Back up existing data before schema changes. If an existing schema conflicts with migration history, inspect the revision state and table definitions; do not blindly downgrade to `base`, which can delete application data.
 
 ## Testing
 
-### Backend Tests (pytest)
+### Frontend
 
-```bash
-cd backend
-.\.venv\Scripts\pytest -v
-```
-
-Expected: **32 passed, 1 skipped (33 total)**
-
-> [!NOTE]
-> **Why is 1 test skipped?**
-> `tests/test_migrations.py::test_alembic_migrations` is marked with `@pytest.mark.skip(reason="Migrations designed for PostgreSQL, not SQLite-compatible")`.
-> The pytest test suite uses an ultra-fast, in-memory SQLite database for test runs. Alembic migrations use PostgreSQL-native types and dialects that cannot be applied to SQLite. In production, Alembic migrations run against PostgreSQL via `alembic upgrade head`. All **32 functional and security tests pass 100%**.
-
-| Test File | Coverage |
-|---|---|
-| `test_auth.py` | Registration, duplicate email rejection, password validation, login, friends flow |
-| `test_history.py` | Events date sync, date filtering, paginated search (`limit`/`offset`), bookmarks CRUD |
-| `test_social.py` | Posts, threaded comments, likes, feed pagination |
-| `test_groups.py` | Study group creation, membership invitations, group notes sharing |
-| `test_ai_notes.py` | Note generation, token wallet init, token deduction, Histoin rewards |
-| `test_quiz.py` | Quiz questions, attempt validation, session persistence, leaderboard |
-| `test_gateway.py` | Gateway route resolution and proxying |
-| `test_chat.py` | Direct messaging and group chat flow |
-| `test_notifications.py` | Internal notification creation, unread counts, fire-and-forget resilience |
-| `test_profile.py` | Profile updates, bio sanitization, avatar replacement, password & email change |
-| `test_profile_round2.py` | 2FA TOTP & backup codes, session revocation, data export ZIP, user blocks |
-| `test_migrations.py` | Skipped under SQLite (PostgreSQL migration verification) |
-
-
-### Frontend Tests (Vitest)
-
-```bash
+```powershell
 cd front-end
 npm test
-```
-
-Expected: **11 tests, 0 failures**
-
-| Test File | Coverage |
-|---|---|
-| `tokenEstimator.test.js` | Token estimation utilities (8 test cases) |
-| `client.test.js` | API client auth header injection (3 test cases) |
-
-### Production Build Verification
-
-```bash
-cd front-end
+npm run lint
+npm run models:validate
 npm run build
 ```
 
-Expected: Successful build with code-split chunks, no errors.
+### Backend
 
----
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+python -m pip install -r tests/requirements-quiz.txt
+python -m pytest
+```
 
-## Docker Compose Deployment
+A focused history-scope and model-routing gate:
 
-### Prerequisites
-- Docker Desktop
-- A `.env` file at repository root (copy from `.env.example`)
+```powershell
+python -m pytest tests/test_notes_history_scope.py tests/test_notes_research_lifecycle.py tests/test_ai_notes_model_routing.py -q
+```
 
-### Start All Services
+Local verification on **25 October 2026** included 118 frontend tests with lint/build, and a separate 56-test backend scope/research/routing gate. The memory UI redesign subsequently passed its three interaction tests, lint/build, and browser inspection. These are dated local results, not a claim that every backend test or the latest remote CI run passes. The badge above reads the actual repository workflow status.
 
-```bash
-# Build and start everything
+The test suite uses isolated SQLite fixtures for many integration checks. Local real-model samples and synthetic evidence tests are distinct from live web retrieval and deployed behavior. See the feature verification records below for limits.
+
+Optional manual acceptance scripts, run from `backend`:
+
+```powershell
+python scripts/research_acceptance.py --mode both
+python scripts/session_retrieval_acceptance.py
+```
+
+These checks require the relevant installed model services. Research uses fixture evidence unless `--live` is explicitly supplied with a configured key. Reports default to Git-ignored `.local-artifacts/reports/`. Generated QA databases, caches, reports, uploads, dependencies, and build output do not belong in commits; necessary source JSON catalogues and model assets do.
+
+## Docker Compose
+
+The repository includes a multi-service Compose configuration with PostgreSQL, Redis, Nginx, backend services, and a frontend on port 3000:
+
+```powershell
 docker compose up --build
-
-# Or run in background
-docker compose up --build -d
 ```
 
-### Service Ports
-
-| Service | Port | Description |
-|---|---|---|
-| `api-gateway` | `8000` | Nginx gateway (public entrypoint) |
-| `auth-service` | `8001` | Auth & identity microservice |
-| `history-service` | `8002` | History content microservice |
-| `social-service` | `8003` | Social discussion microservice |
-| `groups-service` | `8004` | Groups microservice |
-| `notes-service` | `8005` | AI Notes & token economy microservice |
-| `quiz-service` | `8006` | Quiz & assessment microservice |
-| `frontend` | `3000` | React SPA (Nginx) |
-| `postgres` | `5432` | PostgreSQL database |
-
-### Run Migrations in Docker
-
-```bash
-docker compose exec auth-service alembic upgrade head
-```
-
-### Stop Services
-
-```bash
-docker compose down
-
-# Also remove volumes (⚠️ deletes all data)
-docker compose down -v
-```
-
----
-
-## WebSocket Multiplayer Lobby
-
-HistoFacts implements a Kahoot-style multiplayer quiz using native FastAPI WebSockets.
-
-### Connection Flow
-
-```
-Client                    Server
-  │                          │
-  ├─── WS connect (+ ?token=<JWT>) ───►│
-  │◄── accept ─────────────────────────│
-  │                          │
-  ├─── { type: "join", token, username, tag, role } ──►│
-  │    Server validates JWT, resolves role             │
-  │◄── { type: "room_state", ...snapshot } ────────────│
-  │                          │
-  │     [quiz in progress]   │
-  ├─── { type: "submit_answer", selected_option } ─────►│
-  │◄── { type: "answer_acknowledged", score } ──────────│
-  │◄── { type: "participants_update" } ─────────────────│ (broadcast)
-```
-
-### Host Authorization
-
-Room control actions (`start_quiz`, `show_leaderboard`, `next_question`, `tick`) are **only executable by the room host**. The server validates `user_id == room.host_id` after JWT authentication. Non-host clients receive a `{ type: "error", message: "Unauthorized" }` response.
-
-### WebSocket URL
-
-```
-ws://localhost:8000/api/quiz/ws/lobby/{room_code}?token=<access_token>
-```
-
----
-
-## Security Architecture
-
-### Authentication
-- JWT access tokens (30 min TTL) + refresh tokens (7 days TTL)
-- Passwords hashed with bcrypt
-- All protected endpoints use `get_current_user` dependency
-- Optional auth endpoints use `get_optional_current_user`
-
-### Internal Service Authorization
-Internal inter-service endpoints (`/api/wallet/internal/*`) are protected with a shared secret:
-- Server validates `X-Internal-Secret: <SECRET_KEY>` header
-- The API gateway blocks all `/internal/` paths from external traffic (HTTP 403)
-- Inter-service clients supply the header automatically via `inter_service.py`
-
-### WebSocket Security
-- JWT token validated on WebSocket connect (via query param `?token=` and `join` message payload)
-- Unauthenticated users join as guests with `role: player` only — they cannot claim host privileges
-- Host-only actions enforced server-side, not client-side
-
-### CORS
-- `allow_origins` driven by `settings.cors_origins` (parsed from `CORS_ORIGINS` env var)
-- No wildcard `*` when `allow_credentials=True`
-
----
+Treat this as a development scaffold, not a verified production deployment. Review default secrets, migration execution, service environment variables, and model endpoints first. The current Compose file does not propagate all newer Notes/research settings. Inside a container, `localhost` refers to that container, so host-based model servers need an explicitly reachable address. The local setup above is the documented path for the latest AI features.
 
 ## Troubleshooting
 
-### Backend won't start — `DATABASE_URL not set`
-Copy `backend/.env.example` to `backend/.env` and set your PostgreSQL URL.
+| Symptom | Check |
+| --- | --- |
+| Frontend cannot reach the API | Start the backend on port 8000, check `VITE_API_URL`, and allow the frontend origin in `CORS_ORIGINS`. |
+| Standard Notes or topic checks are unavailable | Check Ollama and the exact `NOTES_LLM_MODEL` ID. Unknown topics fail closed when classification is unavailable. |
+| Think fails while standard Notes works | Start LM Studio's API server, load the configured Qwen model, and check its runtime context. |
+| Context budget error | Match `NOTES_CONTEXT_LIMIT` to the loaded model; shorten oversized messages/attachments. The 150K buffer is not the model's input limit. |
+| Web Search is disabled | Set a private backend `TAVILY_API_KEY` and restart the Notes service. Think alone does not provide internet access. |
+| Model returns an inaccurate claim | Check the cited evidence or primary sources. Memory and reasoning are not factual verification. |
+| Personalized quiz times out | Check the quiz endpoint/model and input size. Generation has a bounded timeout; do not assume an elapsed timer means useful model progress. |
+| Database tables are missing | Apply migrations against the same database used by the running services. |
 
-### `alembic upgrade head` fails — table already exists
-The database has partial schema. Run `alembic downgrade base` first, then `alembic upgrade head`.
+## Documentation
 
-### WebSocket connection fails in development
-Ensure the backend is running on port 8000. In `useLobbySocket.js`, the WS URL targets port 8000 when running from Vite dev server ports (5173, 3000).
+- [Monument Explorer](docs/monument-explorer.md)
+- [Llama/Qwen routing](docs/ai-notes-model-routing.md)
+- [History-only scope](docs/ai-notes-history-scope.md)
+- [Web Research](docs/ai-notes-web-research.md)
+- [Session memory implementation and verification](ai-notes-session-context-verification.md)
+- [Web Research implementation and verification](ai-notes-web-research-verification.md)
+- [Notes notification presence](docs/ai-notes-notifications.md)
 
-### Frontend shows `Network Error` for all API calls
-Ensure the backend is running on `http://localhost:8000`. The frontend API client (`front-end/src/api/client.js`) connects directly to `http://localhost:8000` via browser `fetch()` with CORS enabled (backend allows `http://localhost:5173` via `CORS_ORIGINS`). If using a custom API URL or port, set `VITE_API_URL` in `front-end/.env`.
+Some guides contain historical test counts and timings from earlier implementation stages. Consult their dated updates; removed local report filenames are evidence references, not required runtime files.
 
-### Pydantic warnings about `class Config`
-All schemas have been migrated to `ConfigDict`. If you see warnings, check for any custom schemas not yet updated.
+## Contributing
 
-### Tests fail on Windows — `PermissionError` on SQLite cleanup
-Known Windows limitation: the SQLite test DB file may be locked. The test suite handles this with `engine.dispose()` in teardown. If it persists, delete `backend/test_migrations.db` manually.
+Developers, historians, educators, designers, and documentation contributors are welcome.
 
----
+1. Search existing issues and discuss substantial feature/schema changes before implementation.
+2. Create a focused branch, preserve unrelated behavior, and update documentation alongside the change.
+3. Add appropriate regression coverage; run affected tests, lint, build, and model validation when applicable.
+4. Open a pull request with the concrete problem, resulting behavior, validation, and remaining limitations.
+
+Enforce ownership and permissions on the server. Preserve accessible labels, keyboard controls, responsive layouts, and reduced-motion behavior. Never commit secrets, user data, generated reports, or local databases. Report exploitable security issues privately to maintainers rather than publishing reproduction details in a public issue.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+[MIT](LICENSE) · Copyright © 2026 Apoorva Puranik.

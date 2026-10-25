@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.quiz.models import QuizAttempt, QuizSessionRecord
 from app.quiz.sessions import create_personalized_session, current_global_questions, start_global_session, complete_session, generate_global_question_pool
 from app.quiz.generation import extract_pdf_text
+from app.core.request_lifetime import until_disconnect
 from app.quiz.lobby import create_lobby as create_shared_lobby, serve_lobby, end_lobby
 from app.quiz.lobby_state import lobby_state_manager
 from app.quiz.schemas import (
@@ -52,17 +53,17 @@ def require_quiz_user(user):
 
 
 @router.post("/personalized/generate")
-async def generate_personalized(req: GenerateQuizRequest,
+async def generate_personalized(req: GenerateQuizRequest, request: Request,
                                 user=Depends(get_optional_current_user),
                                 db: AsyncSession = Depends(get_async_session)):
     user_id = require_quiz_user(user)
     if req.source_type != "topic":
         raise HTTPException(400, "Upload PDFs through /personalized/from-pdf")
-    return await create_personalized_session(req, user_id, db)
+    return await until_disconnect(request, create_personalized_session(req, user_id, db))
 
 
 @router.post("/personalized/from-pdf")
-async def generate_pdf(file: UploadFile = File(...), difficulty: str = Form("medium"),
+async def generate_pdf(request: Request, file: UploadFile = File(...), difficulty: str = Form("medium"),
                        user=Depends(get_optional_current_user),
                        db: AsyncSession = Depends(get_async_session)):
     user_id = require_quiz_user(user)
@@ -73,7 +74,7 @@ async def generate_pdf(file: UploadFile = File(...), difficulty: str = Form("med
         raise HTTPException(413, "PDF must be at most 10 MB")
     text = await asyncio.to_thread(extract_pdf_text, raw)
     req = GenerateQuizRequest(topic="History PDF", source_type="pdf", pdf_text=text, difficulty=difficulty)
-    return await create_personalized_session(req, user_id, db)
+    return await until_disconnect(request, create_personalized_session(req, user_id, db))
 
 
 @router.get("/global/current")

@@ -1,4 +1,6 @@
+import { readNoteEvents } from '../features/ai-notes/sse';
 import { apiFetch, authenticatedFetch } from './client';
+import { runRecoverableResearch } from '../features/ai-notes/researchRecovery';
 
 export async function generateNoteApi(paramsOrTopic, curriculum = 'General History', eventId = null) {
   const body =
@@ -12,6 +14,10 @@ export async function generateNoteApi(paramsOrTopic, curriculum = 'General Histo
           attachment_text: paramsOrTopic.attachment_text || null,
           attachment_data: paramsOrTopic.attachment_data || null,
           style: paramsOrTopic.style || 'standard',
+          think: Boolean(paramsOrTopic.think),
+          research_mode: paramsOrTopic.research_mode || 'off',
+          research_request_id: paramsOrTopic.research_request_id || null,
+          research_depth: paramsOrTopic.research_depth || 'standard',
         }
       : {
           topic: paramsOrTopic,
@@ -26,21 +32,26 @@ export async function generateNoteApi(paramsOrTopic, curriculum = 'General Histo
   });
 }
 
-export async function generateHandwrittenNoteApi(noteId) {
+export async function generateHandwrittenNoteApi(noteId, think = false) {
   return apiFetch(`/api/notes/${noteId}/handwritten`, {
     method: 'POST',
+    body: JSON.stringify({think}),
   });
 }
 
-export async function reviseNoteApi(noteId, instruction) {
+export async function reviseNoteApi(noteId, instruction, think = false) {
   return apiFetch(`/api/notes/${noteId}/revise`, {
     method: 'POST',
-    body: JSON.stringify({ instruction }),
+    body: JSON.stringify({ instruction, think }),
   });
 }
 
 export async function getNoteThreadApi(noteId) {
   return apiFetch(`/api/notes/${noteId}/thread`);
+}
+
+export function getSharedNoteApi(noteId) {
+  return apiFetch(`/api/notes/${noteId}/shared`);
 }
 
 export async function getMyNotesApi() {
@@ -76,7 +87,7 @@ export async function purchasePackApi(packId, idempotencyKey = null) {
   return apiFetch(`/api/shop/purchase/${packId}`, options);
 }
 
-async function streamSseReader(res, onDelta, onNoteSaved) {
+async function streamSseReader(res, onDelta, onNoteSaved, onResearch, onContext) {
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ detail: 'Network or server error' }));
     const error = new Error(errorData.detail || 'An error occurred during streaming');
@@ -89,58 +100,20 @@ async function streamSseReader(res, onDelta, onNoteSaved) {
     throw new Error('ReadableStream not supported by response body');
   }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop(); // preserve trailing partial line
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith(':')) continue; // Skip comments, heartbeats, and empty lines
-        if (!trimmed.startsWith('data: ')) continue;
-        const rawData = trimmed.slice(6);
-        if (rawData === '[DONE]') {
-          return; // Immediate completion on [DONE]
-        }
-
-        try {
-          const parsed = JSON.parse(rawData);
-          if (parsed.delta && onDelta) {
-            onDelta(parsed.delta);
-          }
-          if (parsed.note && onNoteSaved) {
-            onNoteSaved(parsed.note, {
-              token_balance: parsed.token_balance,
-              tokens_used: parsed.tokens_used,
-            });
-          }
-        } catch (err) {
-          console.warn('Failed to parse SSE chunk:', rawData, err);
-        }
-      }
-    }
-  } catch (err) {
-    // Re-throw AbortError so the caller can handle stop gracefully
-    if (err.name === 'AbortError') {
-      const abortErr = new Error('Generation stopped by user');
-      abortErr.name = 'AbortError';
-      throw abortErr;
-    }
-    throw err;
-  } finally {
-    try { reader.releaseLock(); } catch { /* already released */ }
-  }
+  return readNoteEvents(res.body, parsed => {
+    if (parsed.error) throw new Error(parsed.error);
+    if (parsed.research) onResearch?.(parsed.research);
+    if (parsed.context) onContext?.(parsed.context);
+    if (parsed.delta) onDelta?.(parsed.delta);
+    if (parsed.note) onNoteSaved?.(parsed.note, {token_balance:parsed.token_balance,tokens_used:parsed.tokens_used});
+  });
 }
 
-export async function streamGenerateNoteApi({ payload, onDelta, onNoteSaved, signal }) {
+export async function streamGenerateNoteApi({ payload, onDelta, onNoteSaved, onResearch, onContext, signal, owner, _recovering = false }) {
+  if (payload.research_mode === 'web' && owner && !_recovering) {
+    return runRecoverableResearch({owner, root:null, payload, onDelta, onNoteSaved, onResearch, signal,
+      send:(next,callbacks) => streamGenerateNoteApi({payload:next,...callbacks,owner,_recovering:true})});
+  }
   const headers = {
     'Content-Type': 'application/json',
   };
@@ -150,12 +123,17 @@ export async function streamGenerateNoteApi({ payload, onDelta, onNoteSaved, sig
     headers,
     body: JSON.stringify(payload),
     signal,
+    expectedUserId:owner,
   });
 
-  return streamSseReader(res, onDelta, onNoteSaved);
+  return streamSseReader(res, onDelta, onNoteSaved, onResearch, onContext);
 }
 
-export async function streamContinueConversationApi({ noteId, payload, onDelta, onNoteSaved, signal }) {
+export async function streamContinueConversationApi({ noteId, payload, onDelta, onNoteSaved, onResearch, onContext, signal, owner, _recovering = false }) {
+  if (payload.research_mode === 'web' && owner && !_recovering) {
+    return runRecoverableResearch({owner, root:noteId, payload, onDelta, onNoteSaved, onResearch, signal,
+      send:(next,callbacks) => streamContinueConversationApi({noteId,payload:next,...callbacks,owner,_recovering:true})});
+  }
   const headers = {
     'Content-Type': 'application/json',
   };
@@ -165,7 +143,18 @@ export async function streamContinueConversationApi({ noteId, payload, onDelta, 
     headers,
     body: JSON.stringify(payload),
     signal,
+    expectedUserId:owner,
   });
 
-  return streamSseReader(res, onDelta, onNoteSaved);
+  return streamSseReader(res, onDelta, onNoteSaved, onResearch, onContext);
+}
+
+export function getResearchStatusApi() {
+  return apiFetch('/api/notes/research/status');
+}
+
+export function cancelSessionGenerationApi(root, operationId, owner) {
+  return apiFetch(`/api/notes/sessions/${root}/context/cancel`, {
+    method:'POST',expectedUserId:owner,keepalive:true,body:JSON.stringify({operation_id:operationId}),
+  });
 }

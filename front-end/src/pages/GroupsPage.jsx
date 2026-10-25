@@ -78,7 +78,7 @@ export default function GroupsPage() {
       setName('');
       setDescription('');
       setSelectedFriendIds([]);
-      toast.success(`Study guild "${newGroup.name}" created successfully with ${newGroup.member_count} members!`);
+      toast.success(`Study group "${newGroup.name}" created successfully with ${newGroup.member_count} members!`);
     } catch (err) {
       console.error('Failed to create group:', err);
       toast.error(err?.data?.detail || err.message || 'Failed to create group. Please try again.');
@@ -95,9 +95,9 @@ export default function GroupsPage() {
       {/* Left Column: Group List */}
       <div className="lg:col-span-7 flex flex-col gap-6">
         <div>
-          <h1 className="font-display text-3xl font-bold text-histo-dark">Study Groups & Guilds</h1>
+          <h1 className="font-display text-3xl font-bold text-histo-dark">Study Groups</h1>
           <p className="font-body text-sm text-histo-ink/70 mt-1">
-            Collaborate in private guilds (minimum 3 scholars, maximum 50) for historical research and group chat.
+            Collaborate in private study groups (minimum 3 scholars, maximum 50) for historical research and group chat.
           </p>
         </div>
 
@@ -111,9 +111,9 @@ export default function GroupsPage() {
             <div className="h-16 w-16 rounded-full bg-histo-copper/10 border border-histo-copper/20 flex items-center justify-center mx-auto mb-4 text-histo-copper">
               <Users className="h-8 w-8" />
             </div>
-            <h3 className="font-display text-xl font-bold text-histo-dark mb-1">No Study Guilds Joined Yet</h3>
+            <h3 className="font-display text-xl font-bold text-histo-dark mb-1">No Study Groups Joined Yet</h3>
             <p className="font-body text-xs text-histo-ink/70 leading-relaxed max-w-md mx-auto mb-6">
-              Create your own guild with at least 2 friends using the form on the right, or add fellow scholars to start collaborating!
+              Create your own group with at least 2 friends using the form on the right, or add fellow scholars to start collaborating!
             </p>
             <div className="flex items-center justify-center gap-3">
               <Link
@@ -179,7 +179,7 @@ export default function GroupsPage() {
       <div className="lg:col-span-5">
         <div className="bg-white border border-histo-dark/10 p-6 rounded-[4px] shadow-soft sticky top-24">
           <div className="flex items-center justify-between mb-1">
-            <h2 className="font-display text-xl font-bold text-histo-dark">Create New Guild</h2>
+            <h2 className="font-display text-xl font-bold text-histo-dark">Create New Group</h2>
             <span className="text-[11px] font-ui font-semibold text-histo-ink/50">
               {totalMemberCount}/50 Members
             </span>
@@ -191,7 +191,7 @@ export default function GroupsPage() {
           <form onSubmit={handleCreateGroup} className="flex flex-col gap-4">
             <div>
               <label className="text-xs font-ui font-semibold uppercase text-histo-ink/70 block mb-1">
-                Guild Name <span className="text-red-500">*</span>
+                Group Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -237,7 +237,7 @@ export default function GroupsPage() {
                 <div className="bg-histo-cream/40 border border-histo-dark/10 p-3.5 rounded-[2px] text-center">
                   <Info className="h-4 w-4 text-histo-copper mx-auto mb-1.5" />
                   <p className="text-[11px] font-body text-histo-ink/70 mb-2">
-                    You need at least 2 friends connected to start a guild (minimum 3 members total).
+                    You need at least 2 friends connected to start a group (minimum 3 members total).
                   </p>
                   <Link
                     to="/friends"
@@ -300,7 +300,7 @@ export default function GroupsPage() {
               className="w-full mt-2 bg-histo-dark text-histo-paper py-3 rounded-[2px] text-xs font-ui font-bold uppercase tracking-wider hover:bg-histo-gold hover:text-histo-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-soft flex items-center justify-center gap-2"
             >
               <Users className="h-4 w-4" />
-              <span>{creating ? 'Creating Guild...' : `Create Guild (${totalMemberCount} Members)`}</span>
+              <span>{creating ? 'Creating Group...' : `Create Group (${totalMemberCount} Members)`}</span>
             </button>
           </form>
         </div>

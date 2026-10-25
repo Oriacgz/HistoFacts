@@ -11,10 +11,14 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_notes.models import Note
+from app.ai_notes.models import NoteResearchRun
+from app.ai_notes.research.lifecycle import prepare_research, research_stream, serialize_notes, require_active_owner, consume_research
+from app.core.request_lifetime import until_disconnect
 from app.ai_notes.schemas import (
     GenerateNoteRequest,
     NoteResponse,
     ReviseNoteRequest,
+    RestyleNoteRequest,
     ContinueConversationRequest,
     WalletResponse,
     TokenPackResponse,
@@ -43,6 +47,7 @@ from app.ai_notes.llm_client import (
     detect_task_intent,
     REFUSAL_MESSAGE,
     SYSTEM_PROMPT,
+    SERVICE_UNAVAILABLE_MESSAGE,
 )
 from app.ai_notes.wallet_service import (
     get_or_create_wallets,
@@ -62,6 +67,41 @@ from slowapi.util import get_remote_address
 limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(tags=["AI Notes & Token Economy"])
+from app.ai_notes.context.router import router as memory_router, export_memories
+router.include_router(memory_router)
+
+
+@router.get("/api/notes/research/status")
+async def research_status(current_user: CurrentUser = Depends(get_current_user)):
+    from app.core.config import settings
+    return {"available": bool(settings.tavily_api_key), "provider": "Tavily",
+            "disclosure": "Search terms are sent to Tavily. Attachments and full conversations are not sent."}
+
+
+@router.get("/api/notes/research/runs/{run_id}")
+async def research_run_status(run_id: str, current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_async_session)):
+    run = await db.scalar(select(NoteResearchRun).where(NoteResearchRun.id == run_id, NoteResearchRun.user_id == current_user.id))
+    if not run:
+        raise HTTPException(404, "Research request not found")
+    note = await db.scalar(select(Note).where(Note.id == run.note_id, Note.user_id == current_user.id)) if run.note_id else None
+    saved = (await serialize_notes([note], current_user.id, db))[0].model_dump(mode="json") if note else None
+    return {"run_id": run.id, "state": run.state, "note_id": run.note_id, "note": saved, "sources": run.sources, **(run.details or {})}
+
+
+@router.post("/api/notes/research/runs/{run_id}/cancel")
+async def cancel_research_run(run_id: str, current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_async_session)):
+    run = await db.scalar(select(NoteResearchRun).where(NoteResearchRun.id == run_id, NoteResearchRun.user_id == current_user.id).with_for_update())
+    if not run:
+        raise HTTPException(404, "Research request not found")
+    if run.state == "running":
+        run.state = "cancelled"
+        await db.commit()
+    return {"run_id": run.id, "state": run.state, "note_id": run.note_id}
+
+
+def require_attachment_mode(req):
+    if not req.think and (req.attachment_data or '').startswith('data:image/'):
+        raise HTTPException(422, 'Enable Think mode to analyze an image attachment. Standard mode supports text and extracted documents.')
 
 
 # ── AI Notes Generation & Management ─────────────────────────────
@@ -74,6 +114,15 @@ async def generate_note(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    require_attachment_mode(req)
+    if req.research_mode == "web":
+        await require_active_owner(current_user.id, db)
+        if not await is_history_related(req.topic):
+            raise HTTPException(422, REFUSAL_MESSAGE)
+        await preflight_token_check(current_user.id, 2000, db)
+        run_id, existing = await prepare_research(req, current_user.id, db)
+        response = research_stream(req, current_user.id, run_id, existing)
+        return await until_disconnect(request, consume_research(response))
     note = await create_note_for_user(req, current_user.id, db)
     return NoteResponse.model_validate(note)
 
@@ -91,6 +140,7 @@ async def generate_note_stream(
     Enforces pre-classification guardrail, filters <think> traces,
     scrubs identity leaks, and saves the resulting note to database.
     """
+    require_attachment_mode(req)
     # 0. Pre-classification guard
     if not await is_history_related(req.topic):
         async def refusal_stream():
@@ -99,9 +149,15 @@ async def generate_note_stream(
         return StreamingResponse(refusal_stream(), media_type="text/event-stream")
 
     # 1. Pre-flight token estimation check
+    if req.research_mode == "web":
+        await require_active_owner(current_user.id, db)
     prompt_tokens = calculate_approx_tokens(req.topic) + calculate_approx_tokens(req.attachment_text or "")
     estimated_tokens = prompt_tokens + 1200
     await preflight_token_check(current_user.id, estimated_tokens, db)
+
+    if req.research_mode == "web":
+        run_id, existing = await prepare_research(req, current_user.id, db)
+        return research_stream(req, current_user.id, run_id, existing)
 
     # 2. Build minimal low-latency prompt payload
     clean_topic_title = req.topic.strip().replace("\n", " ")
@@ -129,6 +185,9 @@ async def generate_note_stream(
         {"role": "user", "content": user_content},
     ]
 
+    from app.ai_notes.context.budget import enforce
+    context_status = enforce(messages)
+
     async def event_stream():
         full_response = ""
         try:
@@ -141,6 +200,10 @@ async def generate_note_stream(
                 yield f"data: {json.dumps({'delta': full_response})}\n\n"
 
         final = scrub_identity_leak(full_response)
+        if not final.strip() or SERVICE_UNAVAILABLE_MESSAGE in final:
+            yield f"data: {json.dumps({'error':'The local model is unavailable. Your draft can be retried; no answer was saved or charged.'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
         actual_tokens = calculate_approx_tokens(str(messages)) + calculate_approx_tokens(final)
 
         try:
@@ -164,19 +227,7 @@ async def generate_note_stream(
 
                 yield f"data: {json.dumps({'note': NoteResponse.model_validate(note).model_dump(mode='json'), 'token_balance': actual_balance, 'tokens_used': actual_tokens})}\n\n"
         except Exception:
-            fallback_note = NoteResponse(
-                id=str(datetime.now(timezone.utc).timestamp()),
-                user_id=current_user.id,
-                title=title,
-                prompt=req.topic,
-                content=final,
-                curriculum_tag=req.curriculum,
-                style=req.style or "standard",
-                is_ai_generated=True,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
-            )
-            yield f"data: {json.dumps({'note': fallback_note.model_dump(mode='json')})}\n\n"
+            yield f"data: {json.dumps({'error':'This answer was not saved or charged. Please retry after checking the session.'})}\n\n"
 
         yield "data: [DONE]\n\n"
 
@@ -197,6 +248,7 @@ async def continue_conversation_stream(
     Streams token-by-token, filters thinking traces, scrubs identity leaks,
     and appends a new turn to the version chain.
     """
+    require_attachment_mode(req)
     chain = await get_note_thread_for_user(note_id, current_user.id, db)
     root = chain[0]
 
@@ -208,11 +260,26 @@ async def continue_conversation_stream(
         return StreamingResponse(refusal_stream(), media_type="text/event-stream")
 
     # Preflight check
+    if req.research_mode == "web":
+        await require_active_owner(current_user.id, db)
     estimated_tokens = calculate_approx_tokens(req.message) + 1200
     await preflight_token_check(current_user.id, estimated_tokens, db)
 
-    # Build conversation messages with context efficiency
-    history = build_conversation_messages(chain, current_query=req.message)
+    if req.research_mode == "web":
+        from app.ai_notes.context.service import assemble, managed_response, release_generation
+        context_messages, context_status = await assemble(root.id,current_user.id,db,SYSTEM_PROMPT,req.message)
+        try:
+            run_id, existing = await prepare_research(req, current_user.id, db, root=root, parent=chain[-1])
+        except BaseException:
+            await db.rollback()
+            await release_generation(current_user.id,context_status,db)
+            raise
+        context_topics=[str(message['content']) for message in context_messages[1:-1]]
+        response=research_stream(req,current_user.id,run_id,existing,root=root,parent=chain[-1],
+            context_topics=context_topics,context_status=context_status)
+        return managed_response(response,current_user.id,context_status)
+
+    # The shared context assembler owns history and its budget.
 
     # Detect if user follow-up has task instruction
     has_attachment = bool(req.attachment_text or req.attachment_name or req.attachment_data)
@@ -232,7 +299,8 @@ async def continue_conversation_stream(
         user_turn_parts.append(f"[Instruction: {task_instruction}]")
 
     user_turn_content = "\n\n".join(user_turn_parts)
-    messages = history + [{"role": "user", "content": user_turn_content}]
+    from app.ai_notes.context.service import assemble
+    messages, context_status = await assemble(root.id, current_user.id, db, SYSTEM_PROMPT, user_turn_content)
 
     async def event_stream():
         full_response = ""
@@ -246,10 +314,16 @@ async def continue_conversation_stream(
                 yield f"data: {json.dumps({'delta': full_response})}\n\n"
 
         final = scrub_identity_leak(full_response)
+        if not final.strip() or SERVICE_UNAVAILABLE_MESSAGE in final:
+            yield f"data: {json.dumps({'error':'The local model is unavailable. Your draft can be retried; no answer was saved or charged.'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
         actual_tokens = calculate_approx_tokens(str(messages)) + calculate_approx_tokens(final)
 
         try:
             async with streaming_session_scope() as stream_db:
+                from app.ai_notes.context.service import assert_generation
+                await assert_generation(current_user.id, context_status, stream_db)
                 actual_balance = await deduct_generation_tokens(current_user.id, actual_tokens, stream_db)
                 new_turn = await save_conversation_turn(
                     root_note_id=root.id,
@@ -261,24 +335,12 @@ async def continue_conversation_stream(
                 )
                 yield f"data: {json.dumps({'note': NoteResponse.model_validate(new_turn).model_dump(mode='json'), 'token_balance': actual_balance, 'tokens_used': actual_tokens})}\n\n"
         except Exception:
-            fallback_turn = NoteResponse(
-                id=str(datetime.now(timezone.utc).timestamp()),
-                user_id=current_user.id,
-                source_note_id=root.id,
-                title=f"Turn: {req.message[:30]}",
-                prompt=req.message,
-                content=final,
-                curriculum_tag=root.curriculum_tag,
-                style="standard",
-                is_ai_generated=True,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
-            )
-            yield f"data: {json.dumps({'note': fallback_turn.model_dump(mode='json')})}\n\n"
+            yield f"data: {json.dumps({'error':'This answer was not saved or charged. Check the session before retrying.'})}\n\n"
 
         yield "data: [DONE]\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    from app.ai_notes.context.service import managed_response
+    return managed_response(StreamingResponse(event_stream(),media_type="text/event-stream"),current_user.id,context_status)
 
 
 @router.get("/api/notes/{note_id}/thread", response_model=list[NoteResponse])
@@ -292,24 +354,56 @@ async def get_note_thread(
     Every turn contains prompt (user request) and content (AI note).
     """
     chain = await get_note_thread_for_user(note_id, current_user.id, db)
-    return [NoteResponse.model_validate(n) for n in chain]
+    return await serialize_notes(chain, current_user.id, db)
+
+
+@router.get("/api/notes/{note_id}/shared")
+async def read_shared_note(note_id: str, current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_async_session)):
+    from app.chat.models import Message
+    from app.chat.service import _is_participant
+    note = await db.get(Note,note_id)
+    if not note:
+        raise HTTPException(404,"Shared note is unavailable")
+    owner = note.user_id == current_user.id
+    if not owner:
+        conversations = (await db.execute(select(Message.conversation_id).where(
+            Message.shared_ref_id == note_id, Message.message_type == 'note_share',
+            Message.sender_id == note.user_id))).scalars().all()
+        allowed = False
+        for conversation in set(conversations):
+            if await _is_participant(conversation,current_user.id,db):
+                allowed = True
+                break
+        if not allowed:
+            raise HTTPException(404,"Shared note is unavailable")
+    response = (await serialize_notes([note],note.user_id,db))[0]
+    public_research = None
+    if response.research:
+        public_fields = {'id','url','title','author','institution','published_at','updated_at','retrieved_at','fixture','excerpts_expired'}
+        public_research = {'run_id':f'shared-{note.id}','outcome':response.research.get('outcome'),
+            'sources':[{key:value for key,value in source.items() if key in public_fields} for source in response.research['sources']]}
+    return {'id':note.id,'title':note.title,'content':note.content,'style':note.style,
+            'created_at':note.created_at,'research':public_research,'shared_read_only':not owner}
 
 
 @router.post("/api/notes/{note_id}/handwritten", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
 async def restyle_handwritten_note(
     note_id: str,
+    request: Request,
+    req: RestyleNoteRequest | None = None,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Restyle an existing note into student handwritten lecture style."""
-    note = await create_handwritten_note_for_user(note_id, current_user.id, db)
-    return NoteResponse.model_validate(note)
+    note = await until_disconnect(request, create_handwritten_note_for_user(note_id, current_user.id, db, think=bool(req and req.think)))
+    return (await serialize_notes([note],current_user.id,db))[0]
 
 
 @router.post("/api/notes/{note_id}/revise", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
 async def revise_note(
     note_id: str,
     req: ReviseNoteRequest,
+    request: Request,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -318,8 +412,8 @@ async def revise_note(
     The original note is never modified — the revision is a new linked note.
     Off-topic instructions are rejected before any generation call (0 tokens charged).
     """
-    note = await revise_note_for_user(note_id, req, current_user.id, db)
-    return NoteResponse.model_validate(note)
+    note = await until_disconnect(request, revise_note_for_user(note_id, req, current_user.id, db))
+    return (await serialize_notes([note],current_user.id,db))[0]
 
 
 @router.get("/api/notes", response_model=list[NoteResponse])
@@ -329,7 +423,7 @@ async def list_notes(
     db: AsyncSession = Depends(get_async_session),
 ):
     notes = await get_user_notes(current_user.id, db)
-    return [NoteResponse.model_validate(n) for n in notes]
+    return await serialize_notes(notes, current_user.id, db)
 
 
 @router.delete("/api/notes/{note_id}", status_code=status.HTTP_200_OK)
@@ -341,6 +435,7 @@ async def delete_note(
     deleted = await delete_user_note(note_id, current_user.id, db)
     if not deleted:
         raise HTTPException(status_code=404, detail="Note not found")
+    await db.commit()
     return {"status": "deleted", "note_id": note_id}
 
 
@@ -453,6 +548,9 @@ async def purge_user_ai_notes(
     db: AsyncSession = Depends(get_async_session),
 ):
     from app.ai_notes.models import Note, UserTokenWallet, HistoinWallet, TokenLedger, HistoinLedger, PurchaseLog
+    from app.ai_notes.models import NoteSessionMemory
+    await db.execute(delete(NoteSessionMemory).where(NoteSessionMemory.user_id == user_id))
+    await db.execute(delete(NoteResearchRun).where(NoteResearchRun.user_id == user_id))
     await db.execute(delete(Note).where(Note.user_id == user_id))
     await db.execute(delete(UserTokenWallet).where(UserTokenWallet.user_id == user_id))
     await db.execute(delete(HistoinWallet).where(HistoinWallet.user_id == user_id))
@@ -473,13 +571,15 @@ async def export_user_ai_notes(
 ):
     from app.ai_notes.models import Note, UserTokenWallet, HistoinWallet
     notes_res = await db.execute(select(Note).where(Note.user_id == user_id))
+    exported_notes = await serialize_notes(notes_res.scalars().all(), user_id, db)
     token_wallet = await db.get(UserTokenWallet, user_id)
     histoin_wallet = await db.get(HistoinWallet, user_id)
     return {
         "notes": [
-            {"id": n.id, "title": n.title, "content": n.content, "created_at": str(n.created_at)}
-            for n in notes_res.scalars().all()
+            {"id": n.id, "title": n.title, "content": n.content, "created_at": str(n.created_at), "research": n.research}
+            for n in exported_notes
         ],
+        "session_memories": await export_memories(user_id, db),
         "token_balance": token_wallet.token_balance if token_wallet else 0,
         "histoin_balance": histoin_wallet.balance if histoin_wallet else 0,
     }

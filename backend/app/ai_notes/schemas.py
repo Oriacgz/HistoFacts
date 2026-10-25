@@ -3,6 +3,8 @@ Pydantic schemas for AI Notes, Token Wallet, and Shop.
 """
 
 from datetime import datetime
+from typing import Literal
+from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -16,6 +18,9 @@ class GenerateNoteRequest(BaseModel):
     attachment_data: str | None = None
     style: str | None = "standard"  # "standard" or "handwritten"
     think: bool | None = False  # Enable deeper step-by-step reasoning
+    research_mode: Literal["off", "web"] = "off"
+    research_request_id: UUID | None = None
+    research_depth: Literal["concise", "standard"] = "standard"
 
 
 class NoteResponse(BaseModel):
@@ -34,10 +39,16 @@ class NoteResponse(BaseModel):
     attachment_type: str | None = None
     is_ai_generated: bool
     created_at: datetime
+    research: dict | None = None
 
 
 class ReviseNoteRequest(BaseModel):
     instruction: str = Field(..., min_length=1, max_length=2000)
+    think: bool = False
+
+
+class RestyleNoteRequest(BaseModel):
+    think: bool = False
 
 
 class ContinueConversationRequest(BaseModel):
@@ -47,6 +58,9 @@ class ContinueConversationRequest(BaseModel):
     attachment_text: str | None = None
     attachment_data: str | None = None
     think: bool | None = False  # Enable deeper step-by-step reasoning
+    research_mode: Literal["off", "web"] = "off"
+    research_request_id: UUID | None = None
+    research_depth: Literal["concise", "standard"] = "standard"
 
 
 class WalletResponse(BaseModel):

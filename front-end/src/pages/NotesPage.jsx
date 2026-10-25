@@ -4,7 +4,7 @@ import { Upload } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast } from '../contexts/ToastContext';
 import { useAiNotes } from '../contexts/AiNotesContext';
-import { getNoteThreadApi } from '../api/aiNotes';
+import { getSharedNoteApi } from '../api/aiNotes';
 
 // Modular feature imports
 import ShopModal from '../features/ai-notes/components/ShopModal';
@@ -13,11 +13,16 @@ import WelcomeCanvas from '../features/ai-notes/components/WelcomeCanvas';
 import PromptInputArea from '../features/ai-notes/components/PromptInputArea';
 import NoteThread from '../features/ai-notes/components/NoteThread';
 import SharePickerModal from '../features/chat/SharePickerModal';
+import MonumentNotesHandoff from '../features/monuments/components/MonumentNotesHandoff';
+import useNotesPresence from '../features/ai-notes/useNotesPresence';
+import ResearchProgress from '../features/ai-notes/components/ResearchProgress';
 
 export default function NotesPage() {
+  useNotesPresence();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const sharedNoteId = searchParams.get('note');
+  const monumentId = searchParams.get('monument');
 
   // Shared persistent AI Notes context
   const {
@@ -34,6 +39,10 @@ export default function NotesPage() {
     isProcessingFiles,
     thinkEnabled,
     setThinkEnabled,
+    researchEnabled,
+    setResearchEnabled,
+    researchAvailable,
+    researchProgress,
     isStreaming,
     streamingPrompt,
     streamingAttachments,
@@ -76,10 +85,10 @@ export default function NotesPage() {
 
     (async () => {
       try {
-        const thread = await getNoteThreadApi(sharedNoteId);
+        const shared = await getSharedNoteApi(sharedNoteId);
         if (cancelled) return;
-        setActiveNoteId(thread?.[0]?.id || sharedNoteId);
-        setActiveThread(thread || []);
+        setActiveNoteId(shared.shared_read_only ? null : shared.id);
+        setActiveThread([shared]);
       } catch {
         if (!cancelled) {
           setActiveNoteId(null);
@@ -207,6 +216,9 @@ export default function NotesPage() {
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           {/* Central Conversation Canvas */}
           <div className="flex-1 overflow-y-auto" ref={scrollContainerRef}>
+            {monumentId && <MonumentNotesHandoff key={monumentId} monumentId={monumentId} busy={isStreaming || isProcessingFiles} hasDraft={!!inputValue.trim() || attachedFiles.length > 0}
+              onUsePrompt={prompt=>{handleNewChat();setInputValue(prompt);}}
+              onDismiss={()=>setSearchParams(previous=>{const next=new URLSearchParams(previous);next.delete('monument');return next;},{replace:true})}/>}
             {activeThread.length === 0 && !isStreaming ? (
               <div className="px-4 sm:px-8 py-6">
                 <WelcomeCanvas
@@ -240,7 +252,10 @@ export default function NotesPage() {
           )}
 
           {/* Bottom Persistent Chat Composer */}
+          {activeThread[0]?.shared_read_only && <p className="px-4 py-2 text-xs font-ui text-histo-ink/70">Shared note · questions below start your own session.</p>}
+          <ResearchProgress progress={isStreaming ? researchProgress : null} />
           <PromptInputArea
+            contextSessionId={sharedNoteId ? null : activeNoteId}
             inputValue={inputValue}
             onInputChange={setInputValue}
             onSendMessage={handleSendMessage}
@@ -252,6 +267,9 @@ export default function NotesPage() {
             onTriggerFileInput={() => fileInputRef.current?.click()}
             isInsufficient={isInsufficient}
             thinkEnabled={thinkEnabled}
+            researchEnabled={researchEnabled}
+            onToggleResearch={() => setResearchEnabled(value => !value)}
+            researchAvailable={researchAvailable}
             onToggleThink={() => setThinkEnabled((v) => !v)}
             wallet={wallet}
             streamingPrompt={streamingPrompt}

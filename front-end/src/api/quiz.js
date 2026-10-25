@@ -26,16 +26,32 @@ export async function getLobbyInfoApi(code) {
   return apiFetch(`/api/quiz/lobby/${code}`);
 }
 
-export async function startPersonalizedQuizApi({ topic, difficulty, file }) {
-  if (file) {
-    const body = new FormData();
-    body.append('file', file);
-    body.append('difficulty', difficulty);
-    return apiFetch('/api/quiz/personalized/from-pdf', { method: 'POST', body });
+export const QUIZ_REQUEST_TIMEOUT_MS = 180000;
+
+export async function startPersonalizedQuizApi({ topic, difficulty, file, signal }) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const cancel = () => controller.abort();
+  signal?.addEventListener('abort', cancel, {once:true});
+  if (signal?.aborted) cancel();
+  const timer = setTimeout(() => {timedOut=true;controller.abort();}, QUIZ_REQUEST_TIMEOUT_MS);
+  try {
+    if (file) {
+      const body = new FormData();
+      body.append('file', file);
+      body.append('difficulty', difficulty);
+      return await apiFetch('/api/quiz/personalized/from-pdf', { method: 'POST', body, signal:controller.signal });
+    }
+    return await apiFetch('/api/quiz/personalized/generate', {
+      method: 'POST', body: JSON.stringify({ topic, difficulty }), signal:controller.signal,
+    });
+  } catch(error) {
+    if (timedOut) throw new Error('Quiz generation took too long. Please try again when the local model is less busy.', {cause:error});
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort',cancel);
   }
-  return apiFetch('/api/quiz/personalized/generate', {
-    method: 'POST', body: JSON.stringify({ topic, difficulty }),
-  });
 }
 
 export async function startGlobalQuizApi() {

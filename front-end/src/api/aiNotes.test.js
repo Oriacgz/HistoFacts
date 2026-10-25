@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { streamGenerateNoteApi, streamContinueConversationApi } from './aiNotes';
+import { streamGenerateNoteApi, streamContinueConversationApi, generateNoteApi, generateHandwrittenNoteApi, reviseNoteApi } from './aiNotes';
 
 const storage = {};
 global.localStorage = {
@@ -40,6 +40,29 @@ describe('aiNotes streaming tests (Issue #17)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('forwards Think for new notes, handwritten conversions, and revisions',async()=>{
+    global.fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>({})});
+    await generateNoteApi({topic:'Taj Mahal',think:true});
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).think).toBe(true);
+    await generateHandwrittenNoteApi('note-id',true);
+    expect(JSON.parse(global.fetch.mock.calls[1][1].body).think).toBe(true);
+    await reviseNoteApi('note-id','Shorten it',true);
+    expect(JSON.parse(global.fetch.mock.calls[2][1].body).think).toBe(true);
+    await generateHandwrittenNoteApi('note-id');
+    expect(JSON.parse(global.fetch.mock.calls[3][1].body).think).toBe(false);
+  });
+
+  it('delivers research progress and propagates explicit errors without a fake saved note', async () => {
+    global.fetch = vi.fn().mockResolvedValue(createMockStreamResponse([
+      'data: {"research":{"stage":"checking","run_id":"r1"}}\n\n',
+      'data: {"error":"No useful evidence","research_failed":true}\n\n',
+    ]));
+    const onResearch = vi.fn(), onNoteSaved = vi.fn();
+    await expect(streamGenerateNoteApi({payload:{topic:'Ashoka',research_mode:'web'}, onResearch, onNoteSaved})).rejects.toThrow('No useful evidence');
+    expect(onResearch).toHaveBeenCalledWith({stage:'checking',run_id:'r1'});
+    expect(onNoteSaved).not.toHaveBeenCalled();
   });
 
   it('streams tokens and processes saved note chunk correctly', async () => {

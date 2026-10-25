@@ -1,3 +1,4 @@
+import SessionMemory from './SessionMemory';
 import { useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -8,11 +9,14 @@ import {
   X,
   Square,
   Brain,
+  Globe,
+  ChevronDown,
 } from 'lucide-react';
 import { formatFileSize, countTokens, formatTokenCount } from '../utils/tokenEstimator';
 
 export default function PromptInputArea({
   inputValue,
+  contextSessionId = null,
   onInputChange,
   onSendMessage,
   isGenerating,
@@ -24,6 +28,9 @@ export default function PromptInputArea({
   isInsufficient,
   thinkEnabled,
   onToggleThink,
+  researchEnabled = false,
+  onToggleResearch,
+  researchAvailable = false,
   wallet,
   streamingPrompt = '',
   streamingText = '',
@@ -31,6 +38,14 @@ export default function PromptInputArea({
   onOpenShop,
 }) {
   const textareaRef = useRef(null);
+  const optionsRef = useRef(null);
+  useEffect(() => {
+    const closeOutside = event => {
+      if (optionsRef.current && !optionsRef.current.contains(event.target)) optionsRef.current.open = false;
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    return () => document.removeEventListener('pointerdown', closeOutside);
+  }, []);
 
   // ── Real-time Token Usage Calculation ─────────────────────────
   const quotaLimit = wallet?.free_refill_cap || 350000;
@@ -77,7 +92,7 @@ export default function PromptInputArea({
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit(e);
     }
@@ -88,6 +103,7 @@ export default function PromptInputArea({
   return (
     <div className="sticky bottom-0 z-20 border-t border-histo-dark/10 bg-histo-paper/95 backdrop-blur-md px-4 py-3 shrink-0">
       <div className="max-w-4xl mx-auto space-y-2">
+        {researchEnabled && <p className="text-xs font-ui text-histo-ink/60">Search terms are sent to Tavily. Attachments are analyzed separately. Sources may be incomplete or disagree.</p>}
         {/* Attachment Tray */}
         {attachedFiles.length > 0 && (
           <motion.div
@@ -146,9 +162,21 @@ export default function PromptInputArea({
             handleSubmit(e);
           }}
         >
-          <div className="relative flex items-end w-full bg-white border border-histo-dark/15 focus-within:border-histo-copper focus-within:ring-2 focus-within:ring-histo-copper/20 rounded-2xl shadow-soft transition-all">
-            {/* Left controls: Attachment + Think */}
-            <div className="flex items-center gap-0.5 pl-2 pb-2.5">
+          <div className="relative flex flex-col w-full bg-white border border-histo-dark/15 focus-within:border-histo-copper focus-within:ring-2 focus-within:ring-histo-copper/15 rounded-2xl shadow-soft transition-all">
+            <textarea
+              ref={textareaRef}
+              value={inputValue}
+              onChange={(e) => onInputChange(e.target.value)}
+              placeholder="Ask anything about history..."
+              rows={1}
+              onKeyDown={handleKeyDown}
+              className="w-full min-w-0 px-4 pt-3 pb-2 rounded-t-2xl bg-transparent text-sm font-ui leading-6 text-histo-ink outline-none resize-none overflow-y-auto placeholder:text-histo-ink/40"
+              style={{ minHeight: '44px', maxHeight: '200px' }}
+            />
+
+            <div className="flex w-full items-center justify-between gap-2 px-2 pb-2">
+            {/* Attachment and answer options */}
+            <div className="flex min-w-0 items-center gap-1">
               {/* Attachment Trigger Button */}
               <button
                 type="button"
@@ -159,37 +187,35 @@ export default function PromptInputArea({
                 <Paperclip className="h-5 w-5" />
               </button>
 
-              {/* Think Toggle */}
-              <button
-                type="button"
-                onClick={onToggleThink}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-ui font-medium transition-all cursor-pointer ${
-                  thinkEnabled
-                    ? 'bg-violet-100 text-violet-700 border border-violet-300 shadow-xs'
-                    : 'text-histo-ink/40 hover:text-histo-ink/60 hover:bg-histo-cream/60'
-                }`}
-                title={thinkEnabled ? 'Think Mode ON: Deeper reasoning for difficult questions. May take a bit longer.' : 'Think Mode OFF: Fast responses. Turn ON for step-by-step reasoning on complex questions.'}
-                aria-label={thinkEnabled ? 'Think Mode ON: Deeper reasoning for difficult questions.' : 'Think Mode OFF: Click to turn on deeper reasoning.'}
-                aria-pressed={thinkEnabled}
-              >
-                <Brain className={`h-3.5 w-3.5 ${thinkEnabled ? 'text-violet-600' : ''}`} />
-                <span className="hidden sm:inline">Think</span>
-              </button>
+              <details ref={optionsRef} className="relative min-w-0" onKeyDown={event => {
+                if (event.key === 'Escape') { optionsRef.current.open = false; optionsRef.current.querySelector('summary').focus(); }
+              }}>
+                <summary aria-label="Think and Web Search options" className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-ui text-histo-ink/70 hover:bg-histo-cream focus-visible:outline-2 focus-visible:outline-histo-copper [&::-webkit-details-marker]:hidden">
+                  {thinkEnabled ? <Brain className="h-4 w-4 text-violet-600" /> : <Globe className="h-4 w-4" />}
+                  <span className="truncate">{thinkEnabled && researchEnabled ? 'Think + Web Search' : thinkEnabled ? 'Think' : researchEnabled ? 'Web Search' : 'Options'}</span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                </summary>
+                <fieldset className="absolute bottom-full left-0 z-40 mb-2 w-64 max-w-[calc(100vw-3rem)] rounded-xl border border-histo-dark/15 bg-white p-2 shadow-xl text-histo-ink">
+                  <legend className="sr-only">Answer options</legend>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-lg p-3 hover:bg-histo-cream/60">
+                    <Brain className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" />
+                    <span className="min-w-0 flex-1 font-ui text-sm">Think<span className="mt-1 block text-xs text-histo-ink/60">Deeper reasoning with Qwen.</span></span>
+                    <input type="checkbox" aria-label="Think" checked={thinkEnabled} onChange={onToggleThink} disabled={isGenerating} className="mt-1 accent-violet-600" />
+                  </label>
+                  <label className={`flex items-start gap-3 rounded-lg p-3 ${researchAvailable ? 'cursor-pointer hover:bg-histo-cream/60' : 'opacity-50'}`}>
+                    <Globe className="mt-0.5 h-4 w-4 shrink-0 text-histo-copper" />
+                    <span className="min-w-0 flex-1 font-ui text-sm">Web Search<span className="mt-1 block text-xs text-histo-ink/60">{researchAvailable ? 'Search public sources with citations.' : 'Requires a configured search key.'}</span></span>
+                    <input type="checkbox" aria-label="Web Search" checked={researchEnabled} onChange={onToggleResearch} disabled={isGenerating || !researchAvailable} className="mt-1 accent-amber-600" />
+                  </label>
+                </fieldset>
+              </details>
             </div>
 
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => onInputChange(e.target.value)}
-              placeholder="Ask anything about history..."
-              rows={1}
-              onKeyDown={handleKeyDown}
-              className="w-full pl-1 pr-12 py-3 bg-transparent text-sm font-body text-histo-ink outline-none resize-none placeholder:text-histo-ink/40"
-              style={{ minHeight: '44px', maxHeight: '200px' }}
-            />
+
 
             {/* Send / Stop Button */}
-            <div className="pr-1.5 pb-1.5">
+            <div className="flex shrink-0 items-center gap-2">
+              <SessionMemory sessionId={contextSessionId} generating={isGenerating} draft={inputValue} streamingText={isGenerating ? streamingText : ''} />
               {isGenerating ? (
                 <button
                   type="button"
@@ -210,6 +236,7 @@ export default function PromptInputArea({
                   <Send className="h-4 w-4 ml-0.5" />
                 </button>
               )}
+            </div>
             </div>
           </div>
         </form>

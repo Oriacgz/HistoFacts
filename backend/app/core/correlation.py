@@ -6,9 +6,7 @@ Propagates X-Request-ID from API Gateway through downstream inter-service calls 
 from contextvars import ContextVar
 import logging
 import uuid
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
+from starlette.datastructures import Headers, MutableHeaders
 
 request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
 
@@ -28,23 +26,32 @@ class CorrelationLogFilter(logging.Filter):
         return True
 
 
-class CorrelationIdMiddleware(BaseHTTPMiddleware):
+class CorrelationIdMiddleware:
     """
     Middleware that extracts or generates an X-Request-ID header,
     binds it to the async contextvar for the duration of the request,
     and attaches it to the HTTP response headers.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        incoming_id = request.headers.get("X-Request-ID")
-        req_id = incoming_id.strip() if incoming_id else str(uuid.uuid4())
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http':
+            return await self.app(scope, receive, send)
+        incoming_id = Headers(scope=scope).get('X-Request-ID', '').strip()
+        req_id = incoming_id or str(uuid.uuid4())
 
         token = request_id_ctx.set(req_id)
-        request.state.request_id = req_id
+        scope.setdefault('state', {})['request_id'] = req_id
+
+        async def traced_send(message):
+            if message['type'] == 'http.response.start':
+                MutableHeaders(scope=message)['X-Request-ID'] = req_id
+            await send(message)
 
         try:
-            response = await call_next(request)
-            response.headers["X-Request-ID"] = req_id
-            return response
+            # Pure ASGI preserves disconnect notifications and streaming backpressure.
+            await self.app(scope, receive, traced_send)
         finally:
             request_id_ctx.reset(token)

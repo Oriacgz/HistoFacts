@@ -6,8 +6,15 @@ export const API_BASE_URL =
     : 'http://localhost:8000');
 
 export async function authenticatedFetch(endpoint, options = {}) {
-  const requestOptions = { ...options };
+  const { expectedUserId, ...requestOptions } = options;
+  const assertOwner = () => {
+    if (expectedUserId === undefined) return;
+    let current;
+    try { current = JSON.parse(localStorage.getItem('user') || 'null'); } catch { /* Invalid account storage. */ }
+    if (current?.id !== expectedUserId) throw new Error('Your account changed. Reload before continuing.');
+  };
   const makeRequest = () => {
+    assertOwner();
     const token = localStorage.getItem('access_token');
     const headers = {
       ...(requestOptions.headers || {}),
@@ -17,15 +24,25 @@ export async function authenticatedFetch(endpoint, options = {}) {
   };
 
   let response = await makeRequest();
+  assertOwner();
   if (response.status === 401 && !requestOptions._retry && localStorage.getItem('refresh_token')) {
     requestOptions._retry = true;
     const refreshed = await attemptRefreshToken();
     if (refreshed) response = await makeRequest();
   }
+  assertOwner();
   return response;
 }
 
 export async function apiFetch(endpoint, options = {}) {
+  const {expectedUserId, ...requestOptions} = options;
+  const assertAccount = () => {
+    if (expectedUserId === undefined) return;
+    let current;
+    try { current = JSON.parse(localStorage.getItem('user') || 'null'); } catch { /* Invalid storage is not an authenticated account. */ }
+    if (current?.id !== expectedUserId) throw new Error('Your account changed. Reload before saving.');
+  };
+  assertAccount();
   const token = localStorage.getItem('access_token');
 
   const isFormData = options.body instanceof FormData;
@@ -39,18 +56,19 @@ export async function apiFetch(endpoint, options = {}) {
   }
 
   let response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
+    ...requestOptions,
     headers,
   });
 
   // Handle 401 Unauthorized — attempt refresh once
   if (response.status === 401 && !options._retry && localStorage.getItem('refresh_token')) {
-    options._retry = true;
+    assertAccount();
     const refreshed = await attemptRefreshToken();
     if (refreshed) {
+      assertAccount();
       headers.Authorization = `Bearer ${localStorage.getItem('access_token')}`;
       response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
+        ...requestOptions,
         headers,
       });
     }
@@ -64,7 +82,10 @@ export async function apiFetch(endpoint, options = {}) {
     throw error;
   }
 
-  return response.json();
+  assertAccount();
+  const data = await response.json();
+  assertAccount();
+  return data;
 }
 
 async function attemptRefreshToken() {
@@ -78,6 +99,9 @@ async function attemptRefreshToken() {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
 
+    // A refresh started before logout/login must not replace the new session.
+    if (localStorage.getItem('refresh_token') !== refreshToken) return false;
+
     if (!res.ok) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
@@ -86,6 +110,7 @@ async function attemptRefreshToken() {
     }
 
     const data = await res.json();
+    if (localStorage.getItem('refresh_token') !== refreshToken) return false;
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('refresh_token', data.refresh_token);
     localStorage.setItem('user', JSON.stringify(data.user));

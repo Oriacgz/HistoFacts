@@ -207,10 +207,20 @@ class UserSessionResponse(BaseModel):
     is_current: bool = False
 
 
+class NotesMemoryPreferences(BaseModel):
+    enabled: bool = True
+    auto_compact: bool = True
+    mode: Literal['minimal', 'balanced', 'detailed'] = 'balanced'
+
+
 class PreferencesUpdate(BaseModel):
     theme: Literal["light", "dark", "system"] = "system"
     language: str = "en"
     notification_prefs: dict[str, bool] = {}
+    web_research_default: bool = False
+    notes_memory_default: bool = True
+    ai_notes_memory: NotesMemoryPreferences = Field(default_factory=NotesMemoryPreferences)
+    web_research_depth: Literal["concise", "standard"] = "standard"
 
 
 class TwoFactorSetupResponse(BaseModel):

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   SparklesIcon,
@@ -28,14 +28,22 @@ const DIFFICULTY_LEVELS = [
   { id: 'hard', label: 'Hard', correct: 2, wrong: -3, desc: 'Deep historiographical analysis & strict -3 penalty' },
 ];
 
-export default function CreatePersonalizedQuiz({ onQuizReady }) {
+export default function CreatePersonalizedQuiz({ onQuizReady, initialTopic = '' }) {
   const [sourceType, setSourceType] = useState('topic'); // 'topic' | 'pdf'
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(initialTopic);
   const [difficulty, setDifficulty] = useState('medium');
   const [pdfFile, setPdfFile] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const fileInputRef = useRef(null);
+  const generationRef = useRef(null);
+  useEffect(()=>()=>{generationRef.current?.abort();generationRef.current=null;},[]);
+  const cancelGeneration = () => {
+    generationRef.current?.abort();
+    generationRef.current=null;
+    setIsGenerating(false);
+    setErrorMsg('Generation cancelled. Your topic and difficulty have been kept.');
+  };
 
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
@@ -51,7 +59,7 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
-    if (isGenerating) return;
+    if (generationRef.current) return;
     setErrorMsg('');
 
     if (sourceType === 'topic' && !topic.trim()) {
@@ -65,20 +73,23 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
     }
 
     setIsGenerating(true);
+    const controller = new AbortController();
+    generationRef.current = controller;
     try {
       const activeTopic = sourceType === 'topic' 
         ? topic.trim() 
         : `Document: ${pdfFile.name.replace(/\.[^/.]+$/, "")}`;
 
       const res = await startPersonalizedQuizApi({
-        topic: activeTopic, difficulty, file: sourceType === 'pdf' ? pdfFile : null,
+        topic: activeTopic, difficulty, file: sourceType === 'pdf' ? pdfFile : null, signal:controller.signal,
       });
+      if (controller.signal.aborted || generationRef.current!==controller) return;
       onQuizReady({ topic: activeTopic, difficulty, questions: res.questions,
         sessionId: res.session_id, sourceType, file: sourceType === 'pdf' ? pdfFile : null });
     } catch (err) {
-      setErrorMsg(err.message || 'Could not generate quiz. Please try again.');
+      if (generationRef.current===controller && !controller.signal.aborted) setErrorMsg(err.message || 'Could not generate quiz. Please try again.');
     } finally {
-      setIsGenerating(false);
+      if (generationRef.current===controller) {generationRef.current=null;setIsGenerating(false);}
     }
   };
 
@@ -152,12 +163,13 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
             {/* Tab 1: Topic Prompt */}
             {sourceType === 'topic' ? (
               <div>
-                <label className="block text-xs font-ui font-bold text-histo-dark uppercase tracking-wider mb-2">
+                <label htmlFor="practice-topic" className="block text-xs font-ui font-bold text-histo-dark uppercase tracking-wider mb-2">
                   Historical Topic or Syllabus Unit
                 </label>
                 <div className="relative">
                   <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-histo-ink/40" />
                   <input
+                    id="practice-topic"
                     type="text"
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
@@ -346,7 +358,8 @@ export default function CreatePersonalizedQuiz({ onQuizReady }) {
                   </>
                 )}
               </button>
-              {isGenerating && <QuizGenerationProgress sourceType={sourceType} />}
+              {isGenerating && <><QuizGenerationProgress sourceType={sourceType} />
+                <button type="button" onClick={cancelGeneration} className="mt-3 w-full rounded border border-histo-dark/20 px-3 py-2 text-sm text-histo-dark cursor-pointer">Cancel generation</button></>}
             </div>
           </div>
 
